@@ -324,13 +324,8 @@ struct UserInfoSheet: View {
         fb.braiders = []
         fb.savedBraiderIds = []
 
-        UserDefaults.standard.removeObject(forKey: "currentUid")
-        UserDefaults.standard.removeObject(forKey: "appleUserId")
-        UserDefaults.standard.removeObject(forKey: "userAge")
-        UserDefaults.standard.removeObject(forKey: "userName")
-        UserDefaults.standard.removeObject(forKey: "locationPermissionDecision")
+        SessionManager.shared.hardSignOut()
 
-        SessionManager.shared.signOut()
         dismiss()
     }
 }

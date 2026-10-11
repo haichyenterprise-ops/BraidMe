@@ -11,29 +11,30 @@ final class SessionManager: NSObject, ObservableObject {
 
     static let shared = SessionManager()
 
-    // MARK: - Published state
     @Published var user: User?
     @Published var isInitialized = false
     @Published var isBusy = false
     @Published var authError: String?
 
-    // MARK: - Init
+    private var authListener: AuthStateDidChangeListenerHandle?
 
     override init() {
         super.init()
-        // Restore previous session
-        self.user = Auth.auth().currentUser
-        self.isInitialized = true
 
-        // Listen for changes
-        Auth.auth().addStateDidChangeListener { [weak self] _, user in
+        // Restore previous session if the SDK has one
+        self.user = Auth.auth().currentUser
+
+        // Listen for auth changes
+        authListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             Task { @MainActor in
                 self?.user = user
+                self?.isInitialized = true
             }
         }
     }
 
     // MARK: - Computed
+
     var isSignedIn: Bool { user != nil }
     var uid: String { user?.uid ?? "" }
     var email: String? { user?.email }
@@ -44,8 +45,13 @@ final class SessionManager: NSObject, ObservableObject {
         do {
             try Auth.auth().signOut()
             GIDSignIn.sharedInstance.signOut()
+
             UserDefaults.standard.removeObject(forKey: "currentUid")
             UserDefaults.standard.removeObject(forKey: "appleUserId")
+            UserDefaults.standard.removeObject(forKey: "userAge")
+            UserDefaults.standard.removeObject(forKey: "userName")
+            UserDefaults.standard.removeObject(forKey: "locationPermissionDecision")
+
             self.user = nil
             Haptics.warning()
         } catch {
@@ -53,7 +59,20 @@ final class SessionManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Apple Sign In
+    /// Strong sign-out — wipes the Keychain-backed Firebase session
+    /// so the user isn't auto-logged-in on next launch or after reinstall.
+    func hardSignOut() {
+        signOut()
+
+        // Wipe generic password entries (where Firebase stores its auth tokens)
+        let secItemClasses: [CFString] = [kSecClassGenericPassword]
+        for itemClass in secItemClasses {
+            let spec: [CFString: Any] = [kSecClass: itemClass]
+            SecItemDelete(spec as CFDictionary)
+        }
+    }
+
+    // MARK: - Apple
     func signInWithApple(credential: ASAuthorizationAppleIDCredential, nonce: String) async throws {
         guard let tokenData = credential.identityToken,
               let idToken = String(data: tokenData, encoding: .utf8) else {
@@ -70,7 +89,6 @@ final class SessionManager: NSObject, ObservableObject {
         let result = try await Auth.auth().signIn(with: firebaseCredential)
         self.user = result.user
 
-        // Sync display name to Firebase Auth if we got one
         if let name = credential.fullName {
             let formatter = PersonNameComponentsFormatter()
             let display = formatter.string(from: name)
@@ -82,7 +100,7 @@ final class SessionManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Google Sign In
+    // MARK: - Google
     func signInWithGoogle() async throws {
         guard let root = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
@@ -96,7 +114,7 @@ final class SessionManager: NSObject, ObservableObject {
 
         guard let clientID = FirebaseApp.app()?.options.clientID else {
             throw NSError(domain: "BraidMe", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Firebase client ID missing. Check GoogleService-Info.plist."])
+                          userInfo: [NSLocalizedDescriptionKey: "Firebase client ID missing."])
         }
 
         GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
@@ -134,12 +152,9 @@ final class SessionManager: NSObject, ObservableObject {
         }
 
         let result = try await Auth.auth().createUser(withEmail: clean, password: password)
-
-        // Set display name
         let change = result.user.createProfileChangeRequest()
         change.displayName = trimmedName
         try await change.commitChanges()
-
         self.user = result.user
     }
 
@@ -160,7 +175,7 @@ final class SessionManager: NSObject, ObservableObject {
         self.user = result.user
     }
 
-    // MARK: - Password reset
+    // MARK: - Reset
     func sendPasswordReset(email: String) async throws {
         let clean = email.trimmingCharacters(in: .whitespaces).lowercased()
         guard !clean.isEmpty, clean.contains("@") else {
@@ -170,41 +185,30 @@ final class SessionManager: NSObject, ObservableObject {
         try await Auth.auth().sendPasswordReset(withEmail: clean)
     }
 
-    // MARK: - Helper: user-friendly error strings
+    // MARK: - Friendly errors
     static func friendlyError(_ error: Error) -> String {
         let ns = error as NSError
         let code = AuthErrorCode.Code(rawValue: ns.code)
 
         if let code {
             switch code {
-            case .emailAlreadyInUse:
-                return "That email is already registered. Try logging in instead."
-            case .invalidEmail:
-                return "That email doesn't look right."
-            case .weakPassword:
-                return "Password must be at least 6 characters."
-            case .wrongPassword:
-                return "Incorrect password. Try again or reset it."
-            case .userNotFound:
-                return "No account found for that email."
-            case .invalidCredential:
-                return "Wrong email or password."
-            case .networkError:
-                return "Network problem. Check your connection."
-            case .tooManyRequests:
-                return "Too many attempts. Wait a moment and try again."
-            case .operationNotAllowed:
-                return "Email sign-in isn't enabled. Enable it in Firebase Console."
-            default:
-                return ns.localizedDescription
+            case .emailAlreadyInUse: return "That email is already registered. Try logging in."
+            case .invalidEmail: return "That email doesn't look right."
+            case .weakPassword: return "Password must be at least 6 characters."
+            case .wrongPassword: return "Incorrect password."
+            case .userNotFound: return "No account found for that email."
+            case .invalidCredential: return "Wrong email or password."
+            case .networkError: return "Network problem. Check your connection."
+            case .tooManyRequests: return "Too many attempts. Try again in a moment."
+            case .operationNotAllowed: return "Email sign-in isn't enabled in Firebase Console."
+            default: return ns.localizedDescription
             }
         }
-
         return ns.localizedDescription
     }
 }
 
-// MARK: - Nonce helpers (used by Apple flow)
+// MARK: - Nonce helpers
 
 enum AppleNonce {
     static func random(length: Int = 32) -> String {

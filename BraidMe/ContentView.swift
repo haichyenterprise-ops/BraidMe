@@ -6,21 +6,16 @@ struct ContentView: View {
 
     @State private var needsOnboarding = false
     @State private var isCheckingProfile = true
-    @State private var showSignOutIsolation = false
 
     var body: some View {
         Group {
-            if !session.isInitialized || isCheckingProfile {
+            if !session.isInitialized {
                 splash
-            } else if showSignOutIsolation {
-                SignOutIsolationView(appName: "BraidMe") {
-                    showSignOutIsolation = false
-                    session.signOut()
-                }
-                .transition(.opacity)
             } else if !session.isSignedIn {
                 AuthView()
                     .transition(.opacity)
+            } else if isCheckingProfile {
+                splash
             } else if needsOnboarding {
                 ProfileSetupView(
                     uid: session.uid,
@@ -39,11 +34,11 @@ struct ContentView: View {
             }
         }
         .background(AppTheme.cloud.ignoresSafeArea())
-        .animation(.easeInOut(duration: 0.5), value: session.isSignedIn)
-        .animation(.easeInOut(duration: 0.5), value: needsOnboarding)
-        .animation(.easeInOut(duration: 0.35), value: showSignOutIsolation)
+        .animation(.easeInOut(duration: 0.35), value: session.isSignedIn)
+        .animation(.easeInOut(duration: 0.35), value: needsOnboarding)
+        .animation(.easeInOut(duration: 0.35), value: isCheckingProfile)
         .task(id: session.uid) {
-            await checkOnboarding()
+            await checkProfile()
         }
     }
 
@@ -79,18 +74,22 @@ struct ContentView: View {
         return "guest"
     }
 
-    private func checkOnboarding() async {
+    private func checkProfile() async {
         guard session.isSignedIn else {
             await MainActor.run {
                 needsOnboarding = false
-                isCheckingProfile = true
-                showSignOutIsolation = false
+                isCheckingProfile = false
             }
             return
         }
 
         let uid = session.uid
-        guard !uid.isEmpty else { return }
+        guard !uid.isEmpty else {
+            await MainActor.run { isCheckingProfile = false }
+            return
+        }
+
+        await MainActor.run { isCheckingProfile = true }
 
         do {
             let snap = try await FirebaseManager.shared.db
@@ -103,58 +102,12 @@ struct ContentView: View {
             await MainActor.run {
                 needsOnboarding = !completed
                 isCheckingProfile = false
-                showSignOutIsolation = false
             }
         } catch {
+            print("[ContentView] profile check failed:", error)
             await MainActor.run {
                 needsOnboarding = false
                 isCheckingProfile = false
-            }
-        }
-    }
-}
-
-// MARK: - Sign-out isolation screen (used by both apps)
-
-struct SignOutIsolationView: View {
-    let appName: String
-    let onContinue: () -> Void
-
-    var body: some View {
-        ZStack {
-            AppTheme.cloud.ignoresSafeArea()
-
-            VStack(spacing: 28) {
-                Spacer()
-
-                ZStack {
-                    Circle()
-                        .fill(AppTheme.bronzeSoft)
-                        .frame(width: 100, height: 100)
-                    Image(systemName: "person.crop.circle.badge.checkmark")
-                        .font(.system(size: 42))
-                        .foregroundColor(AppTheme.accent)
-                }
-
-                VStack(spacing: 10) {
-                    Text("Session closed")
-                        .font(AppTheme.serif(26))
-                        .foregroundColor(AppTheme.ink)
-                    Text("Your \(appName) session has been signed out on this device. Tap continue to sign in again.")
-                        .font(AppTheme.sans(14))
-                        .foregroundColor(AppTheme.slate)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(3)
-                        .padding(.horizontal, 40)
-                }
-
-                Spacer()
-
-                PrimaryButton(title: "Continue", icon: "arrow.right") {
-                    onContinue()
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 40)
             }
         }
     }
