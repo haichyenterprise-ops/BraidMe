@@ -173,20 +173,33 @@ final class SessionManager: NSObject, ObservableObject {
     // MARK: - Helper: user-friendly error strings
     static func friendlyError(_ error: Error) -> String {
         let ns = error as NSError
-        if let code = AuthErrorCode(rawValue: ns.code) {
+        let code = AuthErrorCode.Code(rawValue: ns.code)
+
+        if let code {
             switch code {
-            case .emailAlreadyInUse:      return "That email is already registered. Try logging in instead."
-            case .invalidEmail:           return "That email doesn't look right."
-            case .weakPassword:           return "Password must be at least 6 characters."
-            case .wrongPassword:          return "Incorrect password. Try again or reset it."
-            case .userNotFound:           return "No account found for that email."
-            case .invalidCredential:      return "Wrong email or password."
-            case .networkError:           return "Network problem. Check your connection."
-            case .tooManyRequests:        return "Too many attempts. Wait a moment and try again."
-            case .operationNotAllowed:    return "Email sign-in isn't enabled. Enable it in Firebase Console."
-            default:                      return ns.localizedDescription
+            case .emailAlreadyInUse:
+                return "That email is already registered. Try logging in instead."
+            case .invalidEmail:
+                return "That email doesn't look right."
+            case .weakPassword:
+                return "Password must be at least 6 characters."
+            case .wrongPassword:
+                return "Incorrect password. Try again or reset it."
+            case .userNotFound:
+                return "No account found for that email."
+            case .invalidCredential:
+                return "Wrong email or password."
+            case .networkError:
+                return "Network problem. Check your connection."
+            case .tooManyRequests:
+                return "Too many attempts. Wait a moment and try again."
+            case .operationNotAllowed:
+                return "Email sign-in isn't enabled. Enable it in Firebase Console."
+            default:
+                return ns.localizedDescription
             }
         }
+
         return ns.localizedDescription
     }
 }
