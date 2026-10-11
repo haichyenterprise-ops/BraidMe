@@ -13,6 +13,11 @@ targets:
     platform: iOS
     sources:
       - BraidMe
+    entitlements:
+      path: BraidMe/BraidMe.entitlements
+      properties:
+        com.apple.developer.applesignin:
+          - Default
     info:
       path: BraidMe/Info.plist
       properties:
@@ -45,3 +50,5 @@ targets:
         product: FirebaseFirestore
       - package: Firebase
         product: FirebaseStorage
+      - package: Firebase
+        product: FirebaseAuth

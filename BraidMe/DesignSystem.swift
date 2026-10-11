@@ -1,18 +1,27 @@
 import SwiftUI
 
 struct AppTheme {
-    static let primary = Color(hex: "#6C5CE7")
-    static let accent = Color(hex: "#FD79A8")
-    static let background = Color(hex: "#F8F9FA")
-    static let surface = Color.white
-    static let textPrimary = Color(hex: "#2D3436")
-    static let textSecondary = Color(hex: "#636E72")
+    // Neutral premium palette
+    static let ink = Color(hex: "#0F1419")            // near-black text
+    static let slate = Color(hex: "#536471")          // secondary text
+    static let mist = Color(hex: "#EFF3F4")           // light bg
+    static let cloud = Color(hex: "#F7F9F9")          // card bg
+    static let snow = Color.white
+    static let hairline = Color(hex: "#CFD9DE")       // borders
     
-    static let primaryGradient = LinearGradient(
-        colors: [primary, accent],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
+    // Single accent — warm bronze/terracotta, feels upscale
+    static let accent = Color(hex: "#8B5A3C")
+    static let accentSoft = Color(hex: "#F2E8E1")
+    
+    // Subtle success/danger
+    static let success = Color(hex: "#2D6A4F")
+    static let danger = Color(hex: "#B91C1C")
+    
+    // Typography scale
+    static let titleFont = Font.system(size: 32, weight: .bold, design: .serif)
+    static let headerFont = Font.system(size: 22, weight: .semibold, design: .default)
+    static let bodyFont = Font.system(size: 16, weight: .regular, design: .default)
+    static let captionFont = Font.system(size: 13, weight: .medium, design: .default)
 }
 
 extension Color {
@@ -31,49 +40,81 @@ extension Color {
     }
 }
 
-struct PremiumButton: View {
+// MARK: - Primary Button (casual, professional)
+struct PrimaryButton: View {
     let title: String
+    var isLoading: Bool = false
     let action: () -> Void
     
     var body: some View {
         Button(action: {
-            let impactMed = UIImpactFeedbackGenerator(style: .medium)
-            impactMed.impactOccurred()
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
             action()
         }) {
-            Text(title)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-                .background(AppTheme.primaryGradient)
-                .clipShape(Capsule())
-                .shadow(color: AppTheme.primary.opacity(0.3), radius: 10, x: 0, y: 5)
+            ZStack {
+                Text(title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .opacity(isLoading ? 0 : 1)
+                if isLoading {
+                    ProgressView().tint(.white)
+                }
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(AppTheme.ink)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
-        .buttonStyle(ScaleButtonStyle())
+        .buttonStyle(SoftPressStyle())
+        .disabled(isLoading)
     }
 }
 
-struct ScaleButtonStyle: ButtonStyle {
+struct SecondaryButton: View {
+    let title: String
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(AppTheme.ink)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background(AppTheme.snow)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(AppTheme.hairline, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(SoftPressStyle())
+    }
+}
+
+struct SoftPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.95 : 1)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Card
+struct CardModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(AppTheme.snow)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(AppTheme.hairline.opacity(0.6), lineWidth: 0.5)
+            )
+            .shadow(color: Color.black.opacity(0.04), radius: 12, x: 0, y: 4)
     }
 }
 
 extension View {
-    func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
-        clipShape(RoundedCorner(radius: radius, corners: corners))
-    }
-}
-
-struct RoundedCorner: Shape {
-    var radius: CGFloat = .infinity
-    var corners: UIRectCorner = .allCorners
-
-    func path(in rect: CGRect) -> Path {
-        let path = UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius))
-        return Path(path.cgPath)
-    }
+    func cardStyle() -> some View { modifier(CardModifier()) }
 }

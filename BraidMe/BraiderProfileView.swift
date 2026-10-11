@@ -3,117 +3,267 @@ import SwiftUI
 struct BraiderProfileView: View {
     let braider: Braider
     @State private var isReviewsExpanded = false
-    @State private var showBookingFlow = false
+    @State private var showBooking = false
+    @Environment(\.dismiss) var dismiss
+    
+    private var posts: [String] { [braider.imageUrl] + braider.posts }
     
     var body: some View {
         ZStack(alignment: .bottom) {
-            // 70% Posts Section
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    // Post 1: Info
-                    VStack(alignment: .leading, spacing: 15) {
-                        Text("About \(braider.name)")
-                            .font(.title2.bold())
-                        Text(braider.bio)
-                            .foregroundColor(AppTheme.textSecondary)
+            // MARK: Reels-style vertical pager
+            GeometryReader { geo in
+                TabView {
+                    ForEach(Array(posts.enumerated()), id: \.offset) { idx, url in
+                        ReelPage(url: url, index: idx, total: posts.count, braider: braider)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .rotationEffect(.degrees(-90))
                     }
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AppTheme.surface)
-                    
-                    // Post 2: Image
-                    Image(systemName: "photo.fill")
-                        .resizable()
-                        .scaledToFill()
-                        .frame(height: UIScreen.main.bounds.height * 0.6)
-                        .clipped()
-                        .overlay(
-                            LinearGradient(colors: [.clear, .black.opacity(0.3)], startPoint: .top, endPoint: .bottom)
-                        )
-                    
-                    // Post 3: Another Image
-                    Image(systemName: "photo.on.rectangle")
-                        .resizable()
-                        .scaledToFill()
-                        .frame(height: UIScreen.main.bounds.height * 0.6)
-                        .clipped()
                 }
-                .padding(.bottom, UIScreen.main.bounds.height * 0.3) // Space for reviews
+                .frame(width: geo.size.height, height: geo.size.width)
+                .rotationEffect(.degrees(90), anchor: .topLeading)
+                .offset(x: geo.size.width)
+                .tabViewStyle(.page(indexDisplayMode: .never))
             }
-            .frame(height: UIScreen.main.bounds.height * 0.7)
+            .ignoresSafeArea()
             
-            // 30% Reviews Section (Expands)
+            // MARK: Overlay chrome
             VStack {
-                Capsule()
-                    .frame(width: 40, height: 5)
-                    .foregroundColor(.gray.opacity(0.5))
-                    .padding(.top, 10)
-                
-                Text("Reviews")
-                    .font(.headline)
-                    .padding(.top, 5)
-                
-                ScrollView {
-                    VStack(spacing: 15) {
-                        ForEach(0..<5) { _ in
-                            ReviewRow()
-                        }
+                HStack {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 40, height: 40)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
                     }
-                    .padding()
+                    Spacer()
+                    Text(braider.name)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.white)
+                    Spacer()
+                    Color.clear.frame(width: 40, height: 40)
                 }
-            }
-            .frame(height: isReviewsExpanded ? UIScreen.main.bounds.height : UIScreen.main.bounds.height * 0.3)
-            .background(AppTheme.surface)
-            .cornerRadius(25, corners: [.topLeft, .topRight])
-            .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: -5)
-            .offset(y: isReviewsExpanded ? 0 : UIScreen.main.bounds.height * 0.7)
-            .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isReviewsExpanded)
-            .onTapGesture {
-                isReviewsExpanded.toggle()
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                Spacer()
             }
             
-            // Book Now Button
-            if !isReviewsExpanded {
-                Button(action: {
-                    showBookingFlow = true
-                }) {
-                    Text("Book Now")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(AppTheme.primaryGradient)
-                        .cornerRadius(15)
-                        .shadow(color: AppTheme.primary.opacity(0.3), radius: 10, x: 0, y: 5)
+            // MARK: Bottom reviews pull-up + book now
+            VStack(spacing: 12) {
+                if !isReviewsExpanded {
+                    Button {
+                        showBooking = true
+                    } label: {
+                        Text("Book Now")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 56)
+                            .background(AppTheme.ink)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .shadow(color: .black.opacity(0.25), radius: 15, y: 6)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 8)
                 }
-                .padding(.horizontal, 30)
-                .padding(.bottom, 20)
             }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: isReviewsExpanded)
+            
+            // MARK: Reviews drawer
+            ReviewsDrawer(
+                isExpanded: $isReviewsExpanded,
+                reviews: FirebaseManager.shared.reviews(for: braider)
+            )
         }
-        .ignoresSafeArea(edges: .bottom)
-        .navigationTitle(braider.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .fullScreenCover(isPresented: $showBookingFlow) {
+        .statusBarHidden(false)
+        .toolbar(.hidden, for: .navigationBar)
+        .fullScreenCover(isPresented: $showBooking) {
             BookingSelectionView(braider: braider)
         }
     }
 }
 
-struct ReviewRow: View {
+// MARK: - Reel Page
+struct ReelPage: View {
+    let url: String
+    let index: Int
+    let total: Int
+    let braider: Braider
+    
     var body: some View {
-        HStack(alignment: .top, spacing: 15) {
-            Image(systemName: "person.circle.fill")
-                .resizable()
-                .frame(width: 40, height: 40)
-                .foregroundColor(AppTheme.primary.opacity(0.5))
+        ZStack {
+            RemoteImage(url: url)
+                .ignoresSafeArea()
             
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Amazing work!")
-                    .font(.subheadline.bold())
-                Text("She did my knotless braids perfectly. Highly recommend.")
-                    .font(.caption)
-                    .foregroundColor(AppTheme.textSecondary)
+            // Gradient overlay for legibility
+            LinearGradient(
+                colors: [.black.opacity(0.45), .clear, .clear, .black.opacity(0.65)],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            
+            // Top content (info post)
+            if index == 0 {
+                VStack(alignment: .leading, spacing: 12) {
+                    Spacer()
+                    Text(braider.name)
+                        .font(.system(size: 30, weight: .bold, design: .serif))
+                        .foregroundColor(.white)
+                    HStack(spacing: 6) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(.yellow)
+                        Text(String(format: "%.1f", braider.rating))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                        Text("•")
+                            .foregroundColor(.white.opacity(0.6))
+                        Text("Birmingham")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.85))
+                    }
+                    Text(braider.bio)
+                        .font(.system(size: 15))
+                        .foregroundColor(.white.opacity(0.9))
+                        .lineLimit(4)
+                        .padding(.top, 4)
+                    Spacer().frame(height: 180)
+                }
+                .padding(.horizontal, 24)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                // Photo posts
+                VStack {
+                    Spacer()
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(braider.name)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white)
+                            Text("Recent work")
+                                .font(.system(size: 13))
+                                .foregroundColor(.white.opacity(0.75))
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 160)
+                }
             }
         }
+    }
+}
+
+// MARK: - Reviews Drawer
+struct ReviewsDrawer: View {
+    @Binding var isExpanded: Bool
+    let reviews: [Review]
+    
+    var body: some View {
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                // Drag handle
+                Capsule()
+                    .fill(AppTheme.hairline)
+                    .frame(width: 44, height: 5)
+                    .padding(.top, 10)
+                    .padding(.bottom, 14)
+                
+                HStack {
+                    Text("Reviews")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(AppTheme.ink)
+                    Spacer()
+                    Text("\(reviews.count)")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(AppTheme.slate)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(AppTheme.mist)
+                        .clipShape(Capsule())
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(AppTheme.slate)
+                        .padding(.leading, 6)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+                
+                ScrollView {
+                    VStack(spacing: 14) {
+                        ForEach(reviews) { review in
+                            ReviewCard(review: review)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 40)
+                }
+                .scrollDisabled(!isExpanded)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: isExpanded ? geo.size.height : 220)
+            .background(
+                AppTheme.snow
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .shadow(color: .black.opacity(0.15), radius: 20, y: -8)
+            )
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .offset(y: isExpanded ? 0 : geo.size.height - 220)
+            .animation(.spring(response: 0.5, dampingFraction: 0.85), value: isExpanded)
+            .gesture(
+                DragGesture()
+                    .onEnded { value in
+                        withAnimation {
+                            if value.translation.height < -40 { isExpanded = true }
+                            else if value.translation.height > 40 { isExpanded = false }
+                        }
+                    }
+            )
+            .onTapGesture {
+                withAnimation { isExpanded.toggle() }
+            }
+            .ignoresSafeArea(edges: .bottom)
+        }
+    }
+}
+
+struct ReviewCard: View {
+    let review: Review
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                RemoteImage(url: review.userAvatar)
+                    .frame(width: 40, height: 40)
+                    .clipShape(Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(review.userName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(AppTheme.ink)
+                    Text(review.date)
+                        .font(.system(size: 12))
+                        .foregroundColor(AppTheme.slate)
+                }
+                Spacer()
+                HStack(spacing: 2) {
+                    ForEach(0..<5, id: \.self) { i in
+                        Image(systemName: Double(i) < review.rating ? "star.fill" : "star")
+                            .font(.system(size: 11))
+                            .foregroundColor(AppTheme.accent)
+                    }
+                }
+            }
+            Text(review.text)
+                .font(.system(size: 14))
+                .foregroundColor(AppTheme.ink.opacity(0.85))
+                .lineSpacing(3)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.cloud)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
