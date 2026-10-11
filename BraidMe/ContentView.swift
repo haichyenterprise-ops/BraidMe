@@ -4,20 +4,24 @@ import FirebaseAuth
 struct ContentView: View {
     @EnvironmentObject private var session: SessionManager
 
-    @State private var needsProfileSetup = false
-    @State private var hasCheckedProfile = false
+    @State private var needsOnboarding = false
+    @State private var isCheckingProfile = true
+    @State private var showSignOutIsolation = false
 
     var body: some View {
         Group {
-            if !session.isInitialized {
-                // Splash — session loading
+            if !session.isInitialized || isCheckingProfile {
                 splash
+            } else if showSignOutIsolation {
+                SignOutIsolationView(appName: "BraidMe") {
+                    showSignOutIsolation = false
+                    session.signOut()
+                }
+                .transition(.opacity)
             } else if !session.isSignedIn {
-                // Auth landing
                 AuthView()
                     .transition(.opacity)
-            } else if needsProfileSetup {
-                // First-time profile setup
+            } else if needsOnboarding {
                 ProfileSetupView(
                     uid: session.uid,
                     displayName: session.displayName ?? "",
@@ -25,30 +29,27 @@ struct ContentView: View {
                     needsName: (session.displayName ?? "").isEmpty
                 ) {
                     withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
-                        needsProfileSetup = false
+                        needsOnboarding = false
                     }
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
-                // Main app
                 MainTabView()
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .background(AppTheme.cloud.ignoresSafeArea())
         .animation(.easeInOut(duration: 0.5), value: session.isSignedIn)
-        .animation(.easeInOut(duration: 0.5), value: needsProfileSetup)
+        .animation(.easeInOut(duration: 0.5), value: needsOnboarding)
+        .animation(.easeInOut(duration: 0.35), value: showSignOutIsolation)
         .task(id: session.uid) {
-            await checkProfileCompletion()
+            await checkOnboarding()
         }
     }
-
-    // MARK: - Splash
 
     private var splash: some View {
         ZStack {
             AppTheme.cloud.ignoresSafeArea()
-
             VStack(spacing: 24) {
                 ZStack {
                     Circle()
@@ -59,11 +60,9 @@ struct ContentView: View {
                         .font(.system(size: 34, weight: .medium))
                         .foregroundColor(.white)
                 }
-
                 Text("BraidMe")
                     .font(AppTheme.serif(32))
                     .foregroundColor(AppTheme.ink)
-
                 ProgressView()
                     .tint(AppTheme.accent)
                     .padding(.top, 8)
@@ -71,52 +70,91 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Provider
-
     private var providerString: String {
         guard let user = session.user else { return "guest" }
-        let providerIds = user.providerData.compactMap { $0.providerID }
-        if providerIds.contains("apple.com")  { return "apple" }
-        if providerIds.contains("google.com") { return "google" }
-        if providerIds.contains("password")   { return "email" }
+        let ids = user.providerData.compactMap { $0.providerID }
+        if ids.contains("apple.com") { return "apple" }
+        if ids.contains("google.com") { return "google" }
+        if ids.contains("password") { return "email" }
         return "guest"
     }
 
-    // MARK: - Profile setup check
-
-    private func checkProfileCompletion() async {
+    private func checkOnboarding() async {
         guard session.isSignedIn else {
             await MainActor.run {
-                needsProfileSetup = false
-                hasCheckedProfile = true
+                needsOnboarding = false
+                isCheckingProfile = true
+                showSignOutIsolation = false
             }
             return
-        }
-
-        // Wait until session has been initialized
-        if !session.isInitialized {
-            try? await Task.sleep(nanoseconds: 200_000_000)
         }
 
         let uid = session.uid
         guard !uid.isEmpty else { return }
 
         do {
-            // Read user doc directly — if missing profileCompleted, show setup
-            let fb = FirebaseManager.shared
-            let snap = try await fb.db.collection("users").document(uid).getDocument()
+            let snap = try await FirebaseManager.shared.db
+                .collection("users")
+                .document(uid)
+                .getDocument()
+
             let completed = (snap.data()?["profileCompleted"] as? Bool) ?? false
 
             await MainActor.run {
-                needsProfileSetup = !completed
-                hasCheckedProfile = true
+                needsOnboarding = !completed
+                isCheckingProfile = false
+                showSignOutIsolation = false
             }
         } catch {
-            print("[ContentView] profile check failed:", error)
             await MainActor.run {
-                // On error, be lenient — go straight to main so app isn't stuck
-                needsProfileSetup = false
-                hasCheckedProfile = true
+                needsOnboarding = false
+                isCheckingProfile = false
+            }
+        }
+    }
+}
+
+// MARK: - Sign-out isolation screen (used by both apps)
+
+struct SignOutIsolationView: View {
+    let appName: String
+    let onContinue: () -> Void
+
+    var body: some View {
+        ZStack {
+            AppTheme.cloud.ignoresSafeArea()
+
+            VStack(spacing: 28) {
+                Spacer()
+
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.bronzeSoft)
+                        .frame(width: 100, height: 100)
+                    Image(systemName: "person.crop.circle.badge.checkmark")
+                        .font(.system(size: 42))
+                        .foregroundColor(AppTheme.accent)
+                }
+
+                VStack(spacing: 10) {
+                    Text("Session closed")
+                        .font(AppTheme.serif(26))
+                        .foregroundColor(AppTheme.ink)
+                    Text("Your \(appName) session has been signed out on this device. Tap continue to sign in again.")
+                        .font(AppTheme.sans(14))
+                        .foregroundColor(AppTheme.slate)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3)
+                        .padding(.horizontal, 40)
+                }
+
+                Spacer()
+
+                PrimaryButton(title: "Continue", icon: "arrow.right") {
+                    onContinue()
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 40)
             }
         }
     }

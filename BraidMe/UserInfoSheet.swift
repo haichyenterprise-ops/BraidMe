@@ -8,19 +8,14 @@ struct UserInfoSheet: View {
     @State private var appeared = false
     @State private var showSignOutConfirm = false
     @State private var showBookings = false
-
-    // MARK: - Derived
+    @State private var showSaved = false
 
     private var displayName: String {
-        fb.currentUser?.displayName
-            ?? session.displayName
-            ?? "BraidMe User"
+        fb.currentUser?.displayName ?? session.displayName ?? "BraidMe User"
     }
 
     private var userEmail: String {
-        fb.currentUser?.email
-            ?? session.email
-            ?? "Not shared"
+        fb.currentUser?.email ?? session.email ?? "Not shared"
     }
 
     private var userAge: String {
@@ -29,48 +24,42 @@ struct UserInfoSheet: View {
         return stored > 0 ? "\(stored)" : "—"
     }
 
-    private var userCity: String {
-        fb.currentUser?.city ?? "Not shared"
-    }
+    private var userCity: String { fb.currentUser?.city ?? "Not shared" }
 
     private var providerLabel: String {
-        let provider = fb.currentUser?.provider ?? detectedProvider
-        switch provider {
-        case "apple":  return "Apple"
+        let p = fb.currentUser?.provider ?? detectedProvider
+        switch p {
+        case "apple": return "Apple"
         case "google": return "Google"
-        case "email":  return "Email"
+        case "email": return "Email"
         case "password": return "Email"
-        default:       return "Guest"
+        default: return "Guest"
         }
     }
 
     private var providerIcon: String {
         switch providerLabel {
-        case "Apple":  return "applelogo"
+        case "Apple": return "applelogo"
         case "Google": return "g.circle.fill"
-        case "Email":  return "envelope.fill"
-        default:       return "person.fill"
+        case "Email": return "envelope.fill"
+        default: return "person.fill"
         }
     }
 
     private var detectedProvider: String {
         guard let user = session.user else { return "guest" }
         let ids = user.providerData.compactMap { $0.providerID }
-        if ids.contains("apple.com")  { return "apple" }
+        if ids.contains("apple.com") { return "apple" }
         if ids.contains("google.com") { return "google" }
-        if ids.contains("password")   { return "email" }
+        if ids.contains("password") { return "email" }
         return "guest"
     }
 
     private var initials: String {
-        let name = displayName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return "BM" }
-        let parts = name.split(separator: " ")
-        let result = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
-        return result.isEmpty ? "BM" : result.uppercased()
+        let parts = displayName.split(separator: " ")
+        let r = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
+        return r.isEmpty ? "BM" : r.uppercased()
     }
-
-    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -81,15 +70,13 @@ struct UserInfoSheet: View {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 24) {
                         avatarSection
+                        quickActions
                         infoSection
-                        statsSection
                         signOutButton
-
                         Text("BraidMe v1.0 · \(providerLabel) account")
                             .font(AppTheme.sans(11))
                             .foregroundColor(AppTheme.stone)
                             .padding(.top, 8)
-
                         Color.clear.frame(height: 20)
                     }
                     .padding(.horizontal, 20)
@@ -106,26 +93,31 @@ struct UserInfoSheet: View {
                 }
             }
         }
+        .sheet(isPresented: $showBookings) {
+            BookingsListView().environmentObject(session)
+        }
+        .sheet(isPresented: $showSaved) {
+            SavedBraidersView().environmentObject(session)
+        }
+        .alert("Sign out?", isPresented: $showSignOutConfirm) {
+            Button("Sign out", role: .destructive) { signOut() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You'll need to sign in again to book a braider.")
+        }
         .onAppear {
             withAnimation(.spring(response: 0.9, dampingFraction: 0.85).delay(0.1)) {
                 appeared = true
             }
             let uid = session.uid
-            if !uid.isEmpty {
-                Task { await fb.loadUser(uid: uid) }
+            guard !uid.isEmpty else { return }
+            Task {
+                await fb.loadUser(uid: uid)
+                await fb.loadBookings(uid: uid)
+                await fb.loadSavedBraiders(uid: uid)
             }
-        }
-        .alert("Sign out?", isPresented: $showSignOutConfirm) {
-            Button("Sign out", role: .destructive) {
-                signOut()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("You'll need to sign in again to book a braider.")
         }
     }
-
-    // MARK: - Ambient
 
     private var ambient: some View {
         ZStack {
@@ -153,24 +145,19 @@ struct UserInfoSheet: View {
         .allowsHitTesting(false)
     }
 
-    // MARK: - Avatar
-
     private var avatarSection: some View {
         VStack(spacing: 16) {
             ZStack {
                 Circle()
                     .fill(AppTheme.inkGradient)
                     .frame(width: 120, height: 120)
-
                 Text(initials)
                     .font(AppTheme.serif(44))
                     .foregroundColor(.white)
-
                 Circle()
                     .stroke(AppTheme.accent, lineWidth: 3)
                     .frame(width: 126, height: 126)
 
-                // Provider badge
                 ZStack {
                     Circle()
                         .fill(AppTheme.snow)
@@ -190,7 +177,6 @@ struct UserInfoSheet: View {
                     .foregroundColor(AppTheme.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-
                 Text("Signed in with \(providerLabel)")
                     .font(AppTheme.sans(12, weight: .medium))
                     .foregroundColor(AppTheme.stone)
@@ -201,7 +187,60 @@ struct UserInfoSheet: View {
         .offset(y: appeared ? 0 : 20)
     }
 
-    // MARK: - Info
+    private var quickActions: some View {
+        HStack(spacing: 12) {
+            quickAction(
+                icon: "calendar.badge.clock",
+                value: "\(fb.bookings.count)",
+                label: "Bookings"
+            ) {
+                showBookings = true
+            }
+            quickAction(
+                icon: "heart.fill",
+                value: "\(fb.savedBraiderIds.count)",
+                label: "Saved"
+            ) {
+                showSaved = true
+            }
+            quickAction(
+                icon: "star.fill",
+                value: "New",
+                label: "Member"
+            ) {}
+        }
+        .opacity(appeared ? 1 : 0)
+        .offset(y: appeared ? 0 : 20)
+    }
+
+    private func quickAction(icon: String, value: String, label: String, action: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.soft()
+            action()
+        } label: {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppTheme.accent)
+                Text(value)
+                    .font(AppTheme.serif(20))
+                    .foregroundColor(AppTheme.ink)
+                Text(label.uppercased())
+                    .font(AppTheme.sans(9, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundColor(AppTheme.stone)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(AppTheme.snow)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(CardPress())
+    }
 
     private var infoSection: some View {
         VStack(spacing: 0) {
@@ -214,9 +253,9 @@ struct UserInfoSheet: View {
             infoRow(icon: "location.fill", label: "City", value: userCity)
         }
         .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 18))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 18)
                 .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.04), radius: 12, y: 4)
@@ -232,7 +271,6 @@ struct UserInfoSheet: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(AppTheme.accent)
             }
-
             VStack(alignment: .leading, spacing: 2) {
                 Text(label.uppercased())
                     .font(AppTheme.sans(10, weight: .bold))
@@ -244,7 +282,6 @@ struct UserInfoSheet: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -254,56 +291,6 @@ struct UserInfoSheet: View {
     private var divider: some View {
         Divider().background(AppTheme.hairline).padding(.leading, 64)
     }
-
-    // MARK: - Stats
-
-    private var statsSection: some View {
-        HStack(spacing: 12) {
-            statCard(
-                icon: "calendar.badge.clock",
-                value: "\(fb.bookings.count)",
-                label: "BOOKINGS"
-            ) {
-                showBookings = true
-            }
-            statCard(icon: "heart.fill", value: "0", label: "SAVED", action: nil)
-            statCard(icon: "star.fill", value: "New", label: "MEMBER", action: nil)
-        }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
-    }
-
-    private func statCard(icon: String, value: String, label: String, action: (() -> Void)?) -> some View {
-        Button {
-            Haptics.soft()
-            action?()
-        } label: {
-            VStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(AppTheme.accent)
-                Text(value)
-                    .font(AppTheme.serif(20))
-                    .foregroundColor(AppTheme.ink)
-                Text(label)
-                    .font(AppTheme.sans(9, weight: .bold))
-                    .tracking(0.8)
-                    .foregroundColor(AppTheme.stone)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(AppTheme.snow)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(CardPress())
-        .disabled(action == nil)
-    }
-
-    // MARK: - Sign out
 
     private var signOutButton: some View {
         Button {
@@ -321,33 +308,29 @@ struct UserInfoSheet: View {
             .frame(height: 52)
             .background(AppTheme.snow)
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 16)
                     .stroke(AppTheme.danger.opacity(0.3), lineWidth: 1)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
         .buttonStyle(SoftPress())
         .padding(.top, 8)
         .opacity(appeared ? 1 : 0)
     }
 
-    // MARK: - Actions
-
     private func signOut() {
-        // Clear cached data
         fb.currentUser = nil
         fb.bookings = []
         fb.braiders = []
+        fb.savedBraiderIds = []
 
-        // Clear UserDefaults hints
         UserDefaults.standard.removeObject(forKey: "currentUid")
         UserDefaults.standard.removeObject(forKey: "appleUserId")
         UserDefaults.standard.removeObject(forKey: "userAge")
         UserDefaults.standard.removeObject(forKey: "userName")
+        UserDefaults.standard.removeObject(forKey: "locationPermissionDecision")
 
-        // Clear Firebase Auth session
         SessionManager.shared.signOut()
-
         dismiss()
     }
 }

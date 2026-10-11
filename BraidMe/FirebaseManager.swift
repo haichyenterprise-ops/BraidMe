@@ -1,6 +1,7 @@
 import Foundation
 import FirebaseFirestore
 import FirebaseAuth
+import FirebaseDatabase
 import CoreLocation
 
 @MainActor
@@ -8,11 +9,15 @@ final class FirebaseManager: ObservableObject {
     static let shared = FirebaseManager()
 
     private let dbRef = Firestore.firestore()
+    private let rtdb = Database.database().reference()
+
     var db: Firestore { dbRef }
+    var rtdbRoot: DatabaseReference { rtdb }
 
     @Published var braiders: [Braider] = []
     @Published var currentUser: UserProfile?
     @Published var bookings: [Booking] = []
+    @Published var savedBraiderIds: Set<String> = []
     @Published var isLoadingBraiders = false
     @Published var braidersError: String?
 
@@ -28,6 +33,7 @@ final class FirebaseManager: ObservableObject {
     var currentUid: String? {
         UserDefaults.standard.string(forKey: "currentUid")
             ?? UserDefaults.standard.string(forKey: "appleUserId")
+            ?? Auth.auth().currentUser?.uid
     }
 
     private init() {}
@@ -97,9 +103,43 @@ final class FirebaseManager: ObservableObject {
         }
     }
 
+    // MARK: - Saved braiders (hearts)
+
+    func loadSavedBraiders(uid: String) async {
+        guard !uid.isEmpty else { return }
+        do {
+            let snap = try await dbRef.collection("users").document(uid)
+                .collection("saved")
+                .getDocuments()
+            let ids = Set(snap.documents.map { $0.documentID })
+            await MainActor.run { self.savedBraiderIds = ids }
+        } catch {
+            print("[FirebaseManager] loadSavedBraiders failed:", error)
+        }
+    }
+
+    func toggleSave(braiderId: String, uid: String) async {
+        guard !uid.isEmpty, !braiderId.isEmpty else { return }
+        let ref = dbRef.collection("users").document(uid)
+            .collection("saved")
+            .document(braiderId)
+
+        let isSaved = savedBraiderIds.contains(braiderId)
+        do {
+            if isSaved {
+                try await ref.delete()
+                await MainActor.run { _ = self.savedBraiderIds.remove(braiderId) }
+            } else {
+                try await ref.setData(["savedAt": Date()])
+                await MainActor.run { _ = self.savedBraiderIds.insert(braiderId) }
+            }
+        } catch {
+            print("[FirebaseManager] toggleSave failed:", error)
+        }
+    }
+
     // MARK: - Braiders
 
-    /// Fetches only published braiders from Firestore.
     func fetchBraidersFromFirestore() async {
         isLoadingBraiders = true
         braidersError = nil
@@ -116,99 +156,48 @@ final class FirebaseManager: ObservableObject {
         isLoadingBraiders = false
     }
 
-    // MARK: - Reviews
+    // MARK: - Bookings
 
-    func fetchReviews(braiderId: String) async -> [Review] {
-        guard !braiderId.isEmpty else { return [] }
+    func loadBookings(uid: String) async {
+        guard !uid.isEmpty else { return }
         do {
-            let snap = try await dbRef
-                .collection("braiders")
-                .document(braiderId)
-                .collection("reviews")
-                .order(by: "date", descending: true)
+            let snap = try await dbRef.collection("bookings")
+                .whereField("uid", isEqualTo: uid)
                 .getDocuments()
 
-            return snap.documents.compactMap { doc -> Review? in
-                let data = doc.data()
+            let fetched: [Booking] = snap.documents.compactMap { doc in
+                let d = doc.data()
                 guard
-                    let userId = data["userId"] as? String,
-                    let userName = data["userName"] as? String,
-                    let text = data["text"] as? String,
-                    let rating = data["rating"] as? Double,
-                    let ts = data["date"] as? Timestamp
+                    let braiderName = d["braiderName"] as? String,
+                    let braiderId = d["braiderId"] as? String,
+                    let ts = d["date"] as? Timestamp,
+                    let time = d["time"] as? String,
+                    let style = d["style"] as? String,
+                    let price = d["price"] as? Int,
+                    let status = d["status"] as? String,
+                    let created = d["createdAt"] as? Timestamp
                 else { return nil }
 
-                return Review(
+                return Booking(
                     id: doc.documentID,
-                    userId: userId,
-                    userName: userName,
-                    userAvatar: (data["userAvatar"] as? String) ?? "",
-                    text: text,
-                    rating: rating,
+                    braiderName: braiderName,
+                    braiderId: braiderId,
                     date: ts.dateValue(),
-                    styleDone: (data["styleDone"] as? String) ?? "",
-                    helpful: (data["helpful"] as? Int) ?? 0
+                    time: time,
+                    style: style,
+                    price: price,
+                    status: status,
+                    createdAt: created.dateValue()
                 )
             }
+
+            await MainActor.run {
+                self.bookings = fetched.sorted { $0.date > $1.date }
+            }
         } catch {
-            print("[FirebaseManager] fetchReviews failed:", error)
-            return []
+            print("[FirebaseManager] loadBookings failed:", error)
         }
     }
-
-    func submitReview(
-        braiderId: String,
-        userId: String,
-        userName: String,
-        userAvatar: String,
-        rating: Double,
-        text: String,
-        styleDone: String
-    ) async throws {
-        let reviewId = UUID().uuidString
-        let now = Date()
-
-        let payload: [String: Any] = [
-            "id": reviewId,
-            "userId": userId,
-            "userName": userName,
-            "userAvatar": userAvatar,
-            "text": text,
-            "rating": rating,
-            "date": now,
-            "styleDone": styleDone,
-            "helpful": 0
-        ]
-
-        // 1. Write the review
-        try await dbRef
-            .collection("braiders")
-            .document(braiderId)
-            .collection("reviews")
-            .document(reviewId)
-            .setData(payload)
-
-        // 2. Recompute aggregates
-        let all = await fetchReviews(braiderId: braiderId)
-        let count = all.count
-        let avg = all.isEmpty ? 0 : all.reduce(0.0) { $0 + $1.rating } / Double(all.count)
-
-        try await dbRef
-            .collection("braiders")
-            .document(braiderId)
-            .setData([
-                "rating": avg,
-                "reviewCount": count,
-                "lastReviewedAt": now
-            ], merge: true)
-
-        // 3. Update local cache
-        if let idx = braiders.firstIndex(where: { $0.id == braiderId }) {
-            braiders[idx] = braiders[idx].updated(rating: avg, reviewCount: count)
-        }
-    }
-
-    // MARK: - Booking
 
     func createBooking(
         braider: Braider,
@@ -236,10 +225,98 @@ final class FirebaseManager: ObservableObject {
 
         dbRef.collection("bookings").document(id).setData(payload) { error in
             DispatchQueue.main.async {
-                if error == nil { self.bookings.append(booking) }
+                if error == nil {
+                    self.bookings.insert(booking, at: 0)
+                }
                 completion(error == nil)
             }
         }
+    }
+
+    /// Customer requests a cancellation. Status becomes "cancellation_requested"
+    /// and the braider must approve or deny it.
+    func requestCancellation(bookingId: String, reason: String) async throws {
+        try await dbRef.collection("bookings").document(bookingId).setData([
+            "status": "cancellation_requested",
+            "cancellationRequestedAt": Date(),
+            "cancellationReason": reason,
+            "cancellationRequestedBy": "customer"
+        ], merge: true)
+
+        // Update local cache
+        if let idx = bookings.firstIndex(where: { $0.id == bookingId }) {
+            let b = bookings[idx]
+            let updated = Booking(
+                id: b.id, braiderName: b.braiderName, braiderId: b.braiderId,
+                date: b.date, time: b.time, style: b.style,
+                price: b.price, status: "cancellation_requested", createdAt: b.createdAt
+            )
+            bookings[idx] = updated
+        }
+    }
+
+    // MARK: - Chat (Realtime Database)
+
+    /// Deterministic chat ID for a booking. Same ID used by both apps.
+    static func chatId(for bookingId: String) -> String {
+        return "chat_\(bookingId)"
+    }
+
+    /// Sends a message via RTDB.
+    func sendMessage(
+        chatId: String,
+        senderId: String,
+        senderName: String,
+        text: String
+    ) async throws {
+        let ref = rtdb.child("chats").child(chatId).child("messages").childByAutoId()
+        try await ref.setValue([
+            "senderId": senderId,
+            "senderName": senderName,
+            "text": text,
+            "timestamp": ServerValue.timestamp()
+        ])
+
+        // Update chat metadata so the other side sees the latest message + preview
+        try await rtdb.child("chats").child(chatId).child("meta").updateChildValues([
+            "lastMessage": text,
+            "lastSenderId": senderId,
+            "lastUpdated": ServerValue.timestamp()
+        ])
+    }
+
+    /// Live stream of messages for a chat.
+    func observeMessages(
+        chatId: String,
+        onUpdate: @escaping ([ChatMessage]) -> Void
+    ) -> DatabaseHandle {
+        let ref = rtdb.child("chats").child(chatId).child("messages")
+        return ref.observe(.value) { snapshot in
+            var messages: [ChatMessage] = []
+            for child in snapshot.children {
+                guard let snap = child as? DataSnapshot,
+                      let dict = snap.value as? [String: Any] else { continue }
+                let senderId = (dict["senderId"] as? String) ?? ""
+                let senderName = (dict["senderName"] as? String) ?? ""
+                let text = (dict["text"] as? String) ?? ""
+                let tsRaw = (dict["timestamp"] as? NSNumber)?.doubleValue ?? 0
+                let timestamp = Date(timeIntervalSince1970: tsRaw / 1000.0)
+
+                messages.append(ChatMessage(
+                    id: snap.key,
+                    senderId: senderId,
+                    senderName: senderName,
+                    text: text,
+                    timestamp: timestamp
+                ))
+            }
+            messages.sort { $0.timestamp < $1.timestamp }
+            DispatchQueue.main.async { onUpdate(messages) }
+        }
+    }
+
+    func removeObserver(chatId: String, handle: DatabaseHandle) {
+        rtdb.child("chats").child(chatId).child("messages").removeObserver(withHandle: handle)
     }
 }
 

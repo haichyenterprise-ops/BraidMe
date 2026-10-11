@@ -17,6 +17,8 @@ struct MainTabView: View {
     @State private var showLocationSheet = false
     @State private var showProfileSheet = false
     @State private var showCitySearch = false
+    @State private var showBookings = false
+    @State private var showSaved = false
     @State private var mapAppeared = false
     @State private var userInfo: UserProfile?
 
@@ -31,7 +33,17 @@ struct MainTabView: View {
             .navigationDestination(item: $selectedBraider) { braider in
                 BraiderProfileView(braider: braider)
             }
-            .sheet(isPresented: $showProfileSheet) { UserInfoSheet() }
+            .sheet(isPresented: $showProfileSheet) {
+                UserInfoSheet()
+            }
+            .sheet(isPresented: $showBookings) {
+                BookingsListView()
+                    .environmentObject(session)
+            }
+            .sheet(isPresented: $showSaved) {
+                SavedBraidersView()
+                    .environmentObject(session)
+            }
             .sheet(isPresented: $showCitySearch) {
                 LocationSearchView(initialCity: currentCity) { newCity in
                     withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) {
@@ -169,10 +181,11 @@ struct MainTabView: View {
 
     private func initials(from name: String) -> String {
         let parts = name.split(separator: " ")
-        return parts.prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
+        let result = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
+        return result.isEmpty ? "BM" : result.uppercased()
     }
 
-    // MARK: - Preview pill
+    // MARK: - Floating preview
 
     @ViewBuilder
     private var floatingPreview: some View {
@@ -262,21 +275,75 @@ struct MainTabView: View {
     // MARK: - Bottom bar
 
     private var bottomBar: some View {
-        HStack(spacing: 10) {
-            statTile(icon: "location.fill", value: "\(fb.braiders.count)", label: "NEARBY")
-            statTile(icon: "star.fill", value: String(format: "%.1f", avgRating), label: "RATING")
+        HStack(spacing: 8) {
+            Button {
+                Haptics.medium()
+                showSaved = true
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(AppTheme.ink)
+                        .frame(width: 54, height: 54)
+                        .background(AppTheme.snow, in: Circle())
+                        .overlay(Circle().stroke(AppTheme.hairline, lineWidth: 0.5))
+                        .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
+
+                    if !fb.savedBraiderIds.isEmpty {
+                        Text("\(fb.savedBraiderIds.count)")
+                            .font(AppTheme.sans(9, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .padding(.horizontal, 4)
+                            .background(AppTheme.rose, in: Capsule())
+                            .offset(x: 2, y: -2)
+                    }
+                }
+            }
+            .buttonStyle(BouncyPress())
+
+            Button {
+                Haptics.medium()
+                showBookings = true
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(AppTheme.ink)
+                        .frame(width: 54, height: 54)
+                        .background(AppTheme.snow, in: Circle())
+                        .overlay(Circle().stroke(AppTheme.hairline, lineWidth: 0.5))
+                        .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
+
+                    if !fb.bookings.isEmpty {
+                        Text("\(fb.bookings.count)")
+                            .font(AppTheme.sans(9, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .padding(.horizontal, 4)
+                            .background(AppTheme.accent, in: Capsule())
+                            .offset(x: 2, y: -2)
+                    }
+                }
+            }
+            .buttonStyle(BouncyPress())
 
             Button {
                 Haptics.medium()
                 showProfileSheet = true
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "calendar")
+                    Image(systemName: "person.fill")
                         .font(.system(size: 15, weight: .semibold))
                     Text("Account")
                         .font(AppTheme.sans(15, weight: .semibold))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
                 }
                 .foregroundColor(.white)
+                .padding(.horizontal, 18)
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
                 .background(AppTheme.inkGradient)
@@ -297,35 +364,6 @@ struct MainTabView: View {
         )
     }
 
-    private var avgRating: Double {
-        guard !fb.braiders.isEmpty else { return 0 }
-        return fb.braiders.reduce(0.0) { $0 + $1.rating } / Double(fb.braiders.count)
-    }
-
-    private func statTile(icon: String, value: String, label: String) -> some View {
-        VStack(spacing: 2) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(AppTheme.accent)
-                Text(value)
-                    .font(AppTheme.sans(15, weight: .bold))
-                    .foregroundColor(AppTheme.ink)
-            }
-            Text(label)
-                .font(AppTheme.sans(9, weight: .bold))
-                .tracking(0.8)
-                .foregroundColor(AppTheme.stone)
-        }
-        .frame(width: 68, height: 54)
-        .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(AppTheme.hairline.opacity(0.6), lineWidth: 0.5)
-        )
-    }
-
     // MARK: - Lifecycle
 
     private func onAppear() {
@@ -335,6 +373,10 @@ struct MainTabView: View {
             if !uid.isEmpty {
                 await fb.loadUser(uid: uid)
                 await MainActor.run { userInfo = fb.currentUser }
+
+                // Load bookings + saved braiders for badges
+                await fb.loadBookings(uid: uid)
+                await fb.loadSavedBraiders(uid: uid)
 
                 // If user already has a city in Firestore, use it
                 if let cityName = fb.currentUser?.city,
@@ -374,7 +416,6 @@ struct MainTabView: View {
         if allowed {
             locationService.start()
 
-            // Use last known location to pick closest city
             if let loc = locationService.lastLocation,
                let closest = CityCatalog.closest(to: loc) {
                 withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) {
@@ -388,7 +429,10 @@ struct MainTabView: View {
         }
 
         let uid = session.uid
-        guard !uid.isEmpty else { showLocationSheet = false; return }
+        guard !uid.isEmpty else {
+            showLocationSheet = false
+            return
+        }
 
         Task {
             try? await fb.updateUser(uid: uid, data: [
@@ -440,12 +484,25 @@ struct BraiderPin: View {
                     )
                     .shadow(color: .black.opacity(0.22), radius: 12, y: 6)
 
-                RemoteImage(url: braider.avatarUrl)
+                if braider.avatarUrl.isEmpty {
+                    ZStack {
+                        Circle().fill(AppTheme.inkGradient)
+                        Image(systemName: "person.fill")
+                            .font(.system(size: isSelected ? 26 : 20))
+                            .foregroundColor(.white.opacity(0.85))
+                    }
                     .frame(
                         width: isSelected ? 62 : 48,
                         height: isSelected ? 62 : 48
                     )
-                    .clipShape(Circle())
+                } else {
+                    RemoteImage(url: braider.avatarUrl)
+                        .frame(
+                            width: isSelected ? 62 : 48,
+                            height: isSelected ? 62 : 48
+                        )
+                        .clipShape(Circle())
+                }
 
                 Circle()
                     .stroke(isSelected ? AppTheme.accent : AppTheme.snow, lineWidth: isSelected ? 3 : 2)
@@ -478,7 +535,7 @@ struct BraiderPin: View {
     }
 }
 
-// MARK: - Location sheet
+// MARK: - Location permission sheet
 
 struct LocationPermissionSheet: View {
     let onDecision: (Bool) -> Void
@@ -579,9 +636,7 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
-    func start() {
-        manager.requestWhenInUseAuthorization()
-    }
+    func start() { manager.requestWhenInUseAuthorization() }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorization = manager.authorizationStatus

@@ -1,23 +1,22 @@
 import SwiftUI
 
 struct BraiderProfileView: View {
-
     let braider: Braider
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: SessionManager
+    @StateObject private var fb = FirebaseManager.shared
 
     @State private var showBooking = false
     @State private var showAllReviews = false
     @State private var showWriteReview = false
-    @State private var likedItems: Set<String> = []
     @State private var appeared = false
+    @State private var dragOffset: CGFloat = 0
     @State private var scrollOffset: CGFloat = 0
     @State private var heroScale: CGFloat = 1
     @State private var headerOpacity: Double = 0
     @State private var activeSection: Section = .hero
 
-    // Real reviews from Firestore
     @State private var reviews: [Review] = []
     @State private var breakdown: RatingBreakdown = .empty
     @State private var reviewsLoading = true
@@ -25,6 +24,8 @@ struct BraiderProfileView: View {
     enum Section: Int, CaseIterable {
         case hero, work, about, reviews
     }
+
+    private var isSaved: Bool { fb.savedBraiderIds.contains(braider.id) }
 
     var body: some View {
         GeometryReader { geo in
@@ -69,6 +70,26 @@ struct BraiderProfileView: View {
                     actionBar
                 }
             }
+            .offset(x: dragOffset)
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        // Only allow rightward swipe that starts near the left edge
+                        if value.startLocation.x < 40 && value.translation.width > 0 {
+                            dragOffset = min(value.translation.width, 240)
+                        }
+                    }
+                    .onEnded { value in
+                        if value.translation.width > 100 {
+                            Haptics.soft()
+                            dismiss()
+                        } else {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                dragOffset = 0
+                            }
+                        }
+                    }
+            )
         }
         .toolbar(.hidden, for: .navigationBar)
         .ignoresSafeArea()
@@ -82,7 +103,6 @@ struct BraiderProfileView: View {
         }
         .sheet(isPresented: $showWriteReview) {
             WriteReviewSheet(braider: braider) {
-                // Reload after a review is posted
                 Task { await loadReviews() }
             }
         }
@@ -141,48 +161,33 @@ struct BraiderProfileView: View {
                     Haptics.soft()
                     dismiss()
                 } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(AppTheme.ink)
-                        .frame(width: 40, height: 40)
-                        .background(AppTheme.snow, in: Circle())
-                        .shadow(color: .black.opacity(0.1), radius: 12, y: 4)
+                    HStack(spacing: 5) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 14, weight: .bold))
+                        Text("Map")
+                            .font(AppTheme.sans(13, weight: .semibold))
+                    }
+                    .foregroundColor(AppTheme.ink)
+                    .padding(.horizontal, 14)
+                    .frame(height: 40)
+                    .background(AppTheme.snow, in: Capsule())
+                    .shadow(color: .black.opacity(0.1), radius: 12, y: 4)
                 }
                 .buttonStyle(BouncyPress())
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(braider.name)
-                        .font(AppTheme.sans(15, weight: .semibold))
-                        .foregroundColor(AppTheme.ink)
-                        .lineLimit(1)
-
-                    HStack(spacing: 4) {
-                        if breakdown.total > 0 {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 9))
-                                .foregroundColor(AppTheme.gold)
-                            Text(String(format: "%.1f · %d review%@",
-                                        breakdown.average,
-                                        breakdown.total,
-                                        breakdown.total == 1 ? "" : "s"))
-                                .font(AppTheme.sans(11, weight: .medium))
-                                .foregroundColor(AppTheme.slate)
-                        } else {
-                            Text("No reviews yet")
-                                .font(AppTheme.sans(11, weight: .medium))
-                                .foregroundColor(AppTheme.slate)
-                        }
-                    }
-                }
 
                 Spacer()
 
                 Button {
                     Haptics.soft()
+                    Task {
+                        if let uid = session.uid.isEmpty ? nil : session.uid {
+                            await fb.toggleSave(braiderId: braider.id, uid: uid)
+                        }
+                    }
                 } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(AppTheme.ink)
+                    Image(systemName: isSaved ? "heart.fill" : "heart")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(isSaved ? AppTheme.rose : AppTheme.ink)
                         .frame(width: 40, height: 40)
                         .background(AppTheme.snow, in: Circle())
                         .shadow(color: .black.opacity(0.1), radius: 12, y: 4)
@@ -231,13 +236,14 @@ struct BraiderProfileView: View {
         HStack(spacing: 10) {
             Button {
                 Haptics.soft()
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) {
-                    toggleLike(braider.id)
+                Task {
+                    guard let uid = session.uid.isEmpty ? nil : session.uid else { return }
+                    await fb.toggleSave(braiderId: braider.id, uid: uid)
                 }
             } label: {
-                Image(systemName: likedItems.contains(braider.id) ? "heart.fill" : "heart")
+                Image(systemName: isSaved ? "heart.fill" : "heart")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(likedItems.contains(braider.id) ? AppTheme.rose : AppTheme.ink)
+                    .foregroundColor(isSaved ? AppTheme.rose : AppTheme.ink)
                     .frame(width: 58, height: 58)
                     .background(AppTheme.snow, in: Circle())
                     .shadow(color: .black.opacity(0.12), radius: 14, y: 6)
@@ -291,10 +297,6 @@ struct BraiderProfileView: View {
 
     private var firstName: String {
         braider.name.split(separator: " ").first.map(String.init) ?? braider.name
-    }
-
-    private func toggleLike(_ id: String) {
-        if likedItems.contains(id) { likedItems.remove(id) } else { likedItems.insert(id) }
     }
 
     // MARK: - Hero
@@ -379,8 +381,7 @@ struct BraiderProfileView: View {
                         GlassChip(icon: "star.fill",
                                   title: String(format: "%.1f", breakdown.average))
                     } else {
-                        GlassChip(icon: "star",
-                                  title: "New")
+                        GlassChip(icon: "star", title: "New")
                     }
                     GlassChip(icon: "mappin.and.ellipse", title: braider.city)
                     GlassChip(icon: "clock", title: braider.responseTime)
@@ -450,10 +451,7 @@ struct BraiderProfileView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 16) {
                         ForEach(Array(braider.portfolio.enumerated()), id: \.element.id) { idx, item in
-                            WorkCard(item: item,
-                                     index: idx,
-                                     isLiked: likedItems.contains(item.id),
-                                     onLike: { toggleLike(item.id) })
+                            WorkCard(item: item, index: idx)
                                 .frame(width: 260, height: 400)
                         }
                     }
@@ -724,8 +722,6 @@ struct BraiderProfileView: View {
         .buttonStyle(CardPress())
     }
 
-    // MARK: - Section header
-
     private func sectionHeader(eyebrow: String, title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(eyebrow)
@@ -765,8 +761,6 @@ private struct ScrollOffsetKey: PreferenceKey {
 struct WorkCard: View {
     let item: PortfolioItem
     let index: Int
-    let isLiked: Bool
-    let onLike: () -> Void
 
     @State private var appeared = false
 
@@ -797,22 +791,6 @@ struct WorkCard: View {
                         .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
 
                     Spacer()
-
-                    Button(action: onLike) {
-                        HStack(spacing: 4) {
-                            Image(systemName: isLiked ? "heart.fill" : "heart")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(isLiked ? AppTheme.rose : .white)
-                            Text("\(item.likes + (isLiked ? 1 : 0))")
-                                .font(AppTheme.sans(11, weight: .semibold))
-                                .foregroundColor(.white)
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
-                    }
-                    .buttonStyle(BouncyPress())
                 }
 
                 Text(item.caption)
@@ -866,10 +844,7 @@ struct RatingBloom: View {
 
                 Circle()
                     .trim(from: 0, to: animate ? CGFloat(breakdown.average / 5.0) : 0)
-                    .stroke(
-                        AppTheme.gold,
-                        style: StrokeStyle(lineWidth: 6, lineCap: .round)
-                    )
+                    .stroke(AppTheme.gold, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                     .frame(width: 120, height: 120)
                     .rotationEffect(.degrees(-90))
                     .animation(
@@ -883,9 +858,7 @@ struct RatingBloom: View {
                         .font(AppTheme.serif(38))
                         .foregroundColor(.white)
                         .contentTransition(.numericText())
-
                     StarRow(rating: breakdown.average, size: 9, color: AppTheme.gold)
-
                     Text("\(breakdown.total)")
                         .font(AppTheme.sans(10, weight: .bold))
                         .tracking(0.8)
@@ -906,12 +879,10 @@ struct RatingBloom: View {
                             ZStack(alignment: .leading) {
                                 Capsule().fill(Color.white.opacity(0.08))
                                 Capsule()
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [AppTheme.gold, AppTheme.accent],
-                                            startPoint: .leading, endPoint: .trailing
-                                        )
-                                    )
+                                    .fill(LinearGradient(
+                                        colors: [AppTheme.gold, AppTheme.accent],
+                                        startPoint: .leading, endPoint: .trailing
+                                    ))
                                     .frame(width: animate ? geo.size.width * ratio(data.count) : 0)
                                     .animation(
                                         .spring(response: 1.0, dampingFraction: 0.85)
@@ -937,9 +908,7 @@ struct RatingBloom: View {
             RoundedRectangle(cornerRadius: 24)
                 .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
         )
-        .onAppear {
-            withAnimation { animate = true }
-        }
+        .onAppear { withAnimation { animate = true } }
     }
 
     private func ratio(_ count: Int) -> CGFloat {
@@ -1033,9 +1002,7 @@ struct ReviewCinemaCard: View {
             .spring(response: 0.7, dampingFraction: 0.85).delay(Double(index) * 0.1),
             value: appeared
         )
-        .onAppear {
-            withAnimation { appeared = true }
-        }
+        .onAppear { withAnimation { appeared = true } }
     }
 }
 

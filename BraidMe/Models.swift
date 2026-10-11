@@ -188,6 +188,15 @@ struct RatingBreakdown: Hashable {
     }
 }
 
+// MARK: - Chat
+
+struct ChatMessage: Identifiable, Hashable {
+    let id: String
+    let senderId: String
+    let senderName: String
+    let text: String
+    let timestamp: Date
+}
 // MARK: - Booking
 
 struct Booking: Identifiable, Codable {
