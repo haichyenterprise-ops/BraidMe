@@ -16,22 +16,8 @@ struct MainTabView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .top) {
-                // Map
-                Map(coordinateRegion: $region,
-                    annotationItems: fb.braiders) { braider in
-                    MapAnnotation(coordinate: braider.coordinate) {
-                        BraiderPin(braider: braider) {
-                            selectedBraider = braider
-                        }
-                    }
-                }
-                .ignoresSafeArea()
-                
-                // Top card rail
-                VStack(spacing: 0) {
-                    topHeader
-                    topBraidersRail
-                }
+                mapLayer
+                topChrome
             }
             .safeAreaInset(edge: .bottom) {
                 bottomBar
@@ -42,20 +28,8 @@ struct MainTabView: View {
             .sheet(isPresented: $showBookings) {
                 BookingsSheet()
             }
-            .onAppear {
-                fb.fetchBraiders()
-                if !fb.hasAskedForLocation {
-                    showLocationSheet = true
-                } else {
-                    locationService.start()
-                }
-            }
-            .sheet(isPresented: $showLocationSheet, onDismiss: {
-                // Persist the decision
-                if fb.locationPermissionDecision == nil {
-                    fb.locationPermissionDecision = "denied"
-                }
-            }) {
+            .onAppear(perform: onAppear)
+            .sheet(isPresented: $showLocationSheet, onDismiss: onLocationSheetDismiss) {
                 LocationPermissionSheet { allowed in
                     fb.locationPermissionDecision = allowed ? "allowed" : "denied"
                     if allowed { locationService.start() }
@@ -68,7 +42,30 @@ struct MainTabView: View {
         }
     }
     
-    // MARK: Header
+    // MARK: - Map Layer
+    
+    private var mapLayer: some View {
+        Map(coordinateRegion: $region) {
+            ForEach(fb.braiders) { braider in
+                Annotation(braider.name, coordinate: braider.coordinate) {
+                    BraiderPin(braider: braider) {
+                        selectedBraider = braider
+                    }
+                }
+            }
+        }
+        .ignoresSafeArea()
+    }
+    
+    // MARK: - Top Chrome
+    
+    private var topChrome: some View {
+        VStack(spacing: 0) {
+            topHeader
+            topBraidersRail
+        }
+    }
+    
     private var topHeader: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -80,57 +77,70 @@ struct MainTabView: View {
                     .foregroundColor(AppTheme.ink)
             }
             Spacer()
-            Circle()
-                .fill(AppTheme.snow)
-                .frame(width: 44, height: 44)
-                .overlay(
-                    Image(systemName: "person.crop.circle")
-                        .font(.system(size: 24))
-                        .foregroundColor(AppTheme.ink)
-                )
-                .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
+            avatarButton
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
         .padding(.bottom, 14)
-        .background(
-            LinearGradient(
-                colors: [AppTheme.cloud.opacity(0.95), AppTheme.cloud.opacity(0)],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea(edges: .top)
-        )
+        .background(topHeaderGradient)
     }
     
-    // MARK: Top braiders rail
+    private var avatarButton: some View {
+        Circle()
+            .fill(AppTheme.snow)
+            .frame(width: 44, height: 44)
+            .overlay(
+                Image(systemName: "person.crop.circle")
+                    .font(.system(size: 24))
+                    .foregroundColor(AppTheme.ink)
+            )
+            .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
+    }
+    
+    private var topHeaderGradient: some View {
+        LinearGradient(
+            colors: [AppTheme.cloud.opacity(0.95), AppTheme.cloud.opacity(0)],
+            startPoint: .top, endPoint: .bottom
+        )
+        .ignoresSafeArea(edges: .top)
+    }
+    
     private var topBraidersRail: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Top 3 near you")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(AppTheme.ink)
-                Spacer()
-                Text("See all")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(AppTheme.accent)
-            }
-            .padding(.horizontal, 20)
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(Array(fb.braiders.prefix(3).enumerated()), id: \.element.id) { idx, braider in
-                        BraiderCard(braider: braider, rank: idx + 1) {
-                            selectedBraider = braider
-                        }
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 8)
-            }
+            railHeader
+            railScroll
         }
     }
     
-    // MARK: Bottom bar
+    private var railHeader: some View {
+        HStack {
+            Text("Top 3 near you")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(AppTheme.ink)
+            Spacer()
+            Text("See all")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(AppTheme.accent)
+        }
+        .padding(.horizontal, 20)
+    }
+    
+    private var railScroll: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(Array(fb.braiders.prefix(3).enumerated()), id: \.element.id) { idx, braider in
+                    BraiderCard(braider: braider, rank: idx + 1) {
+                        selectedBraider = braider
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+        }
+    }
+    
+    // MARK: - Bottom Bar
+    
     private var bottomBar: some View {
         Button(action: { showBookings = true }) {
             HStack(spacing: 10) {
@@ -153,9 +163,28 @@ struct MainTabView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 10)
     }
+    
+    // MARK: - Lifecycle
+    
+    private func onAppear() {
+        fb.fetchBraiders()
+        if !fb.hasAskedForLocation {
+            showLocationSheet = true
+        } else {
+            locationService.start()
+        }
+    }
+    
+    private func onLocationSheetDismiss() {
+        // If the user swiped away without choosing, we default to denied
+        if fb.locationPermissionDecision == nil {
+            fb.locationPermissionDecision = "denied"
+        }
+    }
 }
 
-// MARK: - Pin
+// MARK: - Braider Pin
+
 struct BraiderPin: View {
     let braider: Braider
     let onTap: () -> Void
@@ -167,9 +196,11 @@ struct BraiderPin: View {
                     .fill(AppTheme.snow)
                     .frame(width: 56, height: 56)
                     .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
+                
                 RemoteImage(url: braider.imageUrl)
                     .frame(width: 48, height: 48)
                     .clipShape(Circle())
+                
                 Circle()
                     .stroke(AppTheme.accent, lineWidth: 2)
                     .frame(width: 52, height: 52)
@@ -180,6 +211,7 @@ struct BraiderPin: View {
 }
 
 // MARK: - Braider Card
+
 struct BraiderCard: View {
     let braider: Braider
     let rank: Int
@@ -188,93 +220,120 @@ struct BraiderCard: View {
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 10) {
-                ZStack(alignment: .topLeading) {
-                    RemoteImage(url: braider.imageUrl)
-                        .frame(width: 160, height: 160)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    
-                    Text("#\(rank)")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(AppTheme.ink.opacity(0.85))
-                        .clipShape(Capsule())
-                        .padding(8)
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(braider.name)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(AppTheme.ink)
-                    HStack(spacing: 4) {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(AppTheme.accent)
-                        Text(String(format: "%.1f", braider.rating))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(AppTheme.slate)
-                    }
-                }
+                cardImage
+                cardText
             }
             .padding(10)
             .background(AppTheme.snow)
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(AppTheme.hairline.opacity(0.5), lineWidth: 0.5)
-            )
+            .overlay(cardBorder)
             .shadow(color: .black.opacity(0.05), radius: 10, y: 4)
         }
         .buttonStyle(SoftPressStyle())
     }
+    
+    private var cardImage: some View {
+        ZStack(alignment: .topLeading) {
+            RemoteImage(url: braider.imageUrl)
+                .frame(width: 160, height: 160)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            
+            rankBadge
+        }
+    }
+    
+    private var rankBadge: some View {
+        Text("#\(rank)")
+            .font(.system(size: 12, weight: .bold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(AppTheme.ink.opacity(0.85))
+            .clipShape(Capsule())
+            .padding(8)
+    }
+    
+    private var cardText: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(braider.name)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(AppTheme.ink)
+            HStack(spacing: 4) {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(AppTheme.accent)
+                Text(String(format: "%.1f", braider.rating))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(AppTheme.slate)
+            }
+        }
+    }
+    
+    private var cardBorder: some View {
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .stroke(AppTheme.hairline.opacity(0.5), lineWidth: 0.5)
+    }
 }
 
-// MARK: - Location sheet
+// MARK: - Location Permission Sheet
+
 struct LocationPermissionSheet: View {
     let onDecision: (Bool) -> Void
     
     var body: some View {
         VStack(spacing: 24) {
-            Capsule().frame(width: 40, height: 4)
-                .foregroundColor(AppTheme.hairline)
-                .padding(.top, 8)
-            
-            ZStack {
-                Circle()
-                    .fill(AppTheme.accentSoft)
-                    .frame(width: 96, height: 96)
-                Image(systemName: "location.fill")
-                    .font(.system(size: 40))
-                    .foregroundColor(AppTheme.accent)
-            }
-            
-            VStack(spacing: 8) {
-                Text("Enable Location")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundColor(AppTheme.ink)
-                Text("Find braiders near you in Birmingham and get accurate travel times.")
-                    .font(AppTheme.bodyFont)
-                    .foregroundColor(AppTheme.slate)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 30)
-            }
-            
+            dragHandle
+            locationIcon
+            locationCopy
             Spacer().frame(height: 8)
-            
-            VStack(spacing: 10) {
-                PrimaryButton(title: "Allow") { onDecision(true) }
-                SecondaryButton(title: "Not now") { onDecision(false) }
-            }
-            .padding(.horizontal, 24)
-            
+            decisionButtons
             Spacer()
         }
         .background(AppTheme.cloud)
     }
+    
+    private var dragHandle: some View {
+        Capsule()
+            .frame(width: 40, height: 4)
+            .foregroundColor(AppTheme.hairline)
+            .padding(.top, 8)
+    }
+    
+    private var locationIcon: some View {
+        ZStack {
+            Circle()
+                .fill(AppTheme.accentSoft)
+                .frame(width: 96, height: 96)
+            Image(systemName: "location.fill")
+                .font(.system(size: 40))
+                .foregroundColor(AppTheme.accent)
+        }
+    }
+    
+    private var locationCopy: some View {
+        VStack(spacing: 8) {
+            Text("Enable Location")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundColor(AppTheme.ink)
+            Text("Find braiders near you in Birmingham and get accurate travel times.")
+                .font(AppTheme.bodyFont)
+                .foregroundColor(AppTheme.slate)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 30)
+        }
+    }
+    
+    private var decisionButtons: some View {
+        VStack(spacing: 10) {
+            PrimaryButton(title: "Allow") { onDecision(true) }
+            SecondaryButton(title: "Not now") { onDecision(false) }
+        }
+        .padding(.horizontal, 24)
+    }
 }
 
-// MARK: - Location service
+// MARK: - Location Service
+
 final class LocationService: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     @Published var authorization: CLAuthorizationStatus = .notDetermined
@@ -284,16 +343,20 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         manager.delegate = self
     }
     
-    func start() { manager.requestWhenInUseAuthorization() }
+    func start() {
+        manager.requestWhenInUseAuthorization()
+    }
     
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorization = manager.authorizationStatus
     }
 }
 
-// MARK: - Bookings placeholder
+// MARK: - Bookings Sheet
+
 struct BookingsSheet: View {
     @Environment(\.dismiss) var dismiss
+    
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
