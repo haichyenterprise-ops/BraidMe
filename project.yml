@@ -67,3 +67,4 @@ targets:
         product: GoogleSignIn
       - package: GoogleSignIn
         product: GoogleSignInSwift
+      - product: FirebaseDatabase
