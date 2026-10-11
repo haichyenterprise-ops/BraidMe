@@ -108,7 +108,6 @@ final class FirebaseManager: ObservableObject {
             let all = snap.documents.compactMap { doc in
                 BraiderMapper.from(id: doc.documentID, data: doc.data())
             }
-            // Only show published braiders
             self.braiders = all.filter { $0.published }
         } catch {
             braidersError = error.localizedDescription
@@ -117,9 +116,8 @@ final class FirebaseManager: ObservableObject {
         isLoadingBraiders = false
     }
 
-    // MARK: - Reviews (real)
+    // MARK: - Reviews
 
-    /// Fetches reviews from the subcollection `braiders/{braiderId}/reviews`.
     func fetchReviews(braiderId: String) async -> [Review] {
         guard !braiderId.isEmpty else { return [] }
         do {
@@ -158,8 +156,6 @@ final class FirebaseManager: ObservableObject {
         }
     }
 
-    /// Submits a review to `braiders/{braiderId}/reviews`.
-    /// Also updates the braider doc's aggregate rating + reviewCount.
     func submitReview(
         braiderId: String,
         userId: String,
@@ -206,21 +202,9 @@ final class FirebaseManager: ObservableObject {
                 "lastReviewedAt": now
             ], merge: true)
 
-        // 3. Update local cached braider if it's the same one
+        // 3. Update local cache
         if let idx = braiders.firstIndex(where: { $0.id == braiderId }) {
-            let b = braiders[idx]
-            let updated = Braider(
-                id: b.id, name: b.name, tagline: b.tagline,
-                avatarUrl: b.avatarUrl, coverUrl: b.coverUrl,
-                latitude: b.latitude, longitude: b.longitude,
-                rating: avg, reviewCount: count, priceFrom: b.priceFrom,
-                bio: b.bio, story: b.story, city: b.city,
-                specialties: b.specialties, yearsExperience: b.yearsExperience,
-                responseTime: b.responseTime, verified: b.verified,
-                portfolio: b.portfolio, services: b.services,
-                availableSlots: b.availableSlots, availableDates: b.availableDates
-            )
-            braiders[idx] = updated
+            braiders[idx] = braiders[idx].updated(rating: avg, reviewCount: count)
         }
     }
 
@@ -332,6 +316,7 @@ enum BraiderMapper {
             yearsExperience: (data["yearsExperience"] as? Int) ?? 0,
             responseTime: (data["responseTime"] as? String) ?? "~30 min",
             verified: (data["verified"] as? Bool) ?? false,
+            published: (data["published"] as? Bool) ?? false,
             portfolio: portfolio,
             services: services,
             availableSlots: slotsRaw,

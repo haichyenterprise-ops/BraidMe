@@ -67,6 +67,7 @@ struct Braider: Identifiable, Hashable {
     let yearsExperience: Int
     let responseTime: String
     let verified: Bool
+    let published: Bool
     let portfolio: [PortfolioItem]
     let services: [BraidService]
     let availableSlots: [String: [String]]
@@ -78,6 +79,34 @@ struct Braider: Identifiable, Hashable {
 
     static func == (lhs: Braider, rhs: Braider) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    /// Used when a review is added — returns an updated copy with new aggregates.
+    func updated(rating: Double, reviewCount: Int) -> Braider {
+        Braider(
+            id: id,
+            name: name,
+            tagline: tagline,
+            avatarUrl: avatarUrl,
+            coverUrl: coverUrl,
+            latitude: latitude,
+            longitude: longitude,
+            rating: rating,
+            reviewCount: reviewCount,
+            priceFrom: priceFrom,
+            bio: bio,
+            story: story,
+            city: city,
+            specialties: specialties,
+            yearsExperience: yearsExperience,
+            responseTime: responseTime,
+            verified: verified,
+            published: published,
+            portfolio: portfolio,
+            services: services,
+            availableSlots: availableSlots,
+            availableDates: availableDates
+        )
+    }
 }
 
 struct PortfolioItem: Identifiable, Hashable {
@@ -107,7 +136,7 @@ struct BraidService: Identifiable, Hashable {
     }
 }
 
-// MARK: - Reviews (real, from Firestore)
+// MARK: - Reviews
 
 struct Review: Identifiable, Hashable {
     let id: String
