@@ -1,45 +1,48 @@
 import Foundation
 import CoreLocation
-import FirebaseFirestore
 
 // MARK: - User
 
 struct UserProfile: Identifiable, Codable, Hashable {
-    var id: String                 // Firebase UID or Apple user ID
+    var id: String
     var displayName: String
     var email: String?
     var age: Int
-    var createdAt: Date
-    var provider: String           // "apple" | "google" | "guest"
+    var provider: String            // "apple" | "google" | "guest"
+    var city: String?               // "Birmingham" once location granted
     var locationGranted: Bool
+    var avatarUrl: String?
+    var createdAt: Date
 
     var dictionary: [String: Any] {
-        [
+        var d: [String: Any] = [
             "id": id,
             "displayName": displayName,
-            "email": email as Any,
             "age": age,
-            "createdAt": Timestamp(date: createdAt),
             "provider": provider,
-            "locationGranted": locationGranted
+            "locationGranted": locationGranted,
+            "createdAt": createdAt
         ]
+        if let email { d["email"] = email }
+        if let city { d["city"] = city }
+        if let avatarUrl { d["avatarUrl"] = avatarUrl }
+        return d
     }
 
     static func from(_ id: String, data: [String: Any]) -> UserProfile? {
-        guard
-            let name = data["displayName"] as? String,
-            let age = data["age"] as? Int,
-            let created = (data["createdAt"] as? Timestamp)?.dateValue()
-        else { return nil }
-
+        let name = (data["displayName"] as? String) ?? "User"
+        let age = (data["age"] as? Int) ?? 0
+        let created = (data["createdAt"] as? Date) ?? Date()
         return UserProfile(
             id: id,
             displayName: name,
             email: data["email"] as? String,
             age: age,
-            createdAt: created,
-            provider: data["provider"] as? String ?? "unknown",
-            locationGranted: data["locationGranted"] as? Bool ?? false
+            provider: (data["provider"] as? String) ?? "unknown",
+            city: data["city"] as? String,
+            locationGranted: (data["locationGranted"] as? Bool) ?? false,
+            avatarUrl: data["avatarUrl"] as? String,
+            createdAt: created
         )
     }
 }
@@ -50,17 +53,27 @@ struct Braider: Identifiable, Hashable {
     let id: String
     let name: String
     let tagline: String
-    let imageUrl: String
-    let coordinate: CLLocationCoordinate2D
+    let avatarUrl: String
+    let coverUrl: String
+    let latitude: Double
+    let longitude: Double
     let rating: Double
     let reviewCount: Int
     let priceFrom: Int
     let bio: String
+    let city: String
     let specialties: [String]
-    let portfolio: [PortfolioItem]
     let yearsExperience: Int
     let responseTime: String
     let verified: Bool
+    let portfolio: [PortfolioItem]
+    let styles: [BraidStyle]
+    let availableSlots: [String: [String]]   // "2026-02-14" -> ["9:00 AM", ...]
+    let availableDates: [Date]
+
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
 
     static func == (lhs: Braider, rhs: Braider) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -145,12 +158,12 @@ struct Booking: Identifiable, Codable {
             "id": id,
             "braiderName": braiderName,
             "braiderId": braiderId,
-            "date": Timestamp(date: date),
+            "date": date,
             "time": time,
             "style": style,
             "price": price,
             "status": status,
-            "createdAt": Timestamp(date: createdAt)
+            "createdAt": createdAt
         ]
     }
 }

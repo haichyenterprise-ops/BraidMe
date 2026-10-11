@@ -1,8 +1,6 @@
 import SwiftUI
 import UIKit
 
-// MARK: - Memory + disk cache
-
 final class ImageCache {
     static let shared = ImageCache()
 
@@ -14,7 +12,7 @@ final class ImageCache {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         diskURL = caches.appendingPathComponent("BraidMeImages", isDirectory: true)
         try? FileManager.default.createDirectory(at: diskURL, withIntermediateDirectories: true)
-        memory.countLimit = 120
+        memory.countLimit = 200
     }
 
     func cachedImage(for key: String) -> UIImage? {
@@ -42,8 +40,6 @@ final class ImageCache {
     }
 }
 
-// MARK: - RemoteImage
-
 struct RemoteImage: View {
     let url: String
     var contentMode: ContentMode = .fill
@@ -57,7 +53,6 @@ struct RemoteImage: View {
     var body: some View {
         ZStack {
             AppTheme.mist
-
             if let image {
                 Image(uiImage: image)
                     .resizable()
@@ -72,14 +67,10 @@ struct RemoteImage: View {
         .task(id: url) { await load() }
     }
 
-    // MARK: - Placeholders
-
     private var shimmerBlock: some View {
         Rectangle()
             .fill(AppTheme.mist)
-            .overlay(
-                MovingShimmer()
-            )
+            .overlay(MovingShimmer())
     }
 
     private var failedPlaceholder: some View {
@@ -91,8 +82,6 @@ struct RemoteImage: View {
         }
     }
 
-    // MARK: - Load
-
     private func load() async {
         guard !url.isEmpty else { phase = .failed; return }
         if let cached = ImageCache.shared.cachedImage(for: url) {
@@ -102,20 +91,16 @@ struct RemoteImage: View {
             }
             return
         }
-
         await MainActor.run { self.phase = .loading }
-
         guard let u = URL(string: url) else {
             await MainActor.run { self.phase = .failed }
             return
         }
-
         do {
             var request = URLRequest(url: u)
             request.cachePolicy = .returnCacheDataElseLoad
             request.timeoutInterval = 15
             request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-
             let (data, _) = try await URLSession.shared.data(for: request)
             guard let img = UIImage(data: data) else {
                 await MainActor.run { self.phase = .failed }
@@ -132,8 +117,6 @@ struct RemoteImage: View {
     }
 }
 
-// MARK: - Shimmer sweep
-
 private struct MovingShimmer: View {
     @State private var x: CGFloat = -1.2
     var body: some View {
@@ -146,15 +129,11 @@ private struct MovingShimmer: View {
             .offset(x: x * geo.size.width)
             .blendMode(.overlay)
             .onAppear {
-                withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {
-                    x = 1.4
-                }
+                withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { x = 1.4 }
             }
         }
     }
 }
-
-// MARK: - Avatar with ring
 
 struct Avatar: View {
     let url: String

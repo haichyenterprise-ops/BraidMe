@@ -5,24 +5,56 @@ struct PaymentView: View {
     let braider: Braider
     let style: BraidStyle
 
-    // MARK: - State
-    @State private var selectedDate = Date()
-    @State private var selectedSlot: TimeSlot?
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var selectedDate: Date
+    @State private var selectedSlot: String?
     @State private var includeHair = true
     @State private var addBeads = false
-    @State private var useApplePay = true
     @State private var showConfirmation = false
     @State private var isBooking = false
-    @State private var applePayController: PKPaymentAuthorizationController?
     @State private var appeared = false
-    @Environment(\.dismiss) var dismiss
+    @State private var applePayController: PKPaymentAuthorizationController?
+
+    init(braider: Braider, style: BraidStyle) {
+        self.braider = braider
+        self.style = style
+        // Default to first available date
+        let firstDate = braider.availableDates.sorted().first ?? Date()
+        _selectedDate = State(initialValue: firstDate)
+    }
 
     // MARK: - Computed
-    private var slots: [TimeSlot] { FirebaseManager.shared.timeSlots(for: selectedDate) }
 
-    private var morningSlots: [TimeSlot] { slots.filter { $0.period == .morning } }
-    private var afternoonSlots: [TimeSlot] { slots.filter { $0.period == .afternoon } }
-    private var eveningSlots: [TimeSlot] { slots.filter { $0.period == .evening } }
+    private var availableDatesSorted: [Date] {
+        braider.availableDates.sorted()
+    }
+
+    private var slotsForSelectedDate: [String] {
+        let key = Self.dateKey(selectedDate)
+        return braider.availableSlots[key] ?? []
+    }
+
+    private var groupedSlots: [(DayPeriod, [String])] {
+        var morning: [String] = []
+        var afternoon: [String] = []
+        var evening: [String] = []
+
+        for label in slotsForSelectedDate {
+            let period = Self.periodFor(label)
+            switch period {
+            case .morning: morning.append(label)
+            case .afternoon: afternoon.append(label)
+            case .evening: evening.append(label)
+            }
+        }
+
+        return [
+            (.morning, morning),
+            (.afternoon, afternoon),
+            (.evening, evening)
+        ].filter { !$0.1.isEmpty }
+    }
 
     private var totalPrice: Int {
         style.priceFrom + (includeHair ? 30 : 0) + (addBeads ? 15 : 0)
@@ -32,22 +64,23 @@ struct PaymentView: View {
         selectedSlot != nil && !isBooking
     }
 
+    // MARK: - Body
+
     var body: some View {
         ZStack(alignment: .bottom) {
             AppTheme.cloud.ignoresSafeArea()
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 VStack(spacing: 22) {
                     hero
                     optionsCard
-                    dateCard
-                    timeCard
+                    datesCard
+                    slotsCard
                     reviewNote
                     Color.clear.frame(height: 180)
                 }
                 .padding(.bottom, 20)
             }
-            .scrollIndicators(.hidden)
 
             payBar
         }
@@ -125,12 +158,12 @@ struct PaymentView: View {
         .offset(y: appeared ? 0 : 20)
     }
 
-    // MARK: - Options card
+    // MARK: - Options
 
     private var optionsCard: some View {
-        SectionCard(title: "Add-ons", icon: "plus.circle") {
+        PaymentSectionCard(title: "Add-ons", icon: "plus.circle") {
             VStack(spacing: 0) {
-                ToggleRow(
+                PaymentToggleRow(
                     title: "Hair included",
                     subtitle: "Premium braiding hair",
                     price: 30,
@@ -140,7 +173,7 @@ struct PaymentView: View {
 
                 Divider().background(AppTheme.hairline).padding(.leading, 54)
 
-                ToggleRow(
+                PaymentToggleRow(
                     title: "Add beads",
                     subtitle: "Gold, silver, or wood",
                     price: 15,
@@ -151,92 +184,77 @@ struct PaymentView: View {
         }
     }
 
-    // MARK: - Date card
+    // MARK: - Dates
 
-    private var dateCard: some View {
-        SectionCard(title: "Pick a date", icon: "calendar") {
-            VStack(spacing: 12) {
-                DatePicker(
-                    "",
-                    selection: $selectedDate,
-                    in: Date()...,
-                    displayedComponents: .date
-                )
-                .datePickerStyle(.graphical)
-                .tint(AppTheme.ink)
-
-                if let weekday = selectedDate.formatted(.dateTime.weekday(.wide).day().month(.wide)).split(separator: " ").first {
-                    HStack(spacing: 6) {
-                        Image(systemName: "info.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundColor(AppTheme.accent)
-                        Text("Selected: \(String(weekday)) \(selectedDate.formatted(.dateTime.day().month(.wide)))")
-                            .font(AppTheme.sans(12, weight: .medium))
-                            .foregroundColor(AppTheme.slate)
+    private var datesCard: some View {
+        PaymentSectionCard(title: "Available dates", icon: "calendar") {
+            if availableDatesSorted.isEmpty {
+                emptyDates
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(availableDatesSorted, id: \.self) { date in
+                            DateChip(
+                                date: date,
+                                isSelected: Self.sameDay(date, selectedDate)
+                            ) {
+                                Haptics.select()
+                                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                                    selectedDate = date
+                                    selectedSlot = nil
+                                }
+                            }
+                        }
                     }
-                }
-            }
-        }
-        .onChange(of: selectedDate) { _, _ in
-            withAnimation { selectedSlot = nil }
-            Haptics.select()
-        }
-    }
-
-    // MARK: - Time card
-
-    private var timeCard: some View {
-        SectionCard(title: "Choose a time", icon: "clock") {
-            VStack(alignment: .leading, spacing: 18) {
-                if !morningSlots.isEmpty {
-                    timeGroup(label: "Morning", slots: morningSlots, icon: "sunrise.fill")
-                }
-                if !afternoonSlots.isEmpty {
-                    timeGroup(label: "Afternoon", slots: afternoonSlots, icon: "sun.max.fill")
-                }
-                if !eveningSlots.isEmpty {
-                    timeGroup(label: "Evening", slots: eveningSlots, icon: "moon.stars.fill")
+                    .padding(.vertical, 4)
                 }
             }
         }
     }
 
-    private func timeGroup(label: String, slots: [TimeSlot], icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(AppTheme.accent)
-                Text(label.uppercased())
-                    .font(AppTheme.sans(11, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundColor(AppTheme.stone)
-            }
+    private var emptyDates: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "calendar.badge.exclamationmark")
+                .font(.system(size: 18))
+                .foregroundColor(AppTheme.stone)
+            Text("No dates available yet")
+                .font(AppTheme.sans(14, weight: .medium))
+                .foregroundColor(AppTheme.stone)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+    }
 
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 92), spacing: 10)],
-                spacing: 10
-            ) {
-                ForEach(slots) { slot in
-                    TimeSlotChip(
-                        slot: slot,
-                        isSelected: selectedSlot?.id == slot.id
-                    ) {
-                        guard slot.available else {
-                            Haptics.warning()
-                            return
-                        }
-                        Haptics.select()
-                        withAnimation(.spring(response: 0.32, dampingFraction: 0.72)) {
-                            selectedSlot = slot
-                        }
+    // MARK: - Slots
+
+    private var slotsCard: some View {
+        PaymentSectionCard(title: "Available times", icon: "clock") {
+            if slotsForSelectedDate.isEmpty {
+                HStack(spacing: 10) {
+                    Image(systemName: "clock.badge.exclamationmark")
+                        .font(.system(size: 18))
+                        .foregroundColor(AppTheme.stone)
+                    Text("No times on this date")
+                        .font(AppTheme.sans(14, weight: .medium))
+                        .foregroundColor(AppTheme.stone)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
+            } else {
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(groupedSlots, id: \.0) { group in
+                        SlotGroup(
+                            period: group.0,
+                            slots: group.1,
+                            selectedSlot: $selectedSlot
+                        )
                     }
                 }
             }
         }
     }
 
-    // MARK: - Review note
+    // MARK: - Note
 
     private var reviewNote: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -248,7 +266,7 @@ struct PaymentView: View {
                 Text("Secure booking")
                     .font(AppTheme.sans(14, weight: .semibold))
                     .foregroundColor(AppTheme.ink)
-                Text("Free cancellation up to 24 hours before your appointment. Payment processed securely via Apple Pay.")
+                Text("Free cancellation up to 24 hours before. Payment processed securely via Apple Pay.")
                     .font(AppTheme.sans(12))
                     .foregroundColor(AppTheme.slate)
                     .lineSpacing(3)
@@ -261,11 +279,10 @@ struct PaymentView: View {
         .padding(.horizontal, 20)
     }
 
-    // MARK: - Pay Bar (sticky)
+    // MARK: - Pay bar
 
     private var payBar: some View {
         VStack(spacing: 14) {
-            // Summary row
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("TOTAL")
@@ -291,7 +308,7 @@ struct PaymentView: View {
                             Image(systemName: "clock.fill")
                                 .font(.system(size: 10))
                                 .foregroundColor(AppTheme.accent)
-                            Text(slot.label)
+                            Text(slot)
                                 .font(AppTheme.sans(14, weight: .semibold))
                                 .foregroundColor(AppTheme.ink)
                         }
@@ -306,14 +323,13 @@ struct PaymentView: View {
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: selectedSlot)
 
-            // Pay button
             Button(action: startPayment) {
                 HStack(spacing: 8) {
                     if isBooking {
                         ProgressView().tint(.white)
                     } else {
                         Image(systemName: "applelogo")
-                        Text("Pay")
+                        Text("Pay with Apple Pay")
                             .font(AppTheme.sans(17, weight: .semibold))
                     }
                 }
@@ -352,110 +368,67 @@ struct PaymentView: View {
 
     private func startPayment() {
         guard let slot = selectedSlot else { return }
+        guard let uid = FirebaseManager.shared.currentUid, !uid.isEmpty else {
+            Haptics.error()
+            return
+        }
         Haptics.medium()
-
-        // Simulated flow — the actual Apple Pay sheet requires a signed build
-        // with a PassKit merchant ID. This fallback ensures the demo still completes.
         isBooking = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            FirebaseManager.shared.createBooking(
-                braider: braider,
-                date: selectedDate,
-                time: slot.label,
-                style: style,
-                price: totalPrice
-            ) { ok in
-                isBooking = false
-                if ok {
-                    Haptics.success()
-                    showConfirmation = true
-                } else {
-                    Haptics.error()
-                }
+
+        FirebaseManager.shared.createBooking(
+            braider: braider,
+            date: selectedDate,
+            time: slot,
+            style: style,
+            price: totalPrice,
+            uid: uid
+        ) { ok in
+            isBooking = false
+            if ok {
+                Haptics.success()
+                showConfirmation = true
+            } else {
+                Haptics.error()
             }
         }
     }
 
-    // MARK: - Apple Pay availability (real implementation, activated when signed)
-
-    private func presentApplePaySheet() {
-        guard let slot = selectedSlot else { return }
-
-        let request = PKPaymentRequest()
-        request.merchantIdentifier = "merchant.com.example.BraidMe"
-        request.supportedNetworks = [.visa, .masterCard, .amex]
-        request.merchantCapabilities = .capability3DS
-        request.countryCode = "GB"
-        request.currencyCode = "GBP"
-
-        let total = PKPaymentSummaryItem(
-            label: "BraidMe · \(style.name)",
-            amount: NSDecimalNumber(value: totalPrice)
-        )
-        let braider = PKPaymentSummaryItem(
-            label: self.braider.name,
-            amount: NSDecimalNumber(value: totalPrice - 30)
-        )
-        let hair = PKPaymentSummaryItem(
-            label: "Hair included",
-            amount: NSDecimalNumber(value: 30)
-        )
-        request.paymentSummaryItems = [braider, hair, total]
-
-        let controller = PKPaymentAuthorizationController(paymentRequest: request)
-        controller.delegate = ApplePayDelegate.shared
-        ApplePayDelegate.shared.onSuccess = {
-            FirebaseManager.shared.createBooking(
-                braider: self.braider,
-                date: self.selectedDate,
-                time: slot.label,
-                style: self.style,
-                price: self.totalPrice
-            ) { ok in
-                DispatchQueue.main.async {
-                    if ok {
-                        Haptics.success()
-                        self.showConfirmation = true
-                    }
-                }
-            }
-        }
-        self.applePayController = controller
-        controller.present { _ in }
-    }
-
-    // MARK: - Confirmation text
+    // MARK: - Confirmation
 
     private var confirmationMessage: String {
         let d = selectedDate.formatted(date: .long, time: .omitted)
-        let t = selectedSlot?.label ?? ""
-        return "Your \(style.name.lowercased()) with \(braider.name) is booked for \(d) at \(t). Confirmation sent to your device."
+        let t = selectedSlot ?? ""
+        return "Your \(style.name.lowercased()) with \(braider.name) is booked for \(d) at \(t)."
+    }
+
+    // MARK: - Date helpers
+
+    static func dateKey(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
+    }
+
+    static func sameDay(_ a: Date, _ b: Date) -> Bool {
+        Calendar.current.isDate(a, inSameDayAs: b)
+    }
+
+    static func periodFor(_ label: String) -> DayPeriod {
+        // "9:00 AM", "12:00 PM", "4:30 PM"
+        let upper = label.uppercased()
+        guard let hourPart = upper.split(separator: ":").first,
+              var hour = Int(hourPart) else { return .morning }
+        if upper.contains("PM") && hour != 12 { hour += 12 }
+        if upper.contains("AM") && hour == 12 { hour = 0 }
+        if hour < 12 { return .morning }
+        if hour < 17 { return .afternoon }
+        return .evening
     }
 }
 
-// MARK: - Apple Pay Delegate
+// MARK: - Section wrapper
 
-final class ApplePayDelegate: NSObject, PKPaymentAuthorizationControllerDelegate {
-    static let shared = ApplePayDelegate()
-    var onSuccess: (() -> Void)?
-
-    func paymentAuthorizationController(
-        _ controller: PKPaymentAuthorizationController,
-        didAuthorizePayment payment: PKPayment,
-        handler completion: @escaping (PKPaymentAuthorizationResult) -> Void
-    ) {
-        onSuccess?()
-        completion(PKPaymentAuthorizationResult(status: .success, errors: nil))
-    }
-
-    func paymentAuthorizationControllerDidFinish(_ controller: PKPaymentAuthorizationController) {
-        controller.dismiss { }
-    }
-}
-
-// MARK: - Section Card
-
-struct SectionCard<Content: View>: View {
+struct PaymentSectionCard<Content: View>: View {
     let title: String
     let icon: String
     @ViewBuilder let content: () -> Content
@@ -479,25 +452,23 @@ struct SectionCard<Content: View>: View {
             }
             .padding(.horizontal, 4)
 
-            VStack {
-                content()
-            }
-            .padding(16)
-            .background(AppTheme.snow)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
-            )
-            .shadow(color: .black.opacity(0.045), radius: 14, y: 6)
+            VStack { content() }
+                .padding(16)
+                .background(AppTheme.snow)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
+                )
+                .shadow(color: .black.opacity(0.045), radius: 14, y: 6)
         }
         .padding(.horizontal, 20)
     }
 }
 
-// MARK: - Toggle Row
+// MARK: - Toggle row
 
-struct ToggleRow: View {
+struct PaymentToggleRow: View {
     let title: String
     let subtitle: String
     let price: Int
@@ -544,56 +515,134 @@ struct ToggleRow: View {
     }
 }
 
-// MARK: - Time Slot Chip
+// MARK: - Date chip
 
-struct TimeSlotChip: View {
-    let slot: TimeSlot
+struct DateChip: View {
+    let date: Date
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    private var weekday: String {
+        date.formatted(.dateTime.weekday(.abbreviated)).uppercased()
+    }
+    private var day: String {
+        date.formatted(.dateTime.day())
+    }
+    private var month: String {
+        date.formatted(.dateTime.month(.abbreviated)).uppercased()
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 4) {
+                Text(weekday)
+                    .font(AppTheme.sans(10, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundColor(isSelected ? .white.opacity(0.75) : AppTheme.stone)
+
+                Text(day)
+                    .font(AppTheme.serif(22))
+                    .foregroundColor(isSelected ? .white : AppTheme.ink)
+                    .contentTransition(.numericText())
+
+                Text(month)
+                    .font(AppTheme.sans(10, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundColor(isSelected ? .white.opacity(0.75) : AppTheme.stone)
+            }
+            .frame(width: 62, height: 84)
+            .background(isSelected ? AppTheme.ink : AppTheme.snow)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(
+                        isSelected ? Color.clear : AppTheme.hairline.opacity(0.6),
+                        lineWidth: 0.7
+                    )
+            )
+            .shadow(
+                color: isSelected ? AppTheme.ink.opacity(0.25) : .black.opacity(0.03),
+                radius: isSelected ? 12 : 4,
+                y: isSelected ? 6 : 2
+            )
+        }
+        .buttonStyle(SoftPress())
+    }
+}
+
+// MARK: - Slot group
+
+struct SlotGroup: View {
+    let period: DayPeriod
+    let slots: [String]
+    @Binding var selectedSlot: String?
+
+    private var icon: String {
+        switch period {
+        case .morning: return "sunrise.fill"
+        case .afternoon: return "sun.max.fill"
+        case .evening: return "moon.stars.fill"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(AppTheme.accent)
+                Text(period.rawValue.uppercased())
+                    .font(AppTheme.sans(11, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundColor(AppTheme.stone)
+            }
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 92), spacing: 10)],
+                spacing: 10
+            ) {
+                ForEach(slots, id: \.self) { label in
+                    TimeChip(
+                        label: label,
+                        isSelected: selectedSlot == label
+                    ) {
+                        Haptics.select()
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.72)) {
+                            selectedSlot = label
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Time chip
+
+struct TimeChip: View {
+    let label: String
     let isSelected: Bool
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            ZStack {
-                Text(slot.label)
-                    .font(AppTheme.sans(14, weight: .semibold))
-                    .foregroundColor(textColor)
-                    .lineLimit(1)
-
-                if !slot.available {
-                    Rectangle()
-                        .fill(AppTheme.stone.opacity(0.4))
-                        .frame(height: 1)
-                        .rotationEffect(.degrees(-12))
-                        .padding(.horizontal, 8)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 46)
-            .background(bgColor)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(
-                        isSelected ? AppTheme.ink : AppTheme.hairline.opacity(0.6),
-                        lineWidth: isSelected ? 1.5 : 0.7
-                    )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .scaleEffect(isSelected ? 1.02 : 1)
-            .animation(.spring(response: 0.32, dampingFraction: 0.7), value: isSelected)
+            Text(label)
+                .font(AppTheme.sans(14, weight: .semibold))
+                .foregroundColor(isSelected ? .white : AppTheme.ink)
+                .frame(maxWidth: .infinity)
+                .frame(height: 46)
+                .background(isSelected ? AppTheme.ink : AppTheme.snow)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(
+                            isSelected ? AppTheme.ink : AppTheme.hairline.opacity(0.6),
+                            lineWidth: isSelected ? 1.5 : 0.7
+                        )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .scaleEffect(isSelected ? 1.02 : 1)
+                .animation(.spring(response: 0.32, dampingFraction: 0.7), value: isSelected)
         }
         .buttonStyle(SoftPress())
-        .disabled(!slot.available)
-    }
-
-    private var bgColor: Color {
-        if isSelected { return AppTheme.ink }
-        if !slot.available { return AppTheme.mist.opacity(0.55) }
-        return AppTheme.snow
-    }
-
-    private var textColor: Color {
-        if isSelected { return .white }
-        if !slot.available { return AppTheme.stone.opacity(0.55) }
-        return AppTheme.ink
     }
 }

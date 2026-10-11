@@ -6,7 +6,10 @@ options:
 packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
-    from: 10.0.0
+    from: 10.22.0
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: 7.1.0
 targets:
   BraidMe:
     type: application
@@ -33,7 +36,9 @@ targets:
           NSAllowsLocalNetworking: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        NSLocationWhenInUseUsageDescription: "BraidMe needs your location to find braiders near you."
+        NSLocationWhenInUseUsageDescription: "BraidMe uses your location to find braiders near you."
+        NSPhotoLibraryUsageDescription: "BraidMe needs access to your photos to set your profile picture."
+        NSCameraUsageDescription: "BraidMe uses your camera to take profile photos."
         NSApplePayMerchantID: "merchant.com.example.BraidMe"
     settings:
       base:
@@ -52,3 +57,7 @@ targets:
         product: FirebaseStorage
       - package: Firebase
         product: FirebaseAuth
+      - package: GoogleSignIn
+        product: GoogleSignIn
+      - package: GoogleSignIn
+        product: GoogleSignInSwift

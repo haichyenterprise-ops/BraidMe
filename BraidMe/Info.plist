@@ -36,8 +36,23 @@
         <string>UIInterfaceOrientationPortrait</string>
     </array>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>BraidMe needs your location to find braiders near you.</string>
+    <string>BraidMe uses your location to find braiders near you.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>BraidMe needs access to your photos to set your profile picture.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>BraidMe uses your camera to take profile photos.</string>
     <key>NSApplePayMerchantID</key>
     <string>merchant.com.example.BraidMe</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.googleusercontent.apps.REPLACE_WITH_CLIENT_ID</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>

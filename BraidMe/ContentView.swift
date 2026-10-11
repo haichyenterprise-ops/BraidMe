@@ -2,7 +2,7 @@
 
 enum AppState: Equatable {
     case auth
-    case ageVerification
+    case profileSetup
     case mainApp
 }
 
@@ -10,12 +10,12 @@ struct ContentView: View {
     @State private var state: AppState = .auth
     @State private var pendingUser: PendingUser?
 
-    // Carries sign-in data across screens
-    struct PendingUser {
+    struct PendingUser: Equatable {
         let uid: String
         let displayName: String
         let email: String?
         let provider: String
+        let needsName: Bool
     }
 
     var body: some View {
@@ -24,8 +24,8 @@ struct ContentView: View {
             case .auth:
                 AuthView { user in
                     pendingUser = user
-                    withAnimation(.easeInOut(duration: 0.55)) {
-                        state = .ageVerification
+                    withAnimation(.easeInOut(duration: 0.5)) {
+                        state = .profileSetup
                     }
                 }
                 .transition(
@@ -35,26 +35,22 @@ struct ContentView: View {
                     )
                 )
 
-            case .ageVerification:
-                AgeVerificationView(
-                    user: pendingUser ?? PendingUser(
-                        uid: "guest",
-                        displayName: "Guest",
-                        email: nil,
-                        provider: "guest"
-                    ),
-                    onConfirm: {
-                        withAnimation(.spring(response: 0.65, dampingFraction: 0.85)) {
+            case .profileSetup:
+                if let user = pendingUser {
+                    ProfileSetupView(user: user) {
+                        withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
                             state = .mainApp
                         }
                     }
-                )
-                .transition(
-                    .asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .opacity
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                            removal: .opacity
+                        )
                     )
-                )
+                } else {
+                    Color.clear.onAppear { state = .auth }
+                }
 
             case .mainApp:
                 MainTabView()
@@ -68,5 +64,12 @@ struct ContentView: View {
         }
         .background(AppTheme.cloud.ignoresSafeArea())
         .preferredColorScheme(.light)
+        
     }
+    .onReceive(NotificationCenter.default.publisher(for: .braidMeSignOut)) { _ in
+    withAnimation(.easeInOut(duration: 0.5)) {
+        state = .auth
+    }
+    pendingUser = nil
+}
 }
