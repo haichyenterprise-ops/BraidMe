@@ -1,0 +1,18 @@
+{
+  "project": "BraidMe",
+  "platform": "ios",
+  "github": {
+    "owner": "bigmanhv2-design",
+    "repo": "BraidMe"
+  },
+  "provider": "github",
+  "codemagic": {},
+  "bitrise": {},
+  "ios": {},
+  "flutter": {
+    "watch": {}
+  },
+  "reactNative": {},
+  "kmp": {},
+  "mobai": {}
+}

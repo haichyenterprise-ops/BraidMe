@@ -3,6 +3,10 @@ options:
   bundleIdPrefix: com.example
   deploymentTarget:
     iOS: "17.0"
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: 10.0.0
 targets:
   BraidMe:
     type: application
@@ -24,8 +28,8 @@ targets:
           NSAllowsLocalNetworking: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
+        NSLocationWhenInUseUsageDescription: "BraidMe needs your location to find braiders near you."
+        NSApplePayMerchantID: "merchant.com.example.BraidMe"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.BraidMe
@@ -36,3 +40,8 @@ targets:
         CODE_SIGN_IDENTITY: ""
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
+    dependencies:
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: Firebase
+        product: FirebaseStorage

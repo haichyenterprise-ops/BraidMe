@@ -1,24 +1,30 @@
 ﻿import SwiftUI
 
-struct ContentView: View {
-    var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "swift")
-                .imageScale(.large)
-                .foregroundStyle(.orange)
-            Text("Hello, BraidMe!")
-                .font(.largeTitle)
-                .fontWeight(.bold)
-            Text("Edit ContentView.swift in VS Code to start building.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-        }
-        .padding()
-    }
+enum AppState {
+    case auth
+    case ageVerification
+    case mainApp
 }
 
-#Preview {
-    ContentView()
+struct ContentView: View {
+    @State private var appState: AppState = .auth
+    
+    var body: some View {
+        ZStack {
+            if appState == .auth {
+                AuthView(onLoginSuccess: {
+                    withAnimation(.easeInOut(duration: 0.5)) { appState = .ageVerification }
+                })
+                .transition(.opacity)
+            } else if appState == .ageVerification {
+                AgeVerificationView(onConfirm: {
+                    withAnimation(.spring()) { appState = .mainApp }
+                })
+                .transition(.move(edge: .trailing))
+            } else {
+                MainTabView()
+                    .transition(.move(edge: .bottom))
+            }
+        }
+    }
 }
