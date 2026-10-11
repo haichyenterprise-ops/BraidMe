@@ -1,15 +1,20 @@
 import SwiftUI
 import AuthenticationServices
-import CryptoKit
-import GoogleSignIn
+import FirebaseAuth
 
 struct AuthView: View {
-    var onAuthenticated: (ContentView.PendingUser) -> Void
+    @EnvironmentObject private var session: SessionManager
 
-    @State private var errorMessage: String?
-    @State private var isProcessing = false
+    @State private var mode: AuthMode = .landing
     @State private var currentNonce: String?
+    @State private var errorMessage: String?
     @State private var appeared = false
+
+    enum AuthMode: Equatable {
+        case landing
+        case emailSignup
+        case emailLogin
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -19,40 +24,33 @@ struct AuthView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
+                        Spacer().frame(height: 40)
 
-                        // TOP SPACER — shrinks on small devices
-                        Spacer()
-                            .frame(height: 40)
+                        if mode == .landing {
+                            landingView
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: .leading).combined(with: .opacity),
+                                    removal: .move(edge: .leading).combined(with: .opacity)
+                                ))
+                        } else {
+                            EmailAuthView(
+                                mode: mode == .emailSignup ? .signup : .login,
+                                onBack: {
+                                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                                        mode = .landing
+                                    }
+                                },
+                                onSuccess: {
+                                    // session listener handles the rest
+                                }
+                            )
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .trailing).combined(with: .opacity),
+                                removal: .move(edge: .trailing).combined(with: .opacity)
+                            ))
+                        }
 
-                        // BRAND
-                        brandBlock
-                            .padding(.horizontal, 28)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Spacer()
-                            .frame(height: 28)
-
-                        // HERO
-                        hero
-                            .frame(maxWidth: .infinity, alignment: .center)
-
-                        Spacer()
-                            .frame(height: 32)
-
-                        // AUTH BUTTONS
-                        authStack
-                            .padding(.horizontal, 28)
-
-                        Spacer()
-                            .frame(height: 24)
-
-                        // LEGAL
-                        legal
-                            .padding(.horizontal, 28)
-                            .frame(maxWidth: .infinity, alignment: .center)
-
-                        Spacer()
-                            .frame(height: 40)
+                        Spacer().frame(height: 40)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -67,10 +65,7 @@ struct AuthView: View {
     }
 
     private var bindingError: Binding<Bool> {
-        Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )
+        Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
     }
 
     // MARK: - Ambient
@@ -78,28 +73,20 @@ struct AuthView: View {
     private var ambient: some View {
         ZStack {
             Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [AppTheme.accent.opacity(0.20), .clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 220
-                    )
-                )
+                .fill(RadialGradient(
+                    colors: [AppTheme.accent.opacity(0.20), .clear],
+                    center: .center, startRadius: 0, endRadius: 220
+                ))
                 .frame(width: 460, height: 460)
                 .blur(radius: 50)
                 .offset(x: -140, y: -240)
                 .opacity(appeared ? 1 : 0)
 
             Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [AppTheme.plum.opacity(0.14), .clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 200
-                    )
-                )
+                .fill(RadialGradient(
+                    colors: [AppTheme.plum.opacity(0.14), .clear],
+                    center: .center, startRadius: 0, endRadius: 200
+                ))
                 .frame(width: 400, height: 400)
                 .blur(radius: 60)
                 .offset(x: 160, y: 300)
@@ -109,11 +96,33 @@ struct AuthView: View {
         .allowsHitTesting(false)
     }
 
-    // MARK: - Brand block
+    // MARK: - Landing
+
+    private var landingView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            brandBlock
+                .padding(.horizontal, 28)
+
+            Spacer().frame(height: 28)
+
+            hero
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            Spacer().frame(height: 32)
+
+            authStack
+                .padding(.horizontal, 28)
+
+            Spacer().frame(height: 24)
+
+            legal
+                .padding(.horizontal, 28)
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
 
     private var brandBlock: some View {
         VStack(alignment: .leading, spacing: 14) {
-
             HStack(spacing: 10) {
                 ZStack {
                     Circle()
@@ -124,7 +133,6 @@ struct AuthView: View {
                         .font(.system(size: 17, weight: .medium))
                         .foregroundColor(.white)
                 }
-
                 Text("BRAIDME")
                     .font(AppTheme.sans(11, weight: .bold))
                     .tracking(2.8)
@@ -137,7 +145,6 @@ struct AuthView: View {
                 .foregroundColor(AppTheme.ink)
                 .minimumScaleFactor(0.7)
                 .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: false)
 
             Text("Discover braiders near you — booked, verified, and rated by real clients.")
                 .font(AppTheme.sans(14))
@@ -150,21 +157,17 @@ struct AuthView: View {
         .offset(y: appeared ? 0 : 22)
     }
 
-    // MARK: - Hero
-
     private var hero: some View {
         ZStack {
             Circle()
                 .fill(AppTheme.bronzeSoft)
                 .frame(width: 150, height: 150)
 
-            RemoteImage(
-                url: "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=800&q=85"
-            )
-            .frame(width: 132, height: 132)
-            .clipShape(Circle())
-            .overlay(Circle().stroke(AppTheme.snow, lineWidth: 4))
-            .shadow(color: .black.opacity(0.15), radius: 16, y: 8)
+            RemoteImage(url: "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=800&q=85")
+                .frame(width: 132, height: 132)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(AppTheme.snow, lineWidth: 4))
+                .shadow(color: .black.opacity(0.15), radius: 16, y: 8)
 
             floatingBadge(icon: "checkmark.seal.fill", tint: AppTheme.success)
                 .offset(x: 62, y: -52)
@@ -188,13 +191,14 @@ struct AuthView: View {
         }
     }
 
-    // MARK: - Auth stack
+    // MARK: - Auth buttons
 
     private var authStack: some View {
         VStack(spacing: 12) {
             appleSignIn
             googleSignIn
-            guestButton
+            emailSignupButton
+            emailLoginButton
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 28)
@@ -204,22 +208,21 @@ struct AuthView: View {
         ZStack {
             SignInWithAppleButton(
                 onRequest: { request in
-                    let nonce = randomNonceString()
+                    let nonce = AppleNonce.random()
                     currentNonce = nonce
                     request.requestedScopes = [.fullName, .email]
-                    request.nonce = sha256(nonce)
+                    request.nonce = AppleNonce.sha256(nonce)
                 },
                 onCompletion: handleAppleResult
             )
             .signInWithAppleButtonStyle(.black)
             .frame(height: 56)
-            .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .shadow(color: AppTheme.ink.opacity(0.25), radius: 16, y: 8)
-            .opacity(isProcessing ? 0.6 : 1)
-            .disabled(isProcessing)
+            .opacity(session.isBusy ? 0.6 : 1)
+            .disabled(session.isBusy)
 
-            if isProcessing {
+            if session.isBusy && currentNonce != nil {
                 ProgressView().tint(.white)
             }
         }
@@ -227,11 +230,10 @@ struct AuthView: View {
 
     private var googleSignIn: some View {
         Button {
-            handleGoogleSignIn()
+            Task { await handleGoogle() }
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "g.circle.fill")
-                    .font(.system(size: 20))
+                Image(systemName: "g.circle.fill").font(.system(size: 20))
                 Text("Continue with Google")
                     .font(AppTheme.sans(17, weight: .semibold))
             }
@@ -246,32 +248,56 @@ struct AuthView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(SoftPress())
-        .disabled(isProcessing)
+        .disabled(session.isBusy)
     }
 
-    private var guestButton: some View {
+    private var emailSignupButton: some View {
         Button {
             Haptics.soft()
-            let uid = "guest_\(UUID().uuidString.prefix(10))"
-            UserDefaults.standard.set(uid, forKey: "currentUid")
-            onAuthenticated(
-                .init(
-                    uid: uid,
-                    displayName: "",
-                    email: nil,
-                    provider: "guest",
-                    needsName: true
-                )
-            )
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                mode = .emailSignup
+            }
         } label: {
-            Text("Continue as Guest")
-                .font(AppTheme.sans(15, weight: .medium))
-                .foregroundColor(AppTheme.slate)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
+            HStack(spacing: 10) {
+                Image(systemName: "envelope.fill").font(.system(size: 16))
+                Text("Sign up with Email")
+                    .font(AppTheme.sans(17, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(AppTheme.inkGradient)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+            )
+            .shadow(color: AppTheme.ink.opacity(0.28), radius: 18, y: 10)
         }
         .buttonStyle(SoftPress())
-        .disabled(isProcessing)
+        .disabled(session.isBusy)
+    }
+
+    private var emailLoginButton: some View {
+        Button {
+            Haptics.soft()
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                mode = .emailLogin
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text("Already have an account?")
+                    .font(AppTheme.sans(14))
+                    .foregroundColor(AppTheme.slate)
+                Text("Log in")
+                    .font(AppTheme.sans(14, weight: .semibold))
+                    .foregroundColor(AppTheme.accentDeep)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+        }
+        .buttonStyle(SoftPress())
+        .disabled(session.isBusy)
     }
 
     private var legal: some View {
@@ -295,199 +321,54 @@ struct AuthView: View {
         }
     }
 
-    // MARK: - Apple Sign In
+    // MARK: - Apple
 
     private func handleAppleResult(_ result: Result<ASAuthorization, Error>) {
         switch result {
         case .success(let auth):
-            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential else {
-                errorMessage = "Unexpected credential type."
+            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                  let nonce = currentNonce else {
+                errorMessage = "Missing Apple credential."
                 return
             }
 
-            isProcessing = true
+            session.isBusy = true
             Haptics.success()
-
-            let given = credential.fullName?.givenName ?? ""
-            let family = credential.fullName?.familyName ?? ""
-            let assembled = [given, family]
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
-            let email = credential.email
-
-            var uid = credential.user
-            if uid.isEmpty {
-                uid = UserDefaults.standard.string(forKey: "currentUid")
-                    ?? "apple_\(UUID().uuidString.prefix(12))"
-            }
-
-            UserDefaults.standard.set(uid, forKey: "currentUid")
-            UserDefaults.standard.set(uid, forKey: "appleUserId")
-
-            let needsName = assembled.isEmpty
 
             Task {
                 do {
-                    try await FirebaseManager.shared.upsertUser(
-                        uid: uid,
-                        displayName: assembled.isEmpty ? "BraidMe User" : assembled,
-                        email: email,
-                        provider: "apple"
-                    )
+                    try await session.signInWithApple(credential: credential, nonce: nonce)
+                    await MainActor.run { session.isBusy = false }
                 } catch {
-                    print("[Auth] apple upsert failed:", error)
-                }
-
-                await MainActor.run {
-                    isProcessing = false
-                    onAuthenticated(
-                        .init(
-                            uid: uid,
-                            displayName: assembled,
-                            email: email,
-                            provider: "apple",
-                            needsName: needsName
-                        )
-                    )
+                    await MainActor.run {
+                        session.isBusy = false
+                        errorMessage = SessionManager.friendlyError(error)
+                    }
+                    Haptics.error()
                 }
             }
 
         case .failure(let error):
-            if (error as NSError).code == ASAuthorizationError.canceled.rawValue {
-                return
-            }
+            if (error as NSError).code == ASAuthorizationError.canceled.rawValue { return }
             errorMessage = error.localizedDescription
             Haptics.error()
         }
     }
 
-    // MARK: - Google Sign In
+    // MARK: - Google
 
-    private func handleGoogleSignIn() {
-        guard let root = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .flatMap({ $0.windows })
-            .first(where: { $0.isKeyWindow })?
-            .rootViewController
-        else {
-            performFallbackGoogle()
-            return
-        }
-
-        isProcessing = true
-
-        GIDSignIn.sharedInstance.signIn(withPresenting: root) { result, error in
-            if let error {
-                self.isProcessing = false
-                if (error as NSError).code == GIDSignInError.canceled.rawValue {
-                    return
-                }
-                print("[Auth] Google SDK error:", error.localizedDescription)
-                self.performFallbackGoogle()
-                return
-            }
-
-            guard let user = result?.user else {
-                self.performFallbackGoogle()
-                return
-            }
-
-            var uid = user.userID ?? ""
-            if uid.isEmpty {
-                uid = "google_\(UUID().uuidString.prefix(10))"
-            }
-            let name = user.profile?.name ?? ""
-            let email = user.profile?.email
-
-            UserDefaults.standard.set(uid, forKey: "currentUid")
-            Haptics.success()
-
-            Task {
-                do {
-                    try await FirebaseManager.shared.upsertUser(
-                        uid: uid,
-                        displayName: name.isEmpty ? "Google User" : name,
-                        email: email,
-                        provider: "google"
-                    )
-                } catch {
-                    print("[Auth] google upsert failed:", error)
-                }
-
-                await MainActor.run {
-                    self.isProcessing = false
-                    self.onAuthenticated(
-                        .init(
-                            uid: uid,
-                            displayName: name,
-                            email: email,
-                            provider: "google",
-                            needsName: name.isEmpty
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    private func performFallbackGoogle() {
-        isProcessing = true
+    private func handleGoogle() async {
+        session.isBusy = true
         Haptics.soft()
-
-        let uid = "google_\(UUID().uuidString.prefix(10))"
-        UserDefaults.standard.set(uid, forKey: "currentUid")
-
-        Task {
-            try? await FirebaseManager.shared.upsertUser(
-                uid: uid,
-                displayName: "Google User",
-                email: nil,
-                provider: "google"
-            )
+        do {
+            try await session.signInWithGoogle()
+            await MainActor.run { session.isBusy = false }
+        } catch {
             await MainActor.run {
-                isProcessing = false
-                onAuthenticated(
-                    .init(
-                        uid: uid,
-                        displayName: "",
-                        email: nil,
-                        provider: "google",
-                        needsName: true
-                    )
-                )
+                session.isBusy = false
+                errorMessage = SessionManager.friendlyError(error)
             }
+            Haptics.error()
         }
     }
-}
-
-// MARK: - Nonce helpers
-
-private func randomNonceString(length: Int = 32) -> String {
-    let chars = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
-    var result = ""
-    var remaining = length
-
-    while remaining > 0 {
-        var randoms = [UInt8](repeating: 0, count: 16)
-        let status = SecRandomCopyBytes(kSecRandomDefault, randoms.count, &randoms)
-        guard status == errSecSuccess else {
-            fatalError("Nonce generation failed.")
-        }
-        randoms.forEach { byte in
-            if remaining == 0 { return }
-            if byte < chars.count {
-                result.append(chars[Int(byte)])
-                remaining -= 1
-            }
-        }
-    }
-
-    return result
-}
-
-private func sha256(_ input: String) -> String {
-    let data = Data(input.utf8)
-    return SHA256.hash(data: data)
-        .compactMap { String(format: "%02x", $0) }
-        .joined()
 }

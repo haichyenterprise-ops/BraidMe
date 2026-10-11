@@ -103,6 +103,15 @@ final class FirebaseManager: ObservableObject {
             print("[FirebaseManager] loadUser failed:", error)
         }
     }
+    func updateCity(uid: String, city: String, region: String, latitude: Double, longitude: Double) async throws {
+    try await updateUser(uid: uid, data: [
+        "city": city,
+        "region": region,
+        "latitude": latitude,
+        "longitude": longitude,
+        "cityUpdatedAt": Date()
+    ])
+}
 
     // MARK: - Braiders (Firestore-backed)
 
@@ -481,7 +490,13 @@ enum BraiderMapper {
         let portfolioRaw = (data["portfolio"] as? [[String: Any]]) ?? []
         let stylesRaw = (data["styles"] as? [[String: Any]]) ?? []
         let slotsRaw = (data["availableSlots"] as? [String: [String]]) ?? [:]
-        let datesRaw = (data["availableDates"] as? [Date]) ?? []
+        let datesRaw: [Date] = {
+            if let dates = data["availableDates"] as? [Date] { return dates }
+            if let timestamps = data["availableDates"] as? [Timestamp] {
+                return timestamps.map { $0.dateValue() }
+            }
+            return []
+        }()
 
         let portfolio = portfolioRaw.compactMap { p -> PortfolioItem? in
             guard let i = p["id"] as? String,

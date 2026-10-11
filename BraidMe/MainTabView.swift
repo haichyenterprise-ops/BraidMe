@@ -3,6 +3,7 @@ import MapKit
 import CoreLocation
 
 struct MainTabView: View {
+    @EnvironmentObject private var session: SessionManager
     @StateObject private var fb = FirebaseManager.shared
     @StateObject private var locationService = LocationService()
 
@@ -10,11 +11,14 @@ struct MainTabView: View {
         center: CLLocationCoordinate2D(latitude: 52.4862, longitude: -1.8904),
         span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
     )
+    @State private var currentCity: City = CityCatalog.all[0]
     @State private var selectedBraider: Braider?
     @State private var previewBraider: Braider?
     @State private var showLocationSheet = false
     @State private var showProfileSheet = false
+    @State private var showCitySearch = false
     @State private var mapAppeared = false
+    @State private var userInfo: UserProfile?
 
     var body: some View {
         NavigationStack {
@@ -27,15 +31,26 @@ struct MainTabView: View {
             .navigationDestination(item: $selectedBraider) { braider in
                 BraiderProfileView(braider: braider)
             }
-            .sheet(isPresented: $showProfileSheet) {
-                UserInfoSheet()
+            .sheet(isPresented: $showProfileSheet) { UserInfoSheet() }
+            .sheet(isPresented: $showCitySearch) {
+                LocationSearchView(initialCity: currentCity) { newCity in
+                    withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) {
+                        currentCity = newCity
+                        region = MKCoordinateRegion(
+                            center: newCity.coordinate,
+                            span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
+                        )
+                    }
+                    Haptics.success()
+                }
+                .presentationDetents([.large])
             }
             .onAppear(perform: onAppear)
             .sheet(isPresented: $showLocationSheet, onDismiss: onLocationDismiss) {
                 LocationPermissionSheet { allowed in
                     handleLocationDecision(allowed)
                 }
-                .presentationDetents([.height(440)])
+                .presentationDetents([.height(460)])
                 .presentationDragIndicator(.visible)
                 .interactiveDismissDisabled()
             }
@@ -66,7 +81,7 @@ struct MainTabView: View {
     // MARK: - Top chrome
 
     private var topChrome: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             searchRow
             Spacer()
         }
@@ -82,71 +97,80 @@ struct MainTabView: View {
     }
 
     private var searchBar: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(AppTheme.slate)
+        Button {
+            Haptics.soft()
+            showCitySearch = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(AppTheme.slate)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text("NEARBY")
-                    .font(AppTheme.sans(10, weight: .bold))
-                    .tracking(1.4)
-                    .foregroundColor(AppTheme.stone)
-                Text("Birmingham, UK")
-                    .font(AppTheme.sans(14, weight: .semibold))
-                    .foregroundColor(AppTheme.ink)
-            }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("NEARBY")
+                        .font(AppTheme.sans(10, weight: .bold))
+                        .tracking(1.4)
+                        .foregroundColor(AppTheme.stone)
+                    Text(currentCity.fullName)
+                        .font(AppTheme.sans(14, weight: .semibold))
+                        .foregroundColor(AppTheme.ink)
+                        .lineLimit(1)
+                }
 
-            Spacer()
+                Spacer()
 
-            if fb.isLoadingBraiders {
-                ProgressView().scaleEffect(0.8)
-            } else {
                 Text("\(fb.braiders.count)")
                     .font(AppTheme.sans(13, weight: .bold))
                     .foregroundColor(.white)
                     .frame(width: 28, height: 28)
                     .background(AppTheme.accent, in: Circle())
             }
+            .padding(.horizontal, 14)
+            .frame(height: 56)
+            .background(AppTheme.snow)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.black.opacity(0.03), lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.08), radius: 16, y: 8)
         }
-        .padding(.horizontal, 14)
-        .frame(height: 54)
-        .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.black.opacity(0.03), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.08), radius: 16, y: 8)
+        .buttonStyle(CardPress())
     }
 
     private var profileButton: some View {
-    Button {
-        Haptics.soft()
-        showProfileSheet = true
-    } label: {
-        ZStack {
-            Circle()
-                .fill(AppTheme.inkGradient)
-                .frame(width: 54, height: 54)
-            Text(initialsFor(fb.currentUser?.displayName))
-                .font(AppTheme.sans(16, weight: .bold))
-                .foregroundColor(.white)
-            Circle()
-                .stroke(AppTheme.accent, lineWidth: 2)
-                .frame(width: 58, height: 58)
-        }
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 6)
-    }
-    .buttonStyle(BouncyPress())
-}
+        Button {
+            Haptics.soft()
+            showProfileSheet = true
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(AppTheme.inkGradient)
+                    .frame(width: 56, height: 56)
 
-private func initialsFor(_ name: String?) -> String {
-    guard let name, !name.isEmpty else { return "BM" }
-    let parts = name.split(separator: " ")
-    let initials = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
-    return initials.uppercased()
-}
+                if let name = userInfo?.displayName ?? session.displayName, !name.isEmpty {
+                    Text(initials(from: name))
+                        .font(AppTheme.sans(16, weight: .bold))
+                        .foregroundColor(.white)
+                } else {
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(.white)
+                }
+
+                Circle()
+                    .stroke(AppTheme.accent, lineWidth: 2)
+                    .frame(width: 60, height: 60)
+            }
+            .shadow(color: .black.opacity(0.15), radius: 12, y: 6)
+        }
+        .buttonStyle(BouncyPress())
+    }
+
+    private func initials(from name: String) -> String {
+        let parts = name.split(separator: " ")
+        return parts.prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
+    }
 
     // MARK: - Preview pill
 
@@ -244,7 +268,6 @@ private func initialsFor(_ name: String?) -> String {
 
             Button {
                 Haptics.medium()
-                // Bookings sheet handled inside ProfileSheet for now
                 showProfileSheet = true
             } label: {
                 HStack(spacing: 8) {
@@ -306,10 +329,26 @@ private func initialsFor(_ name: String?) -> String {
     // MARK: - Lifecycle
 
     private func onAppear() {
-        let uid = fb.currentUid ?? ""
+        let uid = session.uid
 
         Task {
-            if !uid.isEmpty { await fb.loadUser(uid: uid) }
+            if !uid.isEmpty {
+                await fb.loadUser(uid: uid)
+                await MainActor.run { userInfo = fb.currentUser }
+
+                // If user already has a city in Firestore, use it
+                if let cityName = fb.currentUser?.city,
+                   let stored = CityCatalog.all.first(where: { $0.name == cityName }) {
+                    await MainActor.run {
+                        currentCity = stored
+                        region = MKCoordinateRegion(
+                            center: stored.coordinate,
+                            span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
+                        )
+                    }
+                }
+            }
+
             await fb.fetchBraidersFromFirestore()
         }
 
@@ -331,23 +370,41 @@ private func initialsFor(_ name: String?) -> String {
     private func handleLocationDecision(_ allowed: Bool) {
         Haptics.medium()
         fb.locationPermissionDecision = allowed ? "allowed" : "denied"
-        if allowed { locationService.start() }
 
-        guard let uid = fb.currentUid, !uid.isEmpty else { return }
-        Task {
-            do {
-                try await fb.setLocation(
-                    granted: allowed,
-                    city: allowed ? "Birmingham" : nil,
-                    uid: uid
-                )
-                await fb.loadUser(uid: uid)
-            } catch {
-                print("[Main] location write failed:", error)
+        if allowed {
+            locationService.start()
+
+            // Use last known location to pick closest city
+            if let loc = locationService.lastLocation,
+               let closest = CityCatalog.closest(to: loc) {
+                withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) {
+                    currentCity = closest
+                    region = MKCoordinateRegion(
+                        center: closest.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
+                    )
+                }
             }
         }
 
-        showLocationSheet = false
+        let uid = session.uid
+        guard !uid.isEmpty else { showLocationSheet = false; return }
+
+        Task {
+            try? await fb.updateUser(uid: uid, data: [
+                "locationGranted": allowed,
+                "city": currentCity.name,
+                "region": currentCity.region,
+                "latitude": currentCity.latitude,
+                "longitude": currentCity.longitude,
+                "locationUpdatedAt": Date()
+            ])
+            await fb.loadUser(uid: uid)
+            await MainActor.run {
+                userInfo = fb.currentUser
+                showLocationSheet = false
+            }
+        }
     }
 }
 
@@ -484,7 +541,7 @@ struct LocationPermissionSheet: View {
                 .foregroundColor(AppTheme.ink)
                 .lineSpacing(-2)
 
-            Text("We use your location to surface verified braiders in Birmingham and show accurate travel times.")
+            Text("We use your location to surface verified braiders in your city and show accurate travel times.")
                 .font(AppTheme.sans(15))
                 .foregroundColor(AppTheme.slate)
                 .multilineTextAlignment(.center)
@@ -522,7 +579,9 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
-    func start() { manager.requestWhenInUseAuthorization() }
+    func start() {
+        manager.requestWhenInUseAuthorization()
+    }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorization = manager.authorizationStatus

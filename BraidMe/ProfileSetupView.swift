@@ -1,7 +1,10 @@
 import SwiftUI
 
 struct ProfileSetupView: View {
-    let user: ContentView.PendingUser
+    let uid: String
+    let displayName: String
+    let provider: String
+    let needsName: Bool
     var onComplete: () -> Void
 
     @State private var name: String = ""
@@ -13,8 +16,7 @@ struct ProfileSetupView: View {
     private let range = Array(13...90)
 
     private var isNameValid: Bool {
-        // If the provider supplied a name, name is optional
-        !user.needsName || !name.trimmingCharacters(in: .whitespaces).isEmpty
+        !needsName || !name.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private var isValid: Bool {
@@ -35,7 +37,7 @@ struct ProfileSetupView: View {
 
                     Spacer().frame(height: 32)
 
-                    if user.needsName {
+                    if needsName {
                         nameField
                             .padding(.horizontal, 26)
                         Spacer().frame(height: 24)
@@ -53,7 +55,13 @@ struct ProfileSetupView: View {
                 }
             }
         }
-        .onAppear(perform: startEntrance)
+        .onAppear {
+            // Prefill name if we already have one from the provider
+            if !needsName && name.isEmpty {
+                name = displayName
+            }
+            startEntrance()
+        }
         .alert("Couldn't save", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -77,6 +85,16 @@ struct ProfileSetupView: View {
                 .blur(radius: 50)
                 .offset(x: -140, y: -200)
                 .opacity(appeared ? 1 : 0)
+
+            Circle()
+                .fill(RadialGradient(
+                    colors: [AppTheme.plum.opacity(0.10), .clear],
+                    center: .center, startRadius: 0, endRadius: 200
+                ))
+                .frame(width: 400, height: 400)
+                .blur(radius: 60)
+                .offset(x: 160, y: 260)
+                .opacity(appeared ? 1 : 0)
         }
         .animation(.easeOut(duration: 1.2), value: appeared)
         .allowsHitTesting(false)
@@ -90,18 +108,20 @@ struct ProfileSetupView: View {
                 Image(systemName: "person.crop.circle.badge.checkmark")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(AppTheme.accent)
-                Text("SETUP · STEP 2 OF 3")
+                Text("SETUP · STEP 2 OF 2")
                     .font(AppTheme.sans(11, weight: .bold))
                     .tracking(2.0)
                     .foregroundColor(AppTheme.accentDeep)
             }
 
-            Text(user.needsName ? "A little\nabout you." : "How old\nare you?")
+            Text(needsName ? "A little\nabout you." : "How old\nare you?")
                 .font(AppTheme.serif(40))
                 .lineSpacing(-3)
                 .foregroundColor(AppTheme.ink)
+                .minimumScaleFactor(0.7)
+                .lineLimit(2)
 
-            Text(user.needsName
+            Text(needsName
                  ? "We'll use this to personalise your feed and match you with the right braiders."
                  : "This helps us keep BraidMe safe and shows age-appropriate styles.")
                 .font(AppTheme.sans(15))
@@ -130,6 +150,7 @@ struct ProfileSetupView: View {
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
                     .foregroundColor(AppTheme.ink)
+                    .submitLabel(.done)
 
                 if !name.isEmpty {
                     Button {
@@ -155,6 +176,7 @@ struct ProfileSetupView: View {
                         lineWidth: name.isEmpty ? 1 : 1.2
                     )
             )
+            .shadow(color: .black.opacity(0.03), radius: 8, y: 2)
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 20)
@@ -217,7 +239,7 @@ struct ProfileSetupView: View {
 
     private var footer: some View {
         VStack(spacing: 12) {
-            if !isValid && !name.isEmpty {
+            if !isValid && !name.isEmpty && name.trimmingCharacters(in: .whitespaces).count > 0 {
                 Text("You must be at least 13 to continue.")
                     .font(AppTheme.sans(13, weight: .medium))
                     .foregroundColor(AppTheme.danger)
@@ -247,37 +269,38 @@ struct ProfileSetupView: View {
         Haptics.medium()
 
         let trimmed = name.trimmingCharacters(in: .whitespaces)
-        let finalName = trimmed.isEmpty
-            ? (user.displayName.isEmpty ? "Guest" : user.displayName)
-            : trimmed
+        let finalName: String = {
+            if !trimmed.isEmpty { return trimmed }
+            if !displayName.isEmpty { return displayName }
+            return "BraidMe User"
+        }()
 
         UserDefaults.standard.set(age, forKey: "userAge")
         UserDefaults.standard.set(finalName, forKey: "userName")
+        UserDefaults.standard.set(uid, forKey: "currentUid")
 
         Task {
             do {
-                try await FirebaseManager.shared.updateUser(uid: user.uid, data: [
+                try await FirebaseManager.shared.updateUser(uid: uid, data: [
                     "displayName": finalName,
                     "age": age,
-                    "provider": user.provider,
+                    "provider": provider,
                     "profileCompleted": true,
                     "profileCompletedAt": Date()
                 ])
-                // Refresh local cache so MainTabView has the user
-                await FirebaseManager.shared.loadUser(uid: user.uid)
+                await FirebaseManager.shared.loadUser(uid: uid)
+
+                await MainActor.run {
+                    saving = false
+                    Haptics.success()
+                    onComplete()
+                }
             } catch {
-                print("[ProfileSetup] save failed:", error)
                 await MainActor.run {
                     saving = false
                     errorMessage = error.localizedDescription
+                    Haptics.error()
                 }
-                return
-            }
-
-            await MainActor.run {
-                saving = false
-                Haptics.success()
-                onComplete()
             }
         }
     }

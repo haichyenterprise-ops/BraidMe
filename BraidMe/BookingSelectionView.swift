@@ -7,6 +7,7 @@ struct BookingSelectionView: View {
     @State private var selectedId: String?
     @State private var showPayment = false
     @State private var appeared = false
+    @State private var scrollToId: String?
 
     private var styles: [BraidStyle] { braider.styles }
 
@@ -20,24 +21,29 @@ struct BookingSelectionView: View {
             ZStack(alignment: .top) {
                 AppTheme.cloud.ignoresSafeArea()
 
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        header
-                            .padding(.horizontal, 24)
-                            .padding(.top, 20)
-                            .padding(.bottom, 20)
-
-                        LazyVStack(spacing: 26) {
-                            ForEach(styles) { style in
-                                CarouselCard(
-                                    style: style,
-                                    isSelected: selectedId == style.id,
-                                    onTap: { toggleSelect(style) }
-                                )
+                ScrollViewReader { proxy in
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            header
                                 .padding(.horizontal, 24)
+                                .padding(.top, 20)
+                                .padding(.bottom, 22)
+
+                            VStack(spacing: 18) {
+                                ForEach(styles) { style in
+                                    ExpandingStyleCard(
+                                        style: style,
+                                        isSelected: selectedId == style.id,
+                                        onTap: {
+                                            toggleSelect(style, proxy: proxy)
+                                        }
+                                    )
+                                    .padding(.horizontal, 24)
+                                    .id(style.id)
+                                }
                             }
+                            .padding(.bottom, 180)
                         }
-                        .padding(.bottom, 180)
                     }
                 }
 
@@ -92,6 +98,7 @@ struct BookingSelectionView: View {
                 .font(AppTheme.serif(34))
                 .lineSpacing(-2)
                 .foregroundColor(AppTheme.ink)
+                .minimumScaleFactor(0.75)
 
             HStack(spacing: 8) {
                 Text("with")
@@ -159,65 +166,56 @@ struct BookingSelectionView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: selectedId)
     }
 
-    private func toggleSelect(_ style: BraidStyle) {
+    private func toggleSelect(_ style: BraidStyle, proxy: ScrollViewProxy) {
         Haptics.select()
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
             if selectedId == style.id {
                 selectedId = nil
             } else {
                 selectedId = style.id
             }
         }
+
+        // Scroll the selected card to center after layout settles
+        if selectedId == style.id {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) {
+                    proxy.scrollTo(style.id, anchor: .center)
+                }
+            }
+        }
     }
 }
 
-// MARK: - Carousel card
+// MARK: - Expanding card
 
-struct CarouselCard: View {
+struct ExpandingStyleCard: View {
     let style: BraidStyle
     let isSelected: Bool
     let onTap: () -> Void
 
-    // Portably animate scale/opacity based on where the card sits in the viewport.
-    private let cardHeight: CGFloat = 340
-
     var body: some View {
-        GeometryReader { geo in
-            let frame = geo.frame(in: .global)
-            let screenMid = UIScreen.main.bounds.height / 2
-            let cardMid = frame.midY
-            let distance = abs(screenMid - cardMid) / screenMid
-            let clamped = min(max(distance, 0), 1)
-            let scale = 1 - clamped * 0.08
-            let opacity = 1 - clamped * 0.35
-
-            Button(action: onTap) {
-                VStack(alignment: .leading, spacing: 0) {
-                    imageBlock
-                    details
-                }
-                .background(AppTheme.snow)
-                .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        .stroke(
-                            isSelected ? AppTheme.ink : AppTheme.hairline.opacity(0.4),
-                            lineWidth: isSelected ? 2 : 0.5
-                        )
-                )
-                .shadow(
-                    color: isSelected ? AppTheme.ink.opacity(0.15) : .black.opacity(0.06),
-                    radius: isSelected ? 24 : 12,
-                    y: isSelected ? 12 : 6
-                )
-                .scaleEffect(scale)
-                .opacity(opacity)
-                .animation(.spring(response: 0.5, dampingFraction: 0.85), value: scale)
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isSelected)
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 0) {
+                imageBlock
+                details
             }
-            .buttonStyle(CardPress())
+            .background(AppTheme.snow)
+            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .stroke(
+                        isSelected ? AppTheme.ink : AppTheme.hairline.opacity(0.4),
+                        lineWidth: isSelected ? 2 : 0.5
+                    )
+            )
+            .shadow(
+                color: isSelected ? AppTheme.ink.opacity(0.15) : .black.opacity(0.06),
+                radius: isSelected ? 24 : 12,
+                y: isSelected ? 12 : 6
+            )
         }
-        .frame(height: cardHeight)
+        .buttonStyle(CardPress())
     }
 
     // MARK: - Image
@@ -225,13 +223,13 @@ struct CarouselCard: View {
     private var imageBlock: some View {
         ZStack(alignment: .topLeading) {
             RemoteImage(url: style.imageUrl)
-                .frame(height: 220)
+                .frame(height: 200)
                 .frame(maxWidth: .infinity)
                 .clipped()
                 .clipShape(RoundCorners(radius: 26, corners: [.topLeft, .topRight]))
 
             LinearGradient(
-                colors: [.black.opacity(0.35), .clear],
+                colors: [.black.opacity(0.4), .clear],
                 startPoint: .top, endPoint: .center
             )
             .clipShape(RoundCorners(radius: 26, corners: [.topLeft, .topRight]))
@@ -284,6 +282,7 @@ struct CarouselCard: View {
                         .lineSpacing(3)
                         .lineLimit(isSelected ? nil : 2)
                         .fixedSize(horizontal: false, vertical: true)
+                        .animation(.easeInOut(duration: 0.3), value: isSelected)
                 }
 
                 Spacer(minLength: 10)
@@ -298,26 +297,29 @@ struct CarouselCard: View {
 
             if isSelected {
                 includedList
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .top)),
-                        removal: .opacity
-                    ))
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .top)),
+                            removal: .opacity
+                        )
+                    )
             }
         }
         .padding(18)
-        .animation(.spring(response: 0.42, dampingFraction: 0.8), value: isSelected)
+        .animation(.spring(response: 0.45, dampingFraction: 0.82), value: isSelected)
     }
 
     private var checkmark: some View {
         ZStack {
             Circle()
                 .fill(isSelected ? AppTheme.ink : AppTheme.mist)
-                .frame(width: 30, height: 30)
+                .frame(width: 32, height: 32)
             Image(systemName: isSelected ? "checkmark" : "plus")
                 .font(.system(size: 13, weight: .bold))
                 .foregroundColor(isSelected ? .white : AppTheme.slate)
         }
-        .scaleEffect(isSelected ? 1.05 : 1)
+        .scaleEffect(isSelected ? 1.08 : 1)
+        .animation(.spring(response: 0.35, dampingFraction: 0.6), value: isSelected)
     }
 
     private var includedList: some View {

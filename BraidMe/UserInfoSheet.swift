@@ -1,14 +1,82 @@
 import SwiftUI
 
 struct UserInfoSheet: View {
+    @EnvironmentObject private var session: SessionManager
     @Environment(\.dismiss) private var dismiss
     @StateObject private var fb = FirebaseManager.shared
+
     @State private var appeared = false
+    @State private var showSignOutConfirm = false
+    @State private var showBookings = false
+
+    // MARK: - Derived
+
+    private var displayName: String {
+        fb.currentUser?.displayName
+            ?? session.displayName
+            ?? "BraidMe User"
+    }
+
+    private var userEmail: String {
+        fb.currentUser?.email
+            ?? session.email
+            ?? "Not shared"
+    }
+
+    private var userAge: String {
+        if let age = fb.currentUser?.age, age > 0 { return "\(age)" }
+        let stored = UserDefaults.standard.integer(forKey: "userAge")
+        return stored > 0 ? "\(stored)" : "—"
+    }
+
+    private var userCity: String {
+        fb.currentUser?.city ?? "Not shared"
+    }
+
+    private var providerLabel: String {
+        let provider = fb.currentUser?.provider ?? detectedProvider
+        switch provider {
+        case "apple":  return "Apple"
+        case "google": return "Google"
+        case "email":  return "Email"
+        case "password": return "Email"
+        default:       return "Guest"
+        }
+    }
+
+    private var providerIcon: String {
+        switch providerLabel {
+        case "Apple":  return "applelogo"
+        case "Google": return "g.circle.fill"
+        case "Email":  return "envelope.fill"
+        default:       return "person.fill"
+        }
+    }
+
+    private var detectedProvider: String {
+        guard let user = session.user else { return "guest" }
+        let ids = user.providerData.compactMap { $0.providerID }
+        if ids.contains("apple.com")  { return "apple" }
+        if ids.contains("google.com") { return "google" }
+        if ids.contains("password")   { return "email" }
+        return "guest"
+    }
+
+    private var initials: String {
+        let name = displayName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return "BM" }
+        let parts = name.split(separator: " ")
+        let result = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
+        return result.isEmpty ? "BM" : result.uppercased()
+    }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
             ZStack {
                 AppTheme.cloud.ignoresSafeArea()
+                ambient
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 24) {
@@ -16,6 +84,12 @@ struct UserInfoSheet: View {
                         infoSection
                         statsSection
                         signOutButton
+
+                        Text("BraidMe v1.0 · \(providerLabel) account")
+                            .font(AppTheme.sans(11))
+                            .foregroundColor(AppTheme.stone)
+                            .padding(.top, 8)
+
                         Color.clear.frame(height: 20)
                     }
                     .padding(.horizontal, 20)
@@ -36,10 +110,47 @@ struct UserInfoSheet: View {
             withAnimation(.spring(response: 0.9, dampingFraction: 0.85).delay(0.1)) {
                 appeared = true
             }
-            if let uid = fb.currentUid, !uid.isEmpty {
+            let uid = session.uid
+            if !uid.isEmpty {
                 Task { await fb.loadUser(uid: uid) }
             }
         }
+        .alert("Sign out?", isPresented: $showSignOutConfirm) {
+            Button("Sign out", role: .destructive) {
+                signOut()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You'll need to sign in again to book a braider.")
+        }
+    }
+
+    // MARK: - Ambient
+
+    private var ambient: some View {
+        ZStack {
+            Circle()
+                .fill(RadialGradient(
+                    colors: [AppTheme.accent.opacity(0.14), .clear],
+                    center: .center, startRadius: 0, endRadius: 200
+                ))
+                .frame(width: 420, height: 420)
+                .blur(radius: 50)
+                .offset(x: -140, y: -180)
+                .opacity(appeared ? 1 : 0)
+
+            Circle()
+                .fill(RadialGradient(
+                    colors: [AppTheme.plum.opacity(0.10), .clear],
+                    center: .center, startRadius: 0, endRadius: 180
+                ))
+                .frame(width: 380, height: 380)
+                .blur(radius: 60)
+                .offset(x: 160, y: 260)
+                .opacity(appeared ? 1 : 0)
+        }
+        .animation(.easeOut(duration: 1.2), value: appeared)
+        .allowsHitTesting(false)
     }
 
     // MARK: - Avatar
@@ -50,20 +161,39 @@ struct UserInfoSheet: View {
                 Circle()
                     .fill(AppTheme.inkGradient)
                     .frame(width: 120, height: 120)
+
                 Text(initials)
                     .font(AppTheme.serif(44))
                     .foregroundColor(.white)
+
                 Circle()
                     .stroke(AppTheme.accent, lineWidth: 3)
                     .frame(width: 126, height: 126)
+
+                // Provider badge
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.snow)
+                        .frame(width: 36, height: 36)
+                        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+                    Image(systemName: providerIcon)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.ink)
+                }
+                .offset(x: 44, y: 44)
             }
             .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
 
             VStack(spacing: 6) {
-                Text(fb.currentUser?.displayName ?? "BraidMe User")
+                Text(displayName)
                     .font(AppTheme.serif(24))
                     .foregroundColor(AppTheme.ink)
-                providerBadge
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Signed in with \(providerLabel)")
+                    .font(AppTheme.sans(12, weight: .medium))
+                    .foregroundColor(AppTheme.stone)
             }
         }
         .padding(.top, 8)
@@ -71,49 +201,17 @@ struct UserInfoSheet: View {
         .offset(y: appeared ? 0 : 20)
     }
 
-    private var initials: String {
-        guard let name = fb.currentUser?.displayName, !name.isEmpty else { return "BM" }
-        let parts = name.split(separator: " ")
-        return parts.prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
-    }
-
-    private var providerBadge: some View {
-        let provider = fb.currentUser?.provider ?? "guest"
-        let (icon, label): (String, String) = {
-            switch provider {
-            case "apple": return ("applelogo", "Signed in with Apple")
-            case "google": return ("g.circle.fill", "Signed in with Google")
-            default: return ("person.fill", "Guest account")
-            }
-        }()
-
-        return HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-            Text(label)
-                .font(AppTheme.sans(12, weight: .semibold))
-        }
-        .foregroundColor(AppTheme.ink)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(AppTheme.mist, in: Capsule())
-    }
-
     // MARK: - Info
 
     private var infoSection: some View {
         VStack(spacing: 0) {
-            infoRow(icon: "person.fill", label: "Name",
-                    value: fb.currentUser?.displayName ?? "—")
+            infoRow(icon: "person.fill", label: "Name", value: displayName)
             divider
-            infoRow(icon: "envelope.fill", label: "Email",
-                    value: fb.currentUser?.email ?? "Not shared")
+            infoRow(icon: "envelope.fill", label: "Email", value: userEmail)
             divider
-            infoRow(icon: "calendar", label: "Age",
-                    value: fb.currentUser.map { "\($0.age)" } ?? "—")
+            infoRow(icon: "calendar", label: "Age", value: userAge)
             divider
-            infoRow(icon: "location.fill", label: "City",
-                    value: fb.currentUser?.city ?? "Not shared")
+            infoRow(icon: "location.fill", label: "City", value: userCity)
         }
         .background(AppTheme.snow)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -134,6 +232,7 @@ struct UserInfoSheet: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(AppTheme.accent)
             }
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(label.uppercased())
                     .font(AppTheme.sans(10, weight: .bold))
@@ -145,6 +244,7 @@ struct UserInfoSheet: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
+
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -159,35 +259,48 @@ struct UserInfoSheet: View {
 
     private var statsSection: some View {
         HStack(spacing: 12) {
-            statCard(icon: "calendar.badge.clock", value: "\(fb.bookings.count)", label: "BOOKINGS")
-            statCard(icon: "heart.fill", value: "0", label: "SAVED")
-            statCard(icon: "star.fill", value: "New", label: "MEMBER")
+            statCard(
+                icon: "calendar.badge.clock",
+                value: "\(fb.bookings.count)",
+                label: "BOOKINGS"
+            ) {
+                showBookings = true
+            }
+            statCard(icon: "heart.fill", value: "0", label: "SAVED", action: nil)
+            statCard(icon: "star.fill", value: "New", label: "MEMBER", action: nil)
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 20)
     }
 
-    private func statCard(icon: String, value: String, label: String) -> some View {
-        VStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(AppTheme.accent)
-            Text(value)
-                .font(AppTheme.serif(20))
-                .foregroundColor(AppTheme.ink)
-            Text(label)
-                .font(AppTheme.sans(9, weight: .bold))
-                .tracking(0.8)
-                .foregroundColor(AppTheme.stone)
+    private func statCard(icon: String, value: String, label: String, action: (() -> Void)?) -> some View {
+        Button {
+            Haptics.soft()
+            action?()
+        } label: {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppTheme.accent)
+                Text(value)
+                    .font(AppTheme.serif(20))
+                    .foregroundColor(AppTheme.ink)
+                Text(label)
+                    .font(AppTheme.sans(9, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundColor(AppTheme.stone)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(AppTheme.snow)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
+            )
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 16)
-        .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
-        )
+        .buttonStyle(CardPress())
+        .disabled(action == nil)
     }
 
     // MARK: - Sign out
@@ -195,7 +308,7 @@ struct UserInfoSheet: View {
     private var signOutButton: some View {
         Button {
             Haptics.warning()
-            signOut()
+            showSignOutConfirm = true
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
@@ -215,27 +328,26 @@ struct UserInfoSheet: View {
         }
         .buttonStyle(SoftPress())
         .padding(.top, 8)
+        .opacity(appeared ? 1 : 0)
     }
 
-    private func signOut() {
-        UserDefaults.standard.removeObject(forKey: "currentUid")
-        UserDefaults.standard.removeObject(forKey: "appleUserId")
-        UserDefaults.standard.removeObject(forKey: "userAge")
-        UserDefaults.standard.removeObject(forKey: "userName")
-        UserDefaults.standard.removeObject(forKey: "locationPermissionDecision")
+    // MARK: - Actions
 
+    private func signOut() {
+        // Clear cached data
         fb.currentUser = nil
         fb.bookings = []
         fb.braiders = []
 
+        // Clear UserDefaults hints
+        UserDefaults.standard.removeObject(forKey: "currentUid")
+        UserDefaults.standard.removeObject(forKey: "appleUserId")
+        UserDefaults.standard.removeObject(forKey: "userAge")
+        UserDefaults.standard.removeObject(forKey: "userName")
+
+        // Clear Firebase Auth session
+        SessionManager.shared.signOut()
+
         dismiss()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            NotificationCenter.default.post(name: .braidMeSignOut, object: nil)
-        }
     }
-}
-
-extension Notification.Name {
-    static let braidMeSignOut = Notification.Name("BraidMeSignOut")
 }

@@ -1,11 +1,11 @@
 import SwiftUI
-import PassKit
 
 struct PaymentView: View {
     let braider: Braider
     let style: BraidStyle
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: SessionManager
 
     @State private var selectedDate: Date
     @State private var selectedSlot: String?
@@ -14,12 +14,10 @@ struct PaymentView: View {
     @State private var showConfirmation = false
     @State private var isBooking = false
     @State private var appeared = false
-    @State private var applePayController: PKPaymentAuthorizationController?
 
     init(braider: Braider, style: BraidStyle) {
         self.braider = braider
         self.style = style
-        // Default to first available date
         let firstDate = braider.availableDates.sorted().first ?? Date()
         _selectedDate = State(initialValue: firstDate)
     }
@@ -43,9 +41,9 @@ struct PaymentView: View {
         for label in slotsForSelectedDate {
             let period = Self.periodFor(label)
             switch period {
-            case .morning: morning.append(label)
+            case .morning:   morning.append(label)
             case .afternoon: afternoon.append(label)
-            case .evening: evening.append(label)
+            case .evening:   evening.append(label)
             }
         }
 
@@ -137,6 +135,7 @@ struct PaymentView: View {
                 Text(style.name)
                     .font(AppTheme.serif(28))
                     .foregroundColor(AppTheme.ink)
+                    .minimumScaleFactor(0.8)
 
                 HStack(spacing: 6) {
                     Text("with")
@@ -217,12 +216,17 @@ struct PaymentView: View {
             Image(systemName: "calendar.badge.exclamationmark")
                 .font(.system(size: 18))
                 .foregroundColor(AppTheme.stone)
-            Text("No dates available yet")
-                .font(AppTheme.sans(14, weight: .medium))
-                .foregroundColor(AppTheme.stone)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("No dates available")
+                    .font(AppTheme.sans(14, weight: .semibold))
+                    .foregroundColor(AppTheme.ink)
+                Text("This braider hasn't published any dates yet.")
+                    .font(AppTheme.sans(12))
+                    .foregroundColor(AppTheme.stone)
+            }
+            Spacer()
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 20)
+        .padding(.vertical, 8)
     }
 
     // MARK: - Slots
@@ -230,16 +234,7 @@ struct PaymentView: View {
     private var slotsCard: some View {
         PaymentSectionCard(title: "Available times", icon: "clock") {
             if slotsForSelectedDate.isEmpty {
-                HStack(spacing: 10) {
-                    Image(systemName: "clock.badge.exclamationmark")
-                        .font(.system(size: 18))
-                        .foregroundColor(AppTheme.stone)
-                    Text("No times on this date")
-                        .font(AppTheme.sans(14, weight: .medium))
-                        .foregroundColor(AppTheme.stone)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
+                emptySlots
             } else {
                 VStack(alignment: .leading, spacing: 18) {
                     ForEach(groupedSlots, id: \.0) { group in
@@ -254,6 +249,24 @@ struct PaymentView: View {
         }
     }
 
+    private var emptySlots: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "clock.badge.exclamationmark")
+                .font(.system(size: 18))
+                .foregroundColor(AppTheme.stone)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("No times on this date")
+                    .font(AppTheme.sans(14, weight: .semibold))
+                    .foregroundColor(AppTheme.ink)
+                Text("Try a different date above.")
+                    .font(AppTheme.sans(12))
+                    .foregroundColor(AppTheme.stone)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 8)
+    }
+
     // MARK: - Note
 
     private var reviewNote: some View {
@@ -266,7 +279,7 @@ struct PaymentView: View {
                 Text("Secure booking")
                     .font(AppTheme.sans(14, weight: .semibold))
                     .foregroundColor(AppTheme.ink)
-                Text("Free cancellation up to 24 hours before. Payment processed securely via Apple Pay.")
+                Text("Free cancellation up to 24 hours before. Payment processed securely.")
                     .font(AppTheme.sans(12))
                     .foregroundColor(AppTheme.slate)
                     .lineSpacing(3)
@@ -323,13 +336,13 @@ struct PaymentView: View {
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: selectedSlot)
 
-            Button(action: startPayment) {
+            Button(action: book) {
                 HStack(spacing: 8) {
                     if isBooking {
                         ProgressView().tint(.white)
                     } else {
                         Image(systemName: "applelogo")
-                        Text("Pay with Apple Pay")
+                        Text("Confirm & Pay")
                             .font(AppTheme.sans(17, weight: .semibold))
                     }
                 }
@@ -364,14 +377,16 @@ struct PaymentView: View {
         )
     }
 
-    // MARK: - Payment
+    // MARK: - Booking
 
-    private func startPayment() {
+    private func book() {
         guard let slot = selectedSlot else { return }
-        guard let uid = FirebaseManager.shared.currentUid, !uid.isEmpty else {
+        let uid = session.uid
+        guard !uid.isEmpty else {
             Haptics.error()
             return
         }
+
         Haptics.medium()
         isBooking = true
 
@@ -393,7 +408,7 @@ struct PaymentView: View {
         }
     }
 
-    // MARK: - Confirmation
+    // MARK: - Helpers
 
     private var confirmationMessage: String {
         let d = selectedDate.formatted(date: .long, time: .omitted)
@@ -401,11 +416,10 @@ struct PaymentView: View {
         return "Your \(style.name.lowercased()) with \(braider.name) is booked for \(d) at \(t)."
     }
 
-    // MARK: - Date helpers
-
     static func dateKey(_ date: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = TimeZone.current
         return f.string(from: date)
     }
 
@@ -414,7 +428,6 @@ struct PaymentView: View {
     }
 
     static func periodFor(_ label: String) -> DayPeriod {
-        // "9:00 AM", "12:00 PM", "4:30 PM"
         let upper = label.uppercased()
         guard let hourPart = upper.split(separator: ":").first,
               var hour = Int(hourPart) else { return .morning }
@@ -522,15 +535,9 @@ struct DateChip: View {
     let isSelected: Bool
     let onTap: () -> Void
 
-    private var weekday: String {
-        date.formatted(.dateTime.weekday(.abbreviated)).uppercased()
-    }
-    private var day: String {
-        date.formatted(.dateTime.day())
-    }
-    private var month: String {
-        date.formatted(.dateTime.month(.abbreviated)).uppercased()
-    }
+    private var weekday: String { date.formatted(.dateTime.weekday(.abbreviated)).uppercased() }
+    private var day: String { date.formatted(.dateTime.day()) }
+    private var month: String { date.formatted(.dateTime.month(.abbreviated)).uppercased() }
 
     var body: some View {
         Button(action: onTap) {
@@ -579,9 +586,9 @@ struct SlotGroup: View {
 
     private var icon: String {
         switch period {
-        case .morning: return "sunrise.fill"
+        case .morning:   return "sunrise.fill"
         case .afternoon: return "sun.max.fill"
-        case .evening: return "moon.stars.fill"
+        case .evening:   return "moon.stars.fill"
         }
     }
 
@@ -616,8 +623,6 @@ struct SlotGroup: View {
         }
     }
 }
-
-// MARK: - Time chip
 
 struct TimeChip: View {
     let label: String
