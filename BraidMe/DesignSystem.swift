@@ -28,8 +28,6 @@ struct AppTheme {
 
     static let success = Color(hex: "#2F7A57")
     static let danger  = Color(hex: "#B63B3F")
-    static let success = Color(hex: "#2F7A57")
-    static let danger  = Color(hex: "#B63B3F")
 
     // Gradients
     static let inkGradient = LinearGradient(
