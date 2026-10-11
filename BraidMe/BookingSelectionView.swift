@@ -3,41 +3,42 @@ import SwiftUI
 struct BookingSelectionView: View {
     let braider: Braider
     @State private var styles: [BraidStyle] = []
-    @State private var selectedIndex: String? = nil
+    @State private var selectedId: String?
     @State private var showPayment = false
     @Environment(\.dismiss) var dismiss
-    
+
     private var selectedStyle: BraidStyle? {
-        guard let id = selectedIndex else { return nil }
+        guard let id = selectedId else { return nil }
         return styles.first(where: { $0.id == id })
     }
-    
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                header
-                
-                ScrollView {
-                    VStack(spacing: 16) {
-                        ForEach(styles) { style in
-                            BraidStyleRow(
-                                style: style,
-                                isSelected: selectedIndex == style.id,
-                                onTap: { handleTap(style) }
-                            )
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 120)
+            ZStack {
+                AppTheme.cloud.ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    header
+                    carousel
+                    Spacer(minLength: 0)
                 }
-            }
-            .background(AppTheme.cloud)
-            .safeAreaInset(edge: .bottom) {
-                bottomBar
+
+                VStack {
+                    Spacer()
+                    bottomCTA
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    closeButton
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(AppTheme.ink)
+                            .frame(width: 38, height: 38)
+                            .background(AppTheme.snow)
+                            .clipShape(Circle())
+                            .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
+                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -46,165 +47,154 @@ struct BookingSelectionView: View {
                     PaymentView(braider: braider, style: style)
                 }
             }
-            .onAppear {
-                styles = FirebaseManager.shared.braidStyles()
-            }
+            .onAppear { styles = FirebaseManager.shared.braidStyles() }
         }
     }
-    
-    // MARK: - Subviews
-    
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Choose your style")
-                .font(.system(size: 28, weight: .bold, design: .serif))
+                .font(AppTheme.display(30))
                 .foregroundColor(AppTheme.ink)
-            Text("Select the look you want from \(braider.name)")
-                .font(AppTheme.bodyFont)
+            Text("Select a look from \(braider.name)")
+                .font(AppTheme.body(15))
                 .foregroundColor(AppTheme.slate)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24)
         .padding(.top, 20)
-        .padding(.bottom, 24)
+        .padding(.bottom, 20)
     }
-    
-    @ViewBuilder
-    private var bottomBar: some View {
-        if selectedStyle != nil {
-            PrimaryButton(title: "Continue") {
+
+    private var carousel: some View {
+        TabView(selection: $selectedId) {
+            ForEach(styles) { style in
+                StyleCard(style: style, isSelected: selectedId == style.id)
+                    .padding(.horizontal, 24)
+                    .tag(Optional(style.id))
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(height: 520)
+        .onChange(of: selectedId) { _, _ in Haptics.select() }
+        .overlay(
+            HStack(spacing: 6) {
+                ForEach(styles) { style in
+                    Capsule()
+                        .fill(selectedId == style.id ? AppTheme.ink : AppTheme.hairline)
+                        .frame(width: selectedId == style.id ? 22 : 8, height: 6)
+                        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: selectedId)
+                }
+            }
+            .padding(.bottom, 8),
+            alignment: .bottom
+        )
+    }
+
+    private var bottomCTA: some View {
+        VStack(spacing: 8) {
+            if let style = selectedStyle {
+                HStack(spacing: 6) {
+                    Text("From")
+                        .font(.system(size: 13))
+                        .foregroundColor(AppTheme.stone)
+                    Text("£\(style.priceFrom)")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(AppTheme.ink)
+                    Text("· \(style.durationMinutes / 60)h \(style.durationMinutes % 60)m")
+                        .font(.system(size: 13))
+                        .foregroundColor(AppTheme.slate)
+                }
+            }
+
+            PrimaryButton(title: "Continue", systemImage: "arrow.right") {
                 showPayment = true
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 10)
-            .background(.ultraThinMaterial)
+            .disabled(selectedStyle == nil)
+            .opacity(selectedStyle == nil ? 0.4 : 1)
         }
-    }
-    
-    private var closeButton: some View {
-        Button {
-            dismiss()
-        } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(AppTheme.ink)
-                .frame(width: 36, height: 36)
-                .background(AppTheme.snow)
-                .clipShape(Circle())
-        }
-    }
-    
-    // MARK: - Actions
-    
-    private func handleTap(_ style: BraidStyle) {
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-            if selectedIndex == style.id {
-                selectedIndex = nil
-            } else {
-                selectedIndex = style.id
-            }
-        }
-        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
     }
 }
 
-// MARK: - Braid Style Row
+// MARK: - Style Card
 
-struct BraidStyleRow: View {
+struct StyleCard: View {
     let style: BraidStyle
     let isSelected: Bool
-    let onTap: () -> Void
-    
+
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 0) {
-                styleImage
-                if isSelected {
-                    expandedContent
-                } else {
-                    collapsedContent
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .topTrailing) {
+                RemoteImage(url: style.imageUrl)
+                    .frame(height: 260)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedCornerShape(radius: 24, corners: [.topLeft, .topRight]))
+
+                Text("£\(style.priceFrom)")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(AppTheme.ink.opacity(0.85))
+                    .clipShape(Capsule())
+                    .padding(12)
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(style.name)
+                        .font(.system(size: 24, weight: .bold, design: .serif))
+                        .foregroundColor(AppTheme.ink)
+                    Text(style.description)
+                        .font(.system(size: 14))
+                        .foregroundColor(AppTheme.slate)
+                        .lineLimit(4)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+
+                HStack(spacing: 8) {
+                    infoChip(icon: "clock", text: "\(style.durationMinutes / 60)h \(style.durationMinutes % 60)m")
+                    infoChip(icon: "sparkles", text: "\(style.includes.count) included")
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(style.includes, id: \.self) { item in
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(AppTheme.accent)
+                            Text(item)
+                                .font(.system(size: 13))
+                                .foregroundColor(AppTheme.ink.opacity(0.8))
+                        }
+                    }
+                }
+                .padding(.top, 4)
             }
-            .padding(12)
+            .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppTheme.snow)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(rowBorder)
-            .shadow(color: .black.opacity(0.04), radius: 12, y: 4)
         }
-        .buttonStyle(SoftPressStyle())
+        .background(AppTheme.snow)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(isSelected ? AppTheme.ink : AppTheme.hairline.opacity(0.4), lineWidth: isSelected ? 1.5 : 0.5)
+        )
+        .shadow(color: .black.opacity(0.08), radius: 20, y: 10)
     }
-    
-    // MARK: - Subviews (split to help the Swift type-checker)
-    
-    private var styleImage: some View {
-        RemoteImage(url: style.imageUrl)
-            .frame(
-                width: isSelected ? 100 : 80,
-                height: isSelected ? 130 : 100
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .animation(.spring(response: 0.45, dampingFraction: 0.8), value: isSelected)
-    }
-    
-    private var expandedContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(style.name)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(AppTheme.ink)
-            
-            Text(style.description)
-                .font(.system(size: 13))
-                .foregroundColor(AppTheme.slate)
-                .lineLimit(4)
-            
-            HStack(spacing: 10) {
-                Text("£\(style.priceFrom)+")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(AppTheme.accent)
-                
-                Label(durationText, systemImage: "clock")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(AppTheme.slate)
-            }
-            .padding(.top, 2)
+
+    private func infoChip(icon: String, text: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 11, weight: .semibold))
+            Text(text).font(.system(size: 12, weight: .medium))
         }
-        .padding(.leading, 16)
-        .transition(.opacity.combined(with: .move(edge: .trailing)))
-    }
-    
-    private var collapsedContent: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(style.name)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(AppTheme.ink)
-                Text("From £\(style.priceFrom)")
-                    .font(.system(size: 13))
-                    .foregroundColor(AppTheme.slate)
-            }
-            .padding(.leading, 16)
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(AppTheme.slate)
-                .padding(.trailing, 16)
-        }
-    }
-    
-    private var rowBorder: some View {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .stroke(
-                isSelected ? AppTheme.accent : AppTheme.hairline.opacity(0.6),
-                lineWidth: isSelected ? 1.5 : 0.5
-            )
-    }
-    
-    private var durationText: String {
-        let hours = style.durationMinutes / 60
-        let mins = style.durationMinutes % 60
-        return "\(hours)h \(mins)m"
+        .foregroundColor(AppTheme.ink)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(AppTheme.mist)
+        .clipShape(Capsule())
     }
 }
