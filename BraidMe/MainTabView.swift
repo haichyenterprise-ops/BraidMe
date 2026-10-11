@@ -42,15 +42,13 @@ struct MainTabView: View {
         }
     }
     
-    // MARK: - Map Layer
+    // MARK: - Map Layer (legacy API for toolchain compatibility)
     
     private var mapLayer: some View {
-        Map(coordinateRegion: $region) {
-            ForEach(fb.braiders) { braider in
-                Annotation(braider.name, coordinate: braider.coordinate) {
-                    BraiderPin(braider: braider) {
-                        selectedBraider = braider
-                    }
+        Map(coordinateRegion: $region, annotationItems: fb.braiders) { braider in
+            MapAnnotation(coordinate: braider.coordinate) {
+                BraiderPin(braider: braider) {
+                    selectedBraider = braider
                 }
             }
         }
@@ -176,7 +174,6 @@ struct MainTabView: View {
     }
     
     private func onLocationSheetDismiss() {
-        // If the user swiped away without choosing, we default to denied
         if fb.locationPermissionDecision == nil {
             fb.locationPermissionDecision = "denied"
         }
