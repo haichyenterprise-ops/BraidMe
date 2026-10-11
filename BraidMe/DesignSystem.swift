@@ -1,64 +1,89 @@
 import SwiftUI
+import UIKit
 
-// MARK: - Palette
+// MARK: - App Theme
 
 struct AppTheme {
-    // Core neutrals — warm, editorial, expensive-feeling
-    static let ink       = Color(hex: "#0B0F14")   // deepest text
-    static let graphite  = Color(hex: "#1C2128")
-    static let slate     = Color(hex: "#5A6470")
-    static let stone     = Color(hex: "#8892A0")
-    static let hairline  = Color(hex: "#E3E6EB")
-    static let mist      = Color(hex: "#F3F5F7")
-    static let cloud     = Color(hex: "#FAFBFC")
-    static let snow      = Color.white
 
-    // Signature accent — warm bronze / burnished amber
-    static let accent       = Color(hex: "#B8763E")
-    static let accentDeep   = Color(hex: "#8C5628")
-    static let accentSoft   = Color(hex: "#F6EEE5")
+    // MARK: Core palette — warm editorial neutrals
+    static let ink        = Color(hex: "#0A0D12")
+    static let graphite   = Color(hex: "#161A21")
+    static let slate      = Color(hex: "#59616E")
+    static let stone      = Color(hex: "#8A929E")
+    static let ash        = Color(hex: "#C4CAD2")
+    static let hairline   = Color(hex: "#E5E8ED")
+    static let mist       = Color(hex: "#F1F3F6")
+    static let cloud      = Color(hex: "#F8F9FB")
+    static let snow       = Color.white
 
-    // Secondary accents
-    static let rose      = Color(hex: "#C97C7C")
-    static let sage      = Color(hex: "#7A8B7A")
-    static let gold      = Color(hex: "#C9A961")
+    // MARK: Signature accent — burnished bronze
+    static let accent       = Color(hex: "#A96B3A")
+    static let accentDeep   = Color(hex: "#7A4A22")
+    static let accentLight  = Color(hex: "#D9A576")
+    static let accentSoft   = Color(hex: "#F7EFE5")
 
-    // System
+    // MARK: Secondary accents
+    static let rose   = Color(hex: "#B86868")
+    static let sage   = Color(hex: "#6F8069")
+    static let gold   = Color(hex: "#C6A251")
+    static let plum   = Color(hex: "#6B4E71")
+
+    // MARK: Status
     static let success = Color(hex: "#2F7A57")
-    static let danger  = Color(hex: "#B8383D")
+    static let danger  = Color(hex: "#B63B3F")
+    static let warn    = Color(hex: "#C68A3C")
 
-    // Gradients
+    // MARK: Gradients
     static let inkGradient = LinearGradient(
-        colors: [Color(hex: "#0B0F14"), Color(hex: "#1C2128")],
+        colors: [Color(hex: "#0A0D12"), Color(hex: "#1C222C")],
         startPoint: .topLeading, endPoint: .bottomTrailing
     )
     static let bronzeGradient = LinearGradient(
-        colors: [Color(hex: "#B8763E"), Color(hex: "#8C5628")],
+        colors: [Color(hex: "#B87A44"), Color(hex: "#7A4A22")],
         startPoint: .topLeading, endPoint: .bottomTrailing
     )
-    static let bronzeSoftGradient = LinearGradient(
-        colors: [Color(hex: "#F6EEE5"), Color(hex: "#FDFAF6")],
+    static let bronzeSoft = LinearGradient(
+        colors: [Color(hex: "#F7EFE5"), Color(hex: "#FBF6F0")],
         startPoint: .top, endPoint: .bottom
     )
-    static let glassOverlay = LinearGradient(
-        colors: [Color.white.opacity(0.15), Color.white.opacity(0.02)],
+    static let veil = LinearGradient(
+        colors: [Color.white.opacity(0.18), Color.white.opacity(0.02)],
         startPoint: .topLeading, endPoint: .bottomTrailing
     )
+    static let fadeTop = LinearGradient(
+        colors: [Color.black.opacity(0.55), Color.black.opacity(0.15), .clear],
+        startPoint: .top, endPoint: .bottom
+    )
+    static let fadeBottom = LinearGradient(
+        stops: [
+            .init(color: .clear, location: 0.0),
+            .init(color: .black.opacity(0.15), location: 0.45),
+            .init(color: .black.opacity(0.65), location: 0.85),
+            .init(color: .black.opacity(0.85), location: 1.0)
+        ],
+        startPoint: .top, endPoint: .bottom
+    )
 
-    // Type scale — serif headline for editorial feel
-    static func display(_ size: CGFloat) -> Font { .system(size: size, weight: .bold, design: .serif) }
-    static func title(_ size: CGFloat) -> Font   { .system(size: size, weight: .bold, design: .default) }
-    static func headline(_ size: CGFloat) -> Font { .system(size: size, weight: .semibold, design: .default) }
-    static func body(_ size: CGFloat) -> Font    { .system(size: size, weight: .regular, design: .default) }
-    static func mono(_ size: CGFloat) -> Font    { .system(size: size, weight: .medium, design: .monospaced) }
+    // MARK: Type scale
+    static func serif(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
+        .system(size: size, weight: weight, design: .serif)
+    }
+    static func sans(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .rounded)
+    }
+    static func mono(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
 
-    // Spacing
-    static let gut: CGFloat = 20   // page gutter
-    static let cardRadius: CGFloat = 22
-    static let pillRadius: CGFloat = 14
+    // MARK: Spacing
+    static let gut: CGFloat = 20
+    static let tight: CGFloat = 12
+    static let loose: CGFloat = 28
+    static let radius: CGFloat = 22
+    static let pill: CGFloat = 14
 }
 
-// MARK: - Color hex
+// MARK: - Color hex init
 
 extension Color {
     init(hex: String) {
@@ -67,52 +92,73 @@ extension Color {
         Scanner(string: hex).scanHexInt64(&int)
         let a, r, g, b: UInt64
         switch hex.count {
-        case 3: (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default: (a, r, g, b) = (1, 1, 1, 0)
+        case 3:
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6:
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8:
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (1, 1, 1, 0)
         }
-        self.init(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255, opacity: Double(a) / 255)
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue: Double(b) / 255,
+            opacity: Double(a) / 255
+        )
     }
 }
 
 // MARK: - Haptics
 
 enum Haptics {
-    static func tap()    { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-    static func soft()   { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
-    static func medium() { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
-    static func rigid()  { UIImpactFeedbackGenerator(style: .rigid).impactOccurred() }
-    static func success(){ UINotificationFeedbackGenerator().notificationOccurred(.success) }
-    static func warning(){ UINotificationFeedbackGenerator().notificationOccurred(.warning) }
-    static func select() { UISelectionFeedbackGenerator().selectionChanged() }
+    static func tap()     { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+    static func soft()    { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
+    static func medium()  { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+    static func rigid()   { UIImpactFeedbackGenerator(style: .rigid).impactOccurred() }
+    static func heavy()   { UIImpactFeedbackGenerator(style: .heavy).impactOccurred() }
+    static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+    static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
+    static func error()   { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+    static func select()  { UISelectionFeedbackGenerator().selectionChanged() }
 }
 
 // MARK: - Button styles
 
-struct SoftPressStyle: ButtonStyle {
+struct SoftPress: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.975 : 1)
-            .opacity(configuration.isPressed ? 0.92 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
             .animation(.spring(response: 0.28, dampingFraction: 0.85), value: configuration.isPressed)
     }
 }
 
-struct BouncyButtonStyle: ButtonStyle {
+struct BouncyPress: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
-            .animation(.spring(response: 0.35, dampingFraction: 0.6), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.93 : 1)
+            .animation(.spring(response: 0.35, dampingFraction: 0.55), value: configuration.isPressed)
     }
 }
 
-// MARK: - Primary button
+struct CardPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .brightness(configuration.isPressed ? -0.03 : 0)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Buttons
 
 struct PrimaryButton: View {
     let title: String
-    var systemImage: String? = nil
-    var isLoading: Bool = false
+    var icon: String? = nil
+    var loading: Bool = false
     var action: () -> Void
 
     var body: some View {
@@ -122,32 +168,61 @@ struct PrimaryButton: View {
         } label: {
             ZStack {
                 HStack(spacing: 8) {
-                    if let icon = systemImage {
-                        Image(systemName: icon).font(.system(size: 15, weight: .semibold))
-                    }
-                    Text(title).font(.system(size: 17, weight: .semibold))
+                    if let icon { Image(systemName: icon).font(.system(size: 15, weight: .semibold)) }
+                    Text(title).font(AppTheme.sans(17, weight: .semibold))
                 }
-                .opacity(isLoading ? 0 : 1)
+                .opacity(loading ? 0 : 1)
 
-                if isLoading {
-                    ProgressView().tint(.white)
-                }
+                if loading { ProgressView().tint(.white) }
             }
             .foregroundColor(.white)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
             .background(AppTheme.inkGradient)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .shadow(color: AppTheme.ink.opacity(0.25), radius: 16, y: 8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+            )
+            .shadow(color: AppTheme.ink.opacity(0.28), radius: 18, y: 10)
         }
-        .buttonStyle(SoftPressStyle())
-        .disabled(isLoading)
+        .buttonStyle(SoftPress())
+        .disabled(loading)
+    }
+}
+
+struct BronzeButton: View {
+    let title: String
+    var icon: String? = nil
+    var action: () -> Void
+
+    var body: some View {
+        Button {
+            Haptics.medium()
+            action()
+        } label: {
+            HStack(spacing: 8) {
+                if let icon { Image(systemName: icon).font(.system(size: 15, weight: .semibold)) }
+                Text(title).font(AppTheme.sans(17, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(AppTheme.bronzeGradient)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+            )
+            .shadow(color: AppTheme.accent.opacity(0.4), radius: 20, y: 10)
+        }
+        .buttonStyle(SoftPress())
     }
 }
 
 struct SecondaryButton: View {
     let title: String
-    var systemImage: String? = nil
+    var icon: String? = nil
     var action: () -> Void
 
     var body: some View {
@@ -156,10 +231,8 @@ struct SecondaryButton: View {
             action()
         } label: {
             HStack(spacing: 8) {
-                if let icon = systemImage {
-                    Image(systemName: icon).font(.system(size: 15, weight: .semibold))
-                }
-                Text(title).font(.system(size: 17, weight: .semibold))
+                if let icon { Image(systemName: icon).font(.system(size: 15, weight: .semibold)) }
+                Text(title).font(AppTheme.sans(17, weight: .semibold))
             }
             .foregroundColor(AppTheme.ink)
             .frame(maxWidth: .infinity)
@@ -171,41 +244,14 @@ struct SecondaryButton: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        .buttonStyle(SoftPressStyle())
-    }
-}
-
-struct BronzeButton: View {
-    let title: String
-    var systemImage: String? = nil
-    var action: () -> Void
-
-    var body: some View {
-        Button {
-            Haptics.medium()
-            action()
-        } label: {
-            HStack(spacing: 8) {
-                if let icon = systemImage {
-                    Image(systemName: icon).font(.system(size: 15, weight: .semibold))
-                }
-                Text(title).font(.system(size: 17, weight: .semibold))
-            }
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .frame(height: 56)
-            .background(AppTheme.bronzeGradient)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .shadow(color: AppTheme.accent.opacity(0.35), radius: 18, y: 8)
-        }
-        .buttonStyle(SoftPressStyle())
+        .buttonStyle(SoftPress())
     }
 }
 
 // MARK: - Card modifier
 
-struct CardBackground: ViewModifier {
-    var radius: CGFloat = AppTheme.cardRadius
+struct CardChrome: ViewModifier {
+    var radius: CGFloat = AppTheme.radius
     var elevated: Bool = true
 
     func body(content: Content) -> some View {
@@ -214,85 +260,117 @@ struct CardBackground: ViewModifier {
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .stroke(AppTheme.hairline.opacity(0.6), lineWidth: 0.5)
+                    .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
             )
             .shadow(
-                color: Color.black.opacity(elevated ? 0.05 : 0.02),
-                radius: elevated ? 16 : 6,
+                color: Color.black.opacity(elevated ? 0.055 : 0.02),
+                radius: elevated ? 20 : 6,
                 x: 0,
-                y: elevated ? 6 : 2
+                y: elevated ? 8 : 2
             )
     }
 }
 
 extension View {
-    func cardStyle(radius: CGFloat = AppTheme.cardRadius, elevated: Bool = true) -> some View {
-        modifier(CardBackground(radius: radius, elevated: elevated))
+    func cardChrome(radius: CGFloat = AppTheme.radius, elevated: Bool = true) -> some View {
+        modifier(CardChrome(radius: radius, elevated: elevated))
     }
-
     func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
-        clipShape(RoundedCornerShape(radius: radius, corners: corners))
+        clipShape(RoundCorners(radius: radius, corners: corners))
     }
 }
 
-struct RoundedCornerShape: Shape {
-    var radius: CGFloat = .infinity
+struct RoundCorners: Shape {
+    var radius: CGFloat = 16
     var corners: UIRectCorner = .allCorners
     func path(in rect: CGRect) -> Path {
-        let path = UIBezierPath(
+        let p = UIBezierPath(
             roundedRect: rect,
             byRoundingCorners: corners,
             cornerRadii: CGSize(width: radius, height: radius)
         )
-        return Path(path.cgPath)
+        return Path(p.cgPath)
     }
 }
 
 // MARK: - Shimmer
 
-struct Shimmer: ViewModifier {
-    @State private var phase: CGFloat = -1
+struct ShimmerModifier: ViewModifier {
+    @State private var phase: CGFloat = -1.2
     func body(content: Content) -> some View {
         content
             .overlay(
                 LinearGradient(
-                    colors: [.clear, .white.opacity(0.35), .clear],
+                    colors: [.clear, .white.opacity(0.4), .clear],
                     startPoint: .leading, endPoint: .trailing
                 )
-                .rotationEffect(.degrees(10))
-                .offset(x: phase * 400)
+                .rotationEffect(.degrees(12))
+                .offset(x: phase * 500)
                 .blendMode(.overlay)
                 .allowsHitTesting(false)
             )
+            .clipped()
             .onAppear {
-                withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
-                    phase = 1.4
+                withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
+                    phase = 1.6
                 }
             }
     }
 }
 
 extension View {
-    func shimmer() -> some View { modifier(Shimmer()) }
+    func shimmer() -> some View { modifier(ShimmerModifier()) }
 }
 
 // MARK: - Glass chip
 
 struct GlassChip: View {
-    let icon: String?
-    let title: String
+    var icon: String? = nil
+    var title: String
+    var tint: Color = .white
 
     var body: some View {
         HStack(spacing: 6) {
             if let icon {
-                Image(systemName: icon).font(.system(size: 12, weight: .semibold))
+                Image(systemName: icon).font(.system(size: 11, weight: .semibold))
             }
-            Text(title).font(.system(size: 13, weight: .semibold))
+            Text(title).font(AppTheme.sans(12, weight: .semibold))
         }
-        .foregroundColor(.white)
-        .padding(.horizontal, 12)
-        .frame(height: 32)
+        .foregroundColor(tint)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
         .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+        .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+    }
+}
+
+// MARK: - Star row
+
+struct StarRow: View {
+    let rating: Double
+    var size: CGFloat = 11
+    var color: Color = AppTheme.gold
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<5, id: \.self) { i in
+                Image(systemName: Double(i) < rating.rounded() ? "star.fill" : "star")
+                    .font(.system(size: size))
+                    .foregroundColor(color)
+            }
+        }
+    }
+}
+
+// MARK: - Section label
+
+struct SectionLabel: View {
+    let text: String
+    var body: some View {
+        Text(text.uppercased())
+            .font(AppTheme.sans(11, weight: .bold))
+            .tracking(1.4)
+            .foregroundColor(AppTheme.stone)
+            .padding(.horizontal, 4)
     }
 }

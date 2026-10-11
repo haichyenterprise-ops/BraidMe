@@ -6,6 +6,8 @@ struct BraiderProfileView: View {
     @State private var reviewsExpanded = false
     @State private var showBooking = false
     @State private var currentPage = 0
+    @State private var likedItems: Set<String> = []
+    @State private var showFullBio = false
     @Environment(\.dismiss) var dismiss
 
     private var reviews: [Review] { FirebaseManager.shared.reviews(for: braider) }
@@ -14,26 +16,28 @@ struct BraiderProfileView: View {
     var body: some View {
         GeometryReader { geo in
             let reelHeight = geo.size.height * 0.62
-            let reviewsHeight = geo.size.height * 0.38
+            let reviewsCollapsed = geo.size.height * 0.38
+            let reviewsExpandedH = geo.size.height
 
             ZStack(alignment: .bottom) {
                 AppTheme.ink.ignoresSafeArea()
 
-                // MARK: Reels section (top 62%)
                 VStack(spacing: 0) {
                     reelsSection(height: reelHeight)
                     Spacer(minLength: 0)
                 }
 
-                // MARK: Reviews panel (bottom 38%, expands upward on tap)
                 ReviewsPanel(
                     isExpanded: $reviewsExpanded,
                     braider: braider,
                     reviews: reviews,
                     breakdown: breakdown,
-                    collapsedHeight: reviewsHeight,
-                    expandedHeight: geo.size.height,
-                    onBook: { showBooking = true }
+                    collapsedHeight: reviewsCollapsed,
+                    expandedHeight: reviewsExpandedH,
+                    onBook: {
+                        Haptics.medium()
+                        showBooking = true
+                    }
                 )
                 .animation(.spring(response: 0.5, dampingFraction: 0.85), value: reviewsExpanded)
             }
@@ -45,18 +49,19 @@ struct BraiderProfileView: View {
         }
     }
 
-    // MARK: Reels
+    // MARK: - Reels section
 
     private func reelsSection(height: CGFloat) -> some View {
         ZStack(alignment: .top) {
-            // Vertical TabView pager
             TabView(selection: $currentPage) {
                 ForEach(Array(braider.portfolio.enumerated()), id: \.offset) { idx, item in
                     ReelSlide(
                         item: item,
                         braider: braider,
                         index: idx,
-                        total: braider.portfolio.count
+                        total: braider.portfolio.count,
+                        isLiked: likedItems.contains(item.id),
+                        onLike: { toggleLike(item.id) }
                     )
                     .tag(idx)
                 }
@@ -64,36 +69,77 @@ struct BraiderProfileView: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .frame(height: height)
 
-            // Top overlay controls
             topOverlay
+            pageIndicator
         }
         .frame(height: height)
     }
 
-    // MARK: Top overlay
+    // MARK: - Top overlay
 
     private var topOverlay: some View {
         VStack {
-            HStack {
-                Button {
+            HStack(spacing: 10) {
+                circleButton(icon: "chevron.left") {
                     Haptics.soft()
                     dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 40, height: 40)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
                 }
                 Spacer()
-                HeartButton()
+
+                HStack(spacing: 8) {
+                    GlassChip(icon: "star.fill", title: String(format: "%.1f", braider.rating))
+                    GlassChip(icon: "photo.stack", title: "\(braider.portfolio.count)")
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 56)
             Spacer()
         }
-        .allowsHitTesting(true)
+    }
+
+    private func circleButton(icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 40, height: 40)
+                .background(.ultraThinMaterial)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+        }
+        .buttonStyle(BouncyPress())
+    }
+
+    // MARK: - Page indicator (right side, TikTok-style)
+
+    private var pageIndicator: some View {
+        VStack(spacing: 4) {
+            Spacer()
+            HStack {
+                Spacer()
+                VStack(spacing: 4) {
+                    ForEach(0..<braider.portfolio.count, id: \.self) { i in
+                        Capsule()
+                            .fill(i == currentPage ? Color.white : Color.white.opacity(0.35))
+                            .frame(
+                                width: i == currentPage ? 3 : 2,
+                                height: i == currentPage ? 20 : 10
+                            )
+                            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: currentPage)
+                    }
+                }
+                .padding(.trailing, 12)
+            }
+            Spacer().frame(height: 200)
+        }
+    }
+
+    private func toggleLike(_ id: String) {
+        Haptics.soft()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) {
+            if likedItems.contains(id) { likedItems.remove(id) }
+            else { likedItems.insert(id) }
+        }
     }
 }
 
@@ -104,126 +150,160 @@ struct ReelSlide: View {
     let braider: Braider
     let index: Int
     let total: Int
+    let isLiked: Bool
+    let onLike: () -> Void
 
     var body: some View {
         ZStack {
             RemoteImage(url: item.imageUrl)
                 .ignoresSafeArea(edges: .top)
 
-            // Multi-stop gradient for legibility
             LinearGradient(
                 stops: [
-                    .init(color: .black.opacity(0.45), location: 0.0),
-                    .init(color: .black.opacity(0.05), location: 0.28),
-                    .init(color: .clear, location: 0.55),
+                    .init(color: .black.opacity(0.55), location: 0.0),
+                    .init(color: .black.opacity(0.1), location: 0.25),
+                    .init(color: .clear, location: 0.5),
                     .init(color: .black.opacity(0.35), location: 0.82),
-                    .init(color: .black.opacity(0.75), location: 1.0)
+                    .init(color: .black.opacity(0.85), location: 1.0)
                 ],
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea(edges: .top)
 
-            // Bottom content
             VStack {
                 Spacer()
-                content
+                bottomContent
             }
         }
     }
 
-    private var content: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if index == 0 {
-                brandHeader
-            } else {
-                smallHeader
+    private var bottomContent: some View {
+        HStack(alignment: .bottom, spacing: 12) {
+            VStack(alignment: .leading, spacing: 12) {
+                if index == 0 {
+                    brandHeader
+                } else {
+                    smallHeader
+                }
+
+                HStack(spacing: 8) {
+                    GlassChip(icon: "tag.fill", title: item.tag)
+                    GlassChip(icon: "heart.fill", title: "\(item.likes)")
+                }
+
+                Text(item.caption)
+                    .font(AppTheme.serif(22, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(2)
+                    .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
             }
 
-            HStack(spacing: 8) {
-                GlassChip(icon: "tag.fill", title: item.tag)
-                GlassChip(icon: "photo.stack", title: "\(index + 1) / \(total)")
-            }
+            Spacer(minLength: 0)
 
-            Text(item.caption)
-                .font(.system(size: 22, weight: .semibold, design: .serif))
-                .foregroundColor(.white)
-                .lineLimit(2)
+            sideActions
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, 20)
         .padding(.bottom, 26)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var brandHeader: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(braider.name)
-                .font(.system(size: 34, weight: .bold, design: .serif))
-                .foregroundColor(.white)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(braider.name)
+                    .font(AppTheme.serif(30))
+                    .foregroundColor(.white)
+                if braider.verified {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(AppTheme.accentLight)
+                }
+            }
+
             HStack(spacing: 10) {
                 HStack(spacing: 4) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 11))
                         .foregroundColor(AppTheme.gold)
                     Text(String(format: "%.1f", braider.rating))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(AppTheme.sans(13, weight: .semibold))
                         .foregroundColor(.white)
                 }
-                Text("·")
-                    .foregroundColor(.white.opacity(0.5))
+                Text("·").foregroundColor(.white.opacity(0.5))
                 Text("\(braider.reviewCount) reviews")
-                    .font(.system(size: 13))
+                    .font(AppTheme.sans(13))
                     .foregroundColor(.white.opacity(0.85))
-                Text("·")
-                    .foregroundColor(.white.opacity(0.5))
+                Text("·").foregroundColor(.white.opacity(0.5))
                 Text("from £\(braider.priceFrom)")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(AppTheme.sans(13, weight: .medium))
                     .foregroundColor(.white)
             }
+
             Text(braider.bio)
-                .font(.system(size: 14))
+                .font(AppTheme.sans(14))
                 .foregroundColor(.white.opacity(0.85))
-                .lineLimit(3)
+                .lineLimit(2)
                 .lineSpacing(3)
-                .padding(.top, 4)
+                .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
         }
     }
 
     private var smallHeader: some View {
-        Text(braider.name)
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundColor(.white)
-    }
-}
-
-// MARK: - Heart Button
-
-struct HeartButton: View {
-    @State private var isLiked = false
-    @State private var scale: CGFloat = 1
-
-    var body: some View {
-        Button {
-            Haptics.soft()
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
-                isLiked.toggle()
-                scale = 1.3
+        HStack(spacing: 8) {
+            Text(braider.name)
+                .font(AppTheme.sans(17, weight: .semibold))
+                .foregroundColor(.white)
+            if braider.verified {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(AppTheme.accentLight)
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                withAnimation { scale = 1 }
-            }
-        } label: {
-            Image(systemName: isLiked ? "heart.fill" : "heart")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(isLiked ? AppTheme.rose : .white)
-                .frame(width: 40, height: 40)
-                .background(.ultraThinMaterial)
-                .clipShape(Circle())
-                .scaleEffect(scale)
         }
     }
+
+    private var sideActions: some View {
+        VStack(spacing: 18) {
+            sideButton(
+                icon: isLiked ? "heart.fill" : "heart",
+                tint: isLiked ? AppTheme.rose : .white,
+                label: "\(item.likes + (isLiked ? 1 : 0))",
+                action: onLike
+            )
+
+            sideButton(
+                icon: "bookmark",
+                tint: .white,
+                label: "Save",
+                action: { Haptics.soft() }
+            )
+
+            sideButton(
+                icon: "square.and.arrow.up",
+                tint: .white,
+                label: "Share",
+                action: { Haptics.soft() }
+            )
+        }
+    }
+
+    private func sideButton(icon: String, tint: Color, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundColor(tint)
+                    .frame(width: 46, height: 46)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+                Text(label)
+                    .font(AppTheme.sans(11, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+        }
+        .buttonStyle(BouncyPress())
+    }
 }
 
-// MARK: - Reviews Panel
+// MARK: - Reviews panel
 
 struct ReviewsPanel: View {
     @Binding var isExpanded: Bool
@@ -234,11 +314,14 @@ struct ReviewsPanel: View {
     let expandedHeight: CGFloat
     let onBook: () -> Void
 
+    @GestureState private var drag: CGFloat = 0
+
     var body: some View {
         VStack(spacing: 0) {
-            handle
+            handleArea
             header
-            Divider().background(AppTheme.hairline)
+
+            Divider().background(AppTheme.hairline.opacity(0.4))
 
             ScrollView {
                 VStack(spacing: 14) {
@@ -246,10 +329,10 @@ struct ReviewsPanel: View {
                     ForEach(reviews) { review in
                         ReviewCard(review: review)
                     }
+                    Color.clear.frame(height: 130)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
-                .padding(.bottom, 120)
             }
             .scrollDisabled(!isExpanded)
             .scrollIndicators(.hidden)
@@ -258,88 +341,106 @@ struct ReviewsPanel: View {
         .frame(height: isExpanded ? expandedHeight : collapsedHeight)
         .background(AppTheme.snow)
         .cornerRadius(28, corners: [.topLeft, .topRight])
-        .shadow(color: .black.opacity(0.15), radius: 24, y: -8)
+        .shadow(color: .black.opacity(0.18), radius: 26, y: -10)
         .gesture(
             DragGesture()
                 .onEnded { value in
                     Haptics.soft()
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
-                        if value.translation.height < -50 { isExpanded = true }
-                        else if value.translation.height > 50 { isExpanded = false }
+                        if value.translation.height < -40 { isExpanded = true }
+                        else if value.translation.height > 40 { isExpanded = false }
                     }
                 }
         )
         .overlay(alignment: .bottom) {
             if !isExpanded {
                 stickyBookButton
-                    .transition(.opacity)
             }
         }
     }
 
-    private var handle: some View {
-        Capsule()
-            .fill(AppTheme.hairline)
-            .frame(width: 42, height: 5)
-            .padding(.top, 10)
-            .padding(.bottom, 12)
-    }
-
-    private var header: some View {
+    private var handleArea: some View {
         Button {
             Haptics.soft()
             withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
                 isExpanded.toggle()
             }
         } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Reviews")
-                        .font(.system(size: 18, weight: .semibold))
+            VStack(spacing: 10) {
+                Capsule()
+                    .fill(AppTheme.hairline)
+                    .frame(width: 42, height: 5)
+                    .padding(.top, 10)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var header: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Reviews")
+                    .font(AppTheme.serif(22))
+                    .foregroundColor(AppTheme.ink)
+
+                HStack(spacing: 6) {
+                    StarRow(rating: breakdown.average, size: 10)
+                    Text(String(format: "%.1f", breakdown.average))
+                        .font(AppTheme.sans(12, weight: .semibold))
                         .foregroundColor(AppTheme.ink)
-                    Text("\(reviews.count) verified bookings")
-                        .font(.system(size: 12))
-                        .foregroundColor(AppTheme.slate)
+                    Text("· \(breakdown.total) verified")
+                        .font(AppTheme.sans(12))
+                        .foregroundColor(AppTheme.stone)
                 }
-                Spacer()
+            }
+
+            Spacer()
+
+            Button {
+                Haptics.soft()
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
+                    isExpanded.toggle()
+                }
+            } label: {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(AppTheme.slate)
+                    .foregroundColor(AppTheme.ink)
+                    .frame(width: 36, height: 36)
+                    .background(AppTheme.mist, in: Circle())
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
+            .buttonStyle(SoftPress())
         }
-        .buttonStyle(SoftPressStyle())
+        .padding(.horizontal, 20)
+        .padding(.bottom, 14)
     }
 
     private var summaryCard: some View {
         HStack(spacing: 20) {
-            VStack(spacing: 2) {
+            VStack(spacing: 4) {
                 Text(String(format: "%.1f", breakdown.average))
-                    .font(.system(size: 40, weight: .bold, design: .serif))
+                    .font(AppTheme.serif(44))
                     .foregroundColor(AppTheme.ink)
-                HStack(spacing: 2) {
-                    ForEach(0..<5, id: \.self) { i in
-                        Image(systemName: Double(i) < breakdown.average.rounded() ? "star.fill" : "star")
-                            .font(.system(size: 10))
-                            .foregroundColor(AppTheme.gold)
-                    }
-                }
+                StarRow(rating: breakdown.average, size: 11)
                 Text("\(breakdown.total) reviews")
-                    .font(.system(size: 11))
-                    .foregroundColor(AppTheme.slate)
+                    .font(AppTheme.sans(11))
+                    .foregroundColor(AppTheme.stone)
             }
             .frame(width: 100)
 
-            VStack(spacing: 5) {
+            VStack(spacing: 6) {
                 ForEach([5, 4, 3, 2, 1], id: \.self) { stars in
-                    RatingBar(stars: stars, count: count(stars), total: breakdown.total)
+                    RatingBar(
+                        stars: stars,
+                        count: count(stars),
+                        total: breakdown.total
+                    )
                 }
             }
         }
-        .padding(16)
+        .padding(18)
         .background(AppTheme.cloud)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func count(_ stars: Int) -> Int {
@@ -353,15 +454,24 @@ struct ReviewsPanel: View {
     }
 
     private var stickyBookButton: some View {
-        BronzeButton(title: "Book Now", systemImage: "sparkles") {
-            onBook()
+        VStack(spacing: 0) {
+            LinearGradient(
+                colors: [AppTheme.snow.opacity(0), AppTheme.snow],
+                startPoint: .top, endPoint: .bottom
+            )
+            .frame(height: 30)
+
+            BronzeButton(title: "Book with \(braider.name.split(separator: " ").first.map(String.init) ?? "her")", icon: "sparkles") {
+                onBook()
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+            .background(AppTheme.snow)
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 24)
     }
 }
 
-// MARK: - Rating Bar
+// MARK: - Rating bar
 
 struct RatingBar: View {
     let stars: Int
@@ -376,9 +486,10 @@ struct RatingBar: View {
     var body: some View {
         HStack(spacing: 8) {
             Text("\(stars)")
-                .font(.system(size: 11, weight: .medium))
+                .font(AppTheme.sans(11, weight: .medium))
                 .foregroundColor(AppTheme.slate)
                 .frame(width: 8)
+
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(AppTheme.hairline)
@@ -388,15 +499,16 @@ struct RatingBar: View {
                 }
             }
             .frame(height: 5)
+
             Text("\(count)")
-                .font(.system(size: 11, weight: .medium))
+                .font(AppTheme.sans(11, weight: .medium))
                 .foregroundColor(AppTheme.stone)
-                .frame(width: 26, alignment: .trailing)
+                .frame(width: 28, alignment: .trailing)
         }
     }
 }
 
-// MARK: - Review Card
+// MARK: - Review card
 
 struct ReviewCard: View {
     let review: Review
@@ -404,45 +516,52 @@ struct ReviewCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                RemoteImage(url: review.userAvatar)
-                    .frame(width: 42, height: 42)
-                    .clipShape(Circle())
+                Avatar(url: review.userAvatar, size: 42)
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(review.userName)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(AppTheme.sans(14, weight: .semibold))
                         .foregroundColor(AppTheme.ink)
                     Text(review.date)
-                        .font(.system(size: 11))
+                        .font(AppTheme.sans(11))
                         .foregroundColor(AppTheme.stone)
                 }
+
                 Spacer()
-                HStack(spacing: 2) {
-                    ForEach(0..<5, id: \.self) { i in
-                        Image(systemName: Double(i) < review.rating ? "star.fill" : "star")
-                            .font(.system(size: 10))
-                            .foregroundColor(AppTheme.gold)
-                    }
-                }
+
+                StarRow(rating: review.rating, size: 10)
             }
 
             Text(review.text)
-                .font(.system(size: 14))
+                .font(AppTheme.sans(14))
                 .foregroundColor(AppTheme.ink.opacity(0.85))
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 6) {
-                Image(systemName: "scissors")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(AppTheme.accent)
-                Text(review.styleDone)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(AppTheme.accentDeep)
+            HStack(spacing: 8) {
+                HStack(spacing: 5) {
+                    Image(systemName: "scissors")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(AppTheme.accent)
+                    Text(review.styleDone)
+                        .font(AppTheme.sans(11, weight: .medium))
+                        .foregroundColor(AppTheme.accentDeep)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(AppTheme.accentSoft)
+                .clipShape(Capsule())
+
+                Spacer()
+
+                HStack(spacing: 4) {
+                    Image(systemName: "hand.thumbsup")
+                        .font(.system(size: 10))
+                    Text("\(review.helpful)")
+                        .font(AppTheme.sans(11, weight: .medium))
+                }
+                .foregroundColor(AppTheme.stone)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(AppTheme.accentSoft)
-            .clipShape(Capsule())
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
