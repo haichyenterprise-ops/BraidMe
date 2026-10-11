@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import FirebaseFirestore
 import FirebaseAuth
 import FirebaseDatabase
@@ -21,8 +21,6 @@ final class FirebaseManager: ObservableObject {
     @Published var isLoadingBraiders = false
     @Published var braidersError: String?
 
-    // MARK: - Location persistence
-
     var locationPermissionDecision: String? {
         get { UserDefaults.standard.string(forKey: "locationPermissionDecision") }
         set { UserDefaults.standard.set(newValue, forKey: "locationPermissionDecision") }
@@ -37,8 +35,6 @@ final class FirebaseManager: ObservableObject {
     }
 
     private init() {}
-
-    // MARK: - Users
 
     @discardableResult
     func upsertUser(
@@ -103,8 +99,6 @@ final class FirebaseManager: ObservableObject {
         }
     }
 
-    // MARK: - Saved braiders (hearts)
-
     func loadSavedBraiders(uid: String) async {
         guard !uid.isEmpty else { return }
         do {
@@ -138,8 +132,6 @@ final class FirebaseManager: ObservableObject {
         }
     }
 
-    // MARK: - Braiders
-
     func fetchBraidersFromFirestore() async {
         isLoadingBraiders = true
         braidersError = nil
@@ -155,8 +147,6 @@ final class FirebaseManager: ObservableObject {
         }
         isLoadingBraiders = false
     }
-
-    // MARK: - Bookings
 
     func loadBookings(uid: String) async {
         guard !uid.isEmpty else { return }
@@ -233,8 +223,6 @@ final class FirebaseManager: ObservableObject {
         }
     }
 
-    /// Customer requests a cancellation. Status becomes "cancellation_requested"
-    /// and the braider must approve or deny it.
     func requestCancellation(bookingId: String, reason: String) async throws {
         try await dbRef.collection("bookings").document(bookingId).setData([
             "status": "cancellation_requested",
@@ -243,7 +231,6 @@ final class FirebaseManager: ObservableObject {
             "cancellationRequestedBy": "customer"
         ], merge: true)
 
-        // Update local cache
         if let idx = bookings.firstIndex(where: { $0.id == bookingId }) {
             let b = bookings[idx]
             let updated = Booking(
@@ -255,14 +242,122 @@ final class FirebaseManager: ObservableObject {
         }
     }
 
-    // MARK: - Chat (Realtime Database)
+    func fetchReviews(braiderId: String) async -> [Review] {
+        guard !braiderId.isEmpty else { return [] }
+        do {
+            let snap = try await dbRef
+                .collection("braiders")
+                .document(braiderId)
+                .collection("reviews")
+                .order(by: "date", descending: true)
+                .getDocuments()
 
-    /// Deterministic chat ID for a booking. Same ID used by both apps.
+            return snap.documents.compactMap { doc -> Review? in
+                let data = doc.data()
+                guard
+                    let userId = data["userId"] as? String,
+                    let userName = data["userName"] as? String,
+                    let text = data["text"] as? String,
+                    let rating = data["rating"] as? Double,
+                    let ts = data["date"] as? Timestamp
+                else { return nil }
+
+                return Review(
+                    id: doc.documentID,
+                    userId: userId,
+                    userName: userName,
+                    userAvatar: (data["userAvatar"] as? String) ?? "",
+                    text: text,
+                    rating: rating,
+                    date: ts.dateValue(),
+                    styleDone: (data["styleDone"] as? String) ?? "",
+                    helpful: (data["helpful"] as? Int) ?? 0
+                )
+            }
+        } catch {
+            print("[FirebaseManager] fetchReviews failed:", error)
+            return []
+        }
+    }
+
+    func submitReview(
+        braiderId: String,
+        userId: String,
+        userName: String,
+        userAvatar: String,
+        rating: Double,
+        text: String,
+        styleDone: String
+    ) async throws {
+        let reviewId = UUID().uuidString
+        let now = Date()
+
+        let payload: [String: Any] = [
+            "id": reviewId,
+            "userId": userId,
+            "userName": userName,
+            "userAvatar": userAvatar,
+            "text": text,
+            "rating": rating,
+            "date": now,
+            "styleDone": styleDone,
+            "helpful": 0
+        ]
+
+        try await dbRef
+            .collection("braiders")
+            .document(braiderId)
+            .collection("reviews")
+            .document(reviewId)
+            .setData(payload)
+
+        let all = await fetchReviews(braiderId: braiderId)
+        let count = all.count
+        let avg = all.isEmpty ? 0 : all.reduce(0.0) { $0 + $1.rating } / Double(all.count)
+
+        try await dbRef
+            .collection("braiders")
+            .document(braiderId)
+            .setData([
+                "rating": avg,
+                "reviewCount": count,
+                "lastReviewedAt": now
+            ], merge: true)
+
+        if let idx = braiders.firstIndex(where: { $0.id == braiderId }) {
+            let b = braiders[idx]
+            let updated = Braider(
+                id: b.id,
+                name: b.name,
+                tagline: b.tagline,
+                avatarUrl: b.avatarUrl,
+                coverUrl: b.coverUrl,
+                latitude: b.latitude,
+                longitude: b.longitude,
+                rating: avg,
+                reviewCount: count,
+                priceFrom: b.priceFrom,
+                bio: b.bio,
+                story: b.story,
+                city: b.city,
+                specialties: b.specialties,
+                yearsExperience: b.yearsExperience,
+                responseTime: b.responseTime,
+                verified: b.verified,
+                published: b.published,
+                portfolio: b.portfolio,
+                services: b.services,
+                availableSlots: b.availableSlots,
+                availableDates: b.availableDates
+            )
+            braiders[idx] = updated
+        }
+    }
+
     static func chatId(for bookingId: String) -> String {
         return "chat_\(bookingId)"
     }
 
-    /// Sends a message via RTDB.
     func sendMessage(
         chatId: String,
         senderId: String,
@@ -277,7 +372,6 @@ final class FirebaseManager: ObservableObject {
             "timestamp": ServerValue.timestamp()
         ])
 
-        // Update chat metadata so the other side sees the latest message + preview
         try await rtdb.child("chats").child(chatId).child("meta").updateChildValues([
             "lastMessage": text,
             "lastSenderId": senderId,
@@ -285,7 +379,6 @@ final class FirebaseManager: ObservableObject {
         ])
     }
 
-    /// Live stream of messages for a chat.
     func observeMessages(
         chatId: String,
         onUpdate: @escaping ([ChatMessage]) -> Void
@@ -319,8 +412,6 @@ final class FirebaseManager: ObservableObject {
         rtdb.child("chats").child(chatId).child("messages").removeObserver(withHandle: handle)
     }
 }
-
-// MARK: - Mapper
 
 enum BraiderMapper {
     static func from(id: String, data: [String: Any]) -> Braider? {
