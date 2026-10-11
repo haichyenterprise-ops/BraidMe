@@ -15,7 +15,11 @@ targets:
     type: application
     platform: iOS
     sources:
-      - BraidMe
+      - path: BraidMe
+        excludes:
+          - "Info.plist"
+      - path: BraidMe/GoogleService-Info.plist
+        buildPhase: resources
     entitlements:
       path: BraidMe/BraidMe.entitlements
       properties:
@@ -40,6 +44,10 @@ targets:
         NSPhotoLibraryUsageDescription: "BraidMe needs access to your photos to set your profile picture."
         NSCameraUsageDescription: "BraidMe uses your camera to take profile photos."
         NSApplePayMerchantID: "merchant.com.example.BraidMe"
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - com.googleusercontent.apps.158058529601-34lkbg1ha528nv1e4vaamb4t9rfr0261
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.BraidMe
@@ -53,8 +61,6 @@ targets:
     dependencies:
       - package: Firebase
         product: FirebaseFirestore
-      - package: Firebase
-        product: FirebaseStorage
       - package: Firebase
         product: FirebaseAuth
       - package: GoogleSignIn
