@@ -64,12 +64,11 @@ struct ContentView: View {
         }
         .background(AppTheme.cloud.ignoresSafeArea())
         .preferredColorScheme(.light)
-        
+        .onReceive(NotificationCenter.default.publisher(for: .braidMeSignOut)) { _ in
+            withAnimation(.easeInOut(duration: 0.5)) {
+                state = .auth
+            }
+            pendingUser = nil
+        }
     }
-    .onReceive(NotificationCenter.default.publisher(for: .braidMeSignOut)) { _ in
-    withAnimation(.easeInOut(duration: 0.5)) {
-        state = .auth
-    }
-    pendingUser = nil
-}
 }
