@@ -8,8 +8,8 @@ struct UserProfile: Identifiable, Codable, Hashable {
     var displayName: String
     var email: String?
     var age: Int
-    var provider: String            // "apple" | "google" | "guest"
-    var city: String?               // "Birmingham" once location granted
+    var provider: String
+    var city: String?
     var locationGranted: Bool
     var avatarUrl: String?
     var createdAt: Date
@@ -61,14 +61,15 @@ struct Braider: Identifiable, Hashable {
     let reviewCount: Int
     let priceFrom: Int
     let bio: String
+    let story: String
     let city: String
     let specialties: [String]
     let yearsExperience: Int
     let responseTime: String
     let verified: Bool
     let portfolio: [PortfolioItem]
-    let styles: [BraidStyle]
-    let availableSlots: [String: [String]]   // "2026-02-14" -> ["9:00 AM", ...]
+    let services: [BraidService]
+    let availableSlots: [String: [String]]
     let availableDates: [Date]
 
     var coordinate: CLLocationCoordinate2D {
@@ -87,17 +88,43 @@ struct PortfolioItem: Identifiable, Hashable {
     let likes: Int
 }
 
-// MARK: - Reviews
+// MARK: - Service
+
+struct BraidService: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let description: String
+    let imageUrl: String
+    let priceFrom: Int
+    let durationMinutes: Int
+    let includes: [String]
+    let popular: Bool
+    let availableDates: [Date]
+    let availableSlots: [String: [String]]
+
+    var hasAvailability: Bool {
+        !availableDates.isEmpty && availableSlots.values.contains { !$0.isEmpty }
+    }
+}
+
+// MARK: - Reviews (real, from Firestore)
 
 struct Review: Identifiable, Hashable {
     let id: String
+    let userId: String
     let userName: String
     let userAvatar: String
     let text: String
     let rating: Double
-    let date: String
+    let date: Date
     let styleDone: String
     let helpful: Int
+
+    var dateString: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
 }
 
 struct RatingBreakdown: Hashable {
@@ -114,33 +141,25 @@ struct RatingBreakdown: Hashable {
         let sum = 5 * five + 4 * four + 3 * three + 2 * two + 1 * one
         return Double(sum) / Double(total)
     }
+
+    static let empty = RatingBreakdown(five: 0, four: 0, three: 0, two: 0, one: 0)
+
+    static func from(_ reviews: [Review]) -> RatingBreakdown {
+        var f = 0, fo = 0, t = 0, tw = 0, o = 0
+        for r in reviews {
+            switch Int(r.rating.rounded()) {
+            case 5: f += 1
+            case 4: fo += 1
+            case 3: t += 1
+            case 2: tw += 1
+            default: o += 1
+            }
+        }
+        return RatingBreakdown(five: f, four: fo, three: t, two: tw, one: o)
+    }
 }
 
-// MARK: - Booking flow
-
-struct BraidStyle: Identifiable, Hashable {
-    let id: String
-    let name: String
-    let description: String
-    let imageUrl: String
-    let priceFrom: Int
-    let durationMinutes: Int
-    let includes: [String]
-    let popular: Bool
-}
-
-struct TimeSlot: Identifiable, Hashable {
-    let id: String
-    let label: String
-    let available: Bool
-    let period: DayPeriod
-}
-
-enum DayPeriod: String, Hashable {
-    case morning = "Morning"
-    case afternoon = "Afternoon"
-    case evening = "Evening"
-}
+// MARK: - Booking
 
 struct Booking: Identifiable, Codable {
     let id: String
@@ -166,4 +185,19 @@ struct Booking: Identifiable, Codable {
             "createdAt": createdAt
         ]
     }
+}
+
+// MARK: - Time slot
+
+struct TimeSlot: Identifiable, Hashable {
+    let id: String
+    let label: String
+    let available: Bool
+    let period: DayPeriod
+}
+
+enum DayPeriod: String, Hashable {
+    case morning = "Morning"
+    case afternoon = "Afternoon"
+    case evening = "Evening"
 }

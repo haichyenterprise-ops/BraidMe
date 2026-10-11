@@ -7,13 +7,12 @@ struct BookingSelectionView: View {
     @State private var selectedId: String?
     @State private var showPayment = false
     @State private var appeared = false
-    @State private var scrollToId: String?
 
-    private var styles: [BraidStyle] { braider.styles }
+    private var services: [BraidService] { braider.services }
 
-    private var selectedStyle: BraidStyle? {
+    private var selectedService: BraidService? {
         guard let id = selectedId else { return nil }
-        return styles.first(where: { $0.id == id })
+        return services.first(where: { $0.id == id })
     }
 
     var body: some View {
@@ -21,25 +20,24 @@ struct BookingSelectionView: View {
             ZStack(alignment: .top) {
                 AppTheme.cloud.ignoresSafeArea()
 
-                ScrollViewReader { proxy in
-                    ScrollView(showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            header
-                                .padding(.horizontal, 24)
-                                .padding(.top, 20)
-                                .padding(.bottom, 22)
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header
+                            .padding(.horizontal, 24)
+                            .padding(.top, 20)
+                            .padding(.bottom, 22)
 
+                        if services.isEmpty {
+                            emptyState
+                        } else {
                             VStack(spacing: 18) {
-                                ForEach(styles) { style in
-                                    ExpandingStyleCard(
-                                        style: style,
-                                        isSelected: selectedId == style.id,
-                                        onTap: {
-                                            toggleSelect(style, proxy: proxy)
-                                        }
+                                ForEach(services) { service in
+                                    ExpandingServiceCard(
+                                        service: service,
+                                        isSelected: selectedId == service.id,
+                                        onTap: { toggleSelect(service) }
                                     )
                                     .padding(.horizontal, 24)
-                                    .id(style.id)
                                 }
                             }
                             .padding(.bottom, 180)
@@ -54,22 +52,23 @@ struct BookingSelectionView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    IconButton(
-                        icon: "xmark",
-                        size: 40,
-                        iconSize: 15,
-                        fg: AppTheme.ink,
-                        bg: AppTheme.snow
-                    ) {
-                        dismiss()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(AppTheme.ink)
+                            .frame(width: 40, height: 40)
+                            .background(AppTheme.snow)
+                            .clipShape(Circle())
+                            .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+                            .overlay(Circle().stroke(AppTheme.hairline, lineWidth: 0.5))
                     }
-                    .overlay(Circle().stroke(AppTheme.hairline, lineWidth: 0.5))
+                    .buttonStyle(BouncyPress())
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(isPresented: $showPayment) {
-                if let style = selectedStyle {
-                    PaymentView(braider: braider, style: style)
+                if let service = selectedService {
+                    PaymentView(braider: braider, service: service)
                 }
             }
         }
@@ -80,15 +79,13 @@ struct BookingSelectionView: View {
         }
     }
 
-    // MARK: - Header
-
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "scissors")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(AppTheme.accent)
-                Text("SELECT A STYLE")
+                Text("SELECT A SERVICE")
                     .font(AppTheme.sans(11, weight: .bold))
                     .tracking(1.6)
                     .foregroundColor(AppTheme.accentDeep)
@@ -99,6 +96,7 @@ struct BookingSelectionView: View {
                 .lineSpacing(-2)
                 .foregroundColor(AppTheme.ink)
                 .minimumScaleFactor(0.75)
+                .lineLimit(2)
 
             HStack(spacing: 8) {
                 Text("with")
@@ -119,28 +117,44 @@ struct BookingSelectionView: View {
         .offset(y: appeared ? 0 : 20)
     }
 
-    // MARK: - Bottom CTA
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "list.bullet.rectangle.portrait")
+                .font(.system(size: 40, weight: .light))
+                .foregroundColor(AppTheme.ash)
+            Text("No services available")
+                .font(AppTheme.serif(20))
+                .foregroundColor(AppTheme.ink)
+            Text("This braider hasn't listed any services yet.")
+                .font(AppTheme.sans(14))
+                .foregroundColor(AppTheme.slate)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 60)
+    }
 
     private var bottomCTA: some View {
         VStack(spacing: 10) {
-            if let style = selectedStyle {
+            if let service = selectedService {
                 HStack(spacing: 10) {
                     Text("Selected")
                         .font(AppTheme.sans(11, weight: .bold))
                         .tracking(1.2)
                         .foregroundColor(AppTheme.stone)
-                    Text(style.name)
+                    Text(service.name)
                         .font(AppTheme.sans(14, weight: .semibold))
                         .foregroundColor(AppTheme.ink)
                     Spacer()
-                    Text("£\(style.priceFrom)")
+                    Text("£\(service.priceFrom)")
                         .font(AppTheme.serif(18))
                         .foregroundColor(AppTheme.ink)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(AppTheme.mist)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
                 .transition(.asymmetric(
                     insertion: .move(edge: .bottom).combined(with: .opacity),
                     removal: .opacity
@@ -150,8 +164,8 @@ struct BookingSelectionView: View {
             PrimaryButton(title: "Continue", icon: "arrow.right") {
                 showPayment = true
             }
-            .disabled(selectedStyle == nil)
-            .opacity(selectedStyle == nil ? 0.4 : 1)
+            .disabled(selectedService == nil)
+            .opacity(selectedService == nil ? 0.4 : 1)
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
@@ -166,31 +180,22 @@ struct BookingSelectionView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: selectedId)
     }
 
-    private func toggleSelect(_ style: BraidStyle, proxy: ScrollViewProxy) {
+    private func toggleSelect(_ service: BraidService) {
         Haptics.select()
         withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
-            if selectedId == style.id {
+            if selectedId == service.id {
                 selectedId = nil
             } else {
-                selectedId = style.id
-            }
-        }
-
-        // Scroll the selected card to center after layout settles
-        if selectedId == style.id {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) {
-                    proxy.scrollTo(style.id, anchor: .center)
-                }
+                selectedId = service.id
             }
         }
     }
 }
 
-// MARK: - Expanding card
+// MARK: - Service card
 
-struct ExpandingStyleCard: View {
-    let style: BraidStyle
+struct ExpandingServiceCard: View {
+    let service: BraidService
     let isSelected: Bool
     let onTap: () -> Void
 
@@ -218,15 +223,24 @@ struct ExpandingStyleCard: View {
         .buttonStyle(CardPress())
     }
 
-    // MARK: - Image
-
     private var imageBlock: some View {
         ZStack(alignment: .topLeading) {
-            RemoteImage(url: style.imageUrl)
-                .frame(height: 200)
-                .frame(maxWidth: .infinity)
-                .clipped()
-                .clipShape(RoundCorners(radius: 26, corners: [.topLeft, .topRight]))
+            if service.imageUrl.isEmpty {
+                RoundedRectangle(cornerRadius: 26)
+                    .fill(AppTheme.mist)
+                    .frame(height: 200)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .font(.system(size: 32))
+                            .foregroundColor(AppTheme.ash)
+                    )
+            } else {
+                RemoteImage(url: service.imageUrl)
+                    .frame(height: 200)
+                    .frame(maxWidth: .infinity)
+                    .clipped()
+                    .clipShape(RoundCorners(radius: 26, corners: [.topLeft, .topRight]))
+            }
 
             LinearGradient(
                 colors: [.black.opacity(0.4), .clear],
@@ -235,7 +249,7 @@ struct ExpandingStyleCard: View {
             .clipShape(RoundCorners(radius: 26, corners: [.topLeft, .topRight]))
 
             HStack(alignment: .top) {
-                if style.popular {
+                if service.popular {
                     HStack(spacing: 4) {
                         Image(systemName: "flame.fill")
                             .font(.system(size: 10, weight: .bold))
@@ -248,13 +262,11 @@ struct ExpandingStyleCard: View {
                     .padding(.vertical, 5)
                     .background(AppTheme.bronzeGradient, in: Capsule())
                     .shadow(color: AppTheme.accent.opacity(0.35), radius: 8, y: 3)
-                } else {
-                    Color.clear.frame(width: 0, height: 0)
                 }
 
                 Spacer()
 
-                Text("£\(style.priceFrom)")
+                Text("£\(service.priceFrom)")
                     .font(AppTheme.sans(14, weight: .bold))
                     .foregroundColor(.white)
                     .padding(.horizontal, 12)
@@ -266,17 +278,15 @@ struct ExpandingStyleCard: View {
         }
     }
 
-    // MARK: - Details
-
     private var details: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(style.name)
+                    Text(service.name)
                         .font(AppTheme.serif(22))
                         .foregroundColor(AppTheme.ink)
 
-                    Text(style.description)
+                    Text(service.description)
                         .font(AppTheme.sans(13))
                         .foregroundColor(AppTheme.slate)
                         .lineSpacing(3)
@@ -291,18 +301,23 @@ struct ExpandingStyleCard: View {
             }
 
             HStack(spacing: 8) {
-                Pill(icon: "clock", text: "\(style.durationMinutes / 60)h \(style.durationMinutes % 60)m")
-                Pill(icon: "sparkles", text: "\(style.includes.count) included")
+                Pill(icon: "clock", text: "\(service.durationMinutes / 60)h \(service.durationMinutes % 60)m")
+                Pill(icon: "sparkles", text: "\(service.includes.count) included")
+
+                if !service.hasAvailability {
+                    Pill(icon: "exclamationmark.triangle.fill",
+                         text: "No availability",
+                         fg: AppTheme.warn,
+                         bg: AppTheme.warn.opacity(0.12))
+                }
             }
 
-            if isSelected {
+            if isSelected && !service.includes.isEmpty {
                 includedList
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity.combined(with: .move(edge: .top)),
-                            removal: .opacity
-                        )
-                    )
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity
+                    ))
             }
         }
         .padding(18)
@@ -326,7 +341,7 @@ struct ExpandingStyleCard: View {
         VStack(alignment: .leading, spacing: 8) {
             SectionLabel(text: "Included")
 
-            ForEach(style.includes, id: \.self) { item in
+            ForEach(service.includes, id: \.self) { item in
                 HStack(spacing: 10) {
                     ZStack {
                         Circle().fill(AppTheme.accentSoft).frame(width: 22, height: 22)

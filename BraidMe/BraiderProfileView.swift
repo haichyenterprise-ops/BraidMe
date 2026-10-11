@@ -1,55 +1,43 @@
 import SwiftUI
 
-// MARK: - Braider Profile (cinematic)
-
 struct BraiderProfileView: View {
 
     let braider: Braider
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: SessionManager
 
-    @State private var scrollOffset: CGFloat = 0
     @State private var showBooking = false
     @State private var showAllReviews = false
+    @State private var showWriteReview = false
     @State private var likedItems: Set<String> = []
     @State private var appeared = false
+    @State private var scrollOffset: CGFloat = 0
     @State private var heroScale: CGFloat = 1
     @State private var headerOpacity: Double = 0
     @State private var activeSection: Section = .hero
+
+    // Real reviews from Firestore
+    @State private var reviews: [Review] = []
+    @State private var breakdown: RatingBreakdown = .empty
+    @State private var reviewsLoading = true
 
     enum Section: Int, CaseIterable {
         case hero, work, about, reviews
     }
 
-    private let reviews: [Review]
-    private let breakdown: RatingBreakdown
-
-    init(braider: Braider) {
-        self.braider = braider
-        self.reviews = FirebaseManager.shared.reviews(for: braider)
-        self.breakdown = FirebaseManager.shared.ratingBreakdown(for: braider)
-    }
-
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
+
                 AppTheme.ink.ignoresSafeArea()
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
-
                         heroSection(width: geo.size.width, height: geo.size.height)
-                            .id(Section.hero)
-
                         workSection(width: geo.size.width)
-                            .id(Section.work)
-
                         aboutSection(width: geo.size.width)
-                            .id(Section.about)
-
                         reviewsSection(width: geo.size.width)
-                            .id(Section.reviews)
-
                         Color.clear.frame(height: 160)
                     }
                     .background(alignment: .top) {
@@ -57,29 +45,25 @@ struct BraiderProfileView: View {
                             Color.clear
                                 .preference(
                                     key: ScrollOffsetKey.self,
-                                    value: -proxy.frame(in: .named("profileScroll")).minY
+                                    value: -proxy.frame(in: .named("braiderProfileScroll")).minY
                                 )
                         }
                     }
                 }
-                .coordinateSpace(name: "profileScroll")
+                .coordinateSpace(name: "braiderProfileScroll")
                 .onPreferenceChange(ScrollOffsetKey.self) { value in
                     handleScroll(value, screenHeight: geo.size.height)
                 }
                 .ignoresSafeArea()
 
-                // Top floating chrome
-                topChrome
-                    .opacity(headerOpacity)
+                topChrome.opacity(headerOpacity)
 
-                // Stage rail (right side)
                 stageRail
                     .frame(maxHeight: .infinity, alignment: .center)
                     .padding(.trailing, 12)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .allowsHitTesting(false)
 
-                // Bottom action bar
                 VStack {
                     Spacer()
                     actionBar
@@ -89,7 +73,18 @@ struct BraiderProfileView: View {
         .toolbar(.hidden, for: .navigationBar)
         .ignoresSafeArea()
         .sheet(isPresented: $showAllReviews) {
-            AllReviewsSheet(braider: braider, reviews: reviews, breakdown: breakdown)
+            AllReviewsSheet(
+                braider: braider,
+                reviews: reviews,
+                breakdown: breakdown,
+                onWriteReview: { showWriteReview = true }
+            )
+        }
+        .sheet(isPresented: $showWriteReview) {
+            WriteReviewSheet(braider: braider) {
+                // Reload after a review is posted
+                Task { await loadReviews() }
+            }
         }
         .fullScreenCover(isPresented: $showBooking) {
             BookingSelectionView(braider: braider)
@@ -97,33 +92,38 @@ struct BraiderProfileView: View {
         .onAppear {
             withAnimation(.spring(response: 1.0, dampingFraction: 0.85).delay(0.1)) {
                 appeared = true
-                headerOpacity = 0
             }
+            Task { await loadReviews() }
         }
     }
 
-    // MARK: - Scroll handling
+    // MARK: - Load reviews
+
+    private func loadReviews() async {
+        await MainActor.run { reviewsLoading = true }
+        let fetched = await FirebaseManager.shared.fetchReviews(braiderId: braider.id)
+        await MainActor.run {
+            self.reviews = fetched
+            self.breakdown = RatingBreakdown.from(fetched)
+            self.reviewsLoading = false
+        }
+    }
+
+    // MARK: - Scroll
 
     private func handleScroll(_ offset: CGFloat, screenHeight: CGFloat) {
         scrollOffset = offset
-
-        // Parallax + zoom on hero as you scroll
         let progress = min(max(offset / screenHeight, 0), 1)
         heroScale = 1 + progress * 0.15
         headerOpacity = min(max((offset - 60) / 200, 0), 1)
 
-        // Determine active section based on offset
         let normalized = offset / screenHeight
         let newSection: Section
-        if normalized < 0.8 {
-            newSection = .hero
-        } else if normalized < 1.6 {
-            newSection = .work
-        } else if normalized < 2.4 {
-            newSection = .about
-        } else {
-            newSection = .reviews
-        }
+        if normalized < 0.8 { newSection = .hero }
+        else if normalized < 1.6 { newSection = .work }
+        else if normalized < 2.4 { newSection = .about }
+        else { newSection = .reviews }
+
         if newSection != activeSection {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 activeSection = newSection
@@ -155,13 +155,23 @@ struct BraiderProfileView: View {
                         .font(AppTheme.sans(15, weight: .semibold))
                         .foregroundColor(AppTheme.ink)
                         .lineLimit(1)
+
                     HStack(spacing: 4) {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 9))
-                            .foregroundColor(AppTheme.gold)
-                        Text(String(format: "%.1f · %d reviews", braider.rating, braider.reviewCount))
-                            .font(AppTheme.sans(11, weight: .medium))
-                            .foregroundColor(AppTheme.slate)
+                        if breakdown.total > 0 {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 9))
+                                .foregroundColor(AppTheme.gold)
+                            Text(String(format: "%.1f · %d review%@",
+                                        breakdown.average,
+                                        breakdown.total,
+                                        breakdown.total == 1 ? "" : "s"))
+                                .font(AppTheme.sans(11, weight: .medium))
+                                .foregroundColor(AppTheme.slate)
+                        } else {
+                            Text("No reviews yet")
+                                .font(AppTheme.sans(11, weight: .medium))
+                                .foregroundColor(AppTheme.slate)
+                        }
                     }
                 }
 
@@ -184,31 +194,30 @@ struct BraiderProfileView: View {
             .padding(.bottom, 12)
             .background(
                 LinearGradient(
-                    colors: [AppTheme.cloud.opacity(0.98), AppTheme.cloud.opacity(0.9), AppTheme.cloud.opacity(0)],
+                    colors: [
+                        AppTheme.cloud.opacity(0.98),
+                        AppTheme.cloud.opacity(0.9),
+                        AppTheme.cloud.opacity(0)
+                    ],
                     startPoint: .top, endPoint: .bottom
                 )
                 .ignoresSafeArea(edges: .top)
             )
-
             Spacer()
         }
     }
 
-    // MARK: - Stage rail
-
     private var stageRail: some View {
         VStack(spacing: 10) {
             ForEach(Section.allCases, id: \.rawValue) { section in
-                ZStack {
-                    Circle()
-                        .fill(section == activeSection ? AppTheme.accent : Color.white.opacity(0.5))
-                        .frame(
-                            width: section == activeSection ? 8 : 6,
-                            height: section == activeSection ? 8 : 6
-                        )
-                        .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
-                }
-                .animation(.spring(response: 0.35, dampingFraction: 0.75), value: activeSection)
+                Circle()
+                    .fill(section == activeSection ? AppTheme.accent : Color.white.opacity(0.5))
+                    .frame(
+                        width: section == activeSection ? 8 : 6,
+                        height: section == activeSection ? 8 : 6
+                    )
+                    .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.75), value: activeSection)
             }
         }
         .padding(8)
@@ -217,8 +226,6 @@ struct BraiderProfileView: View {
         .shadow(color: .black.opacity(0.1), radius: 8, y: 2)
         .opacity(headerOpacity)
     }
-
-    // MARK: - Bottom action bar
 
     private var actionBar: some View {
         HStack(spacing: 10) {
@@ -290,19 +297,21 @@ struct BraiderProfileView: View {
         if likedItems.contains(id) { likedItems.remove(id) } else { likedItems.insert(id) }
     }
 
-    // MARK: - HERO SECTION
+    // MARK: - Hero
 
     private func heroSection(width: CGFloat, height: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
+            if !braider.coverUrl.isEmpty {
+                RemoteImage(url: braider.coverUrl)
+                    .frame(width: width, height: height)
+                    .clipped()
+                    .scaleEffect(heroScale)
+                    .offset(y: scrollOffset > 0 ? scrollOffset * 0.4 : 0)
+            } else {
+                AppTheme.inkGradient
+                    .frame(width: width, height: height)
+            }
 
-            // Cover image with parallax + zoom
-            RemoteImage(url: braider.coverUrl)
-                .frame(width: width, height: height)
-                .clipped()
-                .scaleEffect(heroScale)
-                .offset(y: scrollOffset > 0 ? scrollOffset * 0.4 : 0)
-
-            // Multi-stop gradient
             LinearGradient(
                 stops: [
                     .init(color: .black.opacity(0.35), location: 0.0),
@@ -313,10 +322,7 @@ struct BraiderProfileView: View {
                 startPoint: .top, endPoint: .bottom
             )
 
-            // Content
             VStack(alignment: .leading, spacing: 20) {
-
-                // Availability badge floating top-right
                 HStack {
                     Spacer()
                     availabilityBadge
@@ -325,17 +331,61 @@ struct BraiderProfileView: View {
 
                 Spacer()
 
-                // Avatar + name
-                avatarAndName
+                HStack(spacing: 16) {
+                    ZStack {
+                        Circle()
+                            .stroke(AppTheme.accentLight, lineWidth: 2.5)
+                            .frame(width: 92, height: 92)
+                        if braider.avatarUrl.isEmpty {
+                            ZStack {
+                                Circle().fill(AppTheme.inkGradient)
+                                Image(systemName: "person.fill")
+                                    .font(.system(size: 32))
+                                    .foregroundColor(.white.opacity(0.75))
+                            }
+                            .frame(width: 82, height: 82)
+                        } else {
+                            RemoteImage(url: braider.avatarUrl)
+                                .frame(width: 82, height: 82)
+                                .clipShape(Circle())
+                        }
+                    }
+                    .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
 
-                // Chips
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 6) {
+                            Text(braider.name)
+                                .font(AppTheme.serif(28))
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                            if braider.verified {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .font(.system(size: 15))
+                                    .foregroundColor(AppTheme.accentLight)
+                            }
+                        }
+                        Text(braider.tagline)
+                            .font(AppTheme.sans(13, weight: .medium))
+                            .foregroundColor(.white.opacity(0.85))
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+
                 HStack(spacing: 8) {
-                    GlassChip(icon: "star.fill", title: String(format: "%.1f rating", braider.rating))
+                    if breakdown.total > 0 {
+                        GlassChip(icon: "star.fill",
+                                  title: String(format: "%.1f", breakdown.average))
+                    } else {
+                        GlassChip(icon: "star",
+                                  title: "New")
+                    }
                     GlassChip(icon: "mappin.and.ellipse", title: braider.city)
                     GlassChip(icon: "clock", title: braider.responseTime)
                 }
 
-                // Bio
                 Text(braider.bio)
                     .font(AppTheme.sans(14))
                     .foregroundColor(.white.opacity(0.9))
@@ -343,8 +393,17 @@ struct BraiderProfileView: View {
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
 
-                // Scroll hint
-                scrollHint
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("Scroll to explore")
+                        .font(AppTheme.sans(11, weight: .semibold))
+                        .tracking(0.5)
+                }
+                .foregroundColor(.white.opacity(0.55))
+                .padding(.top, 4)
+                .opacity(scrollOffset < 40 ? 1 : 0)
+                .animation(.easeInOut(duration: 0.3), value: scrollOffset)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 140)
@@ -361,7 +420,7 @@ struct BraiderProfileView: View {
                 .fill(AppTheme.success)
                 .frame(width: 6, height: 6)
                 .shadow(color: AppTheme.success, radius: 4)
-            Text("Available")
+            Text(hasAvailability ? "Available" : "No availability")
                 .font(AppTheme.sans(11, weight: .bold))
                 .tracking(0.5)
                 .foregroundColor(.white)
@@ -372,87 +431,30 @@ struct BraiderProfileView: View {
         .overlay(Capsule().stroke(Color.white.opacity(0.25), lineWidth: 0.5))
     }
 
-    private var avatarAndName: some View {
-        HStack(spacing: 16) {
-            ZStack {
-                // Ring
-                Circle()
-                    .stroke(AppTheme.accentLight, lineWidth: 2.5)
-                    .frame(width: 92, height: 92)
-
-                // Avatar
-                RemoteImage(url: braider.avatarUrl)
-                    .frame(width: 82, height: 82)
-                    .clipShape(Circle())
-            }
-            .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    Text(braider.name)
-                        .font(AppTheme.serif(28))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-
-                    if braider.verified {
-                        ZStack {
-                            Circle()
-                                .fill(AppTheme.accentLight)
-                                .frame(width: 20, height: 20)
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .heavy))
-                                .foregroundColor(.white)
-                        }
-                    }
-                }
-
-                Text(braider.tagline)
-                    .font(AppTheme.sans(13, weight: .medium))
-                    .foregroundColor(.white.opacity(0.85))
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 0)
-        }
+    private var hasAvailability: Bool {
+        braider.services.contains { $0.hasAvailability }
     }
 
-    private var scrollHint: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .bold))
-                .opacity(0.9)
-            Text("Scroll to explore")
-                .font(AppTheme.sans(10, weight: .bold))
-                .tracking(1.6)
-        }
-        .foregroundColor(.white.opacity(0.7))
-        .padding(.top, 6)
-        .opacity(scrollOffset < 40 ? 1 : 0)
-        .animation(.easeInOut(duration: 0.3), value: scrollOffset)
-    }
-
-    // MARK: - WORK SECTION
+    // MARK: - Work
 
     private func workSection(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 24) {
-
-            sectionHeader(eyebrow: "PORTFOLIO", title: "Recent work", subtitle: "\(braider.portfolio.count) photos")
+            sectionHeader(eyebrow: "PORTFOLIO",
+                          title: "Recent work",
+                          subtitle: "\(braider.portfolio.count) photos")
                 .padding(.horizontal, 24)
 
             if braider.portfolio.isEmpty {
-                emptyWorkState
+                emptyPortfolio
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 16) {
                         ForEach(Array(braider.portfolio.enumerated()), id: \.element.id) { idx, item in
-                            WorkCard(
-                                item: item,
-                                index: idx,
-                                isLiked: likedItems.contains(item.id),
-                                onLike: { toggleLike(item.id) }
-                            )
-                            .frame(width: 260, height: 400)
+                            WorkCard(item: item,
+                                     index: idx,
+                                     isLiked: likedItems.contains(item.id),
+                                     onLike: { toggleLike(item.id) })
+                                .frame(width: 260, height: 400)
                         }
                     }
                     .padding(.horizontal, 24)
@@ -466,7 +468,7 @@ struct BraiderProfileView: View {
         .background(AppTheme.ink)
     }
 
-    private var emptyWorkState: some View {
+    private var emptyPortfolio: some View {
         VStack(spacing: 12) {
             Image(systemName: "photo.on.rectangle.angled")
                 .font(.system(size: 32, weight: .light))
@@ -476,48 +478,41 @@ struct BraiderProfileView: View {
                 .foregroundColor(.white.opacity(0.5))
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 80)
+        .padding(.vertical, 60)
     }
 
-    // MARK: - ABOUT SECTION
+    // MARK: - About
 
     private func aboutSection(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 24) {
-
-            sectionHeader(eyebrow: "ABOUT", title: "Meet \(firstName)", subtitle: braider.city)
+            sectionHeader(eyebrow: "ABOUT",
+                          title: "Meet \(firstName)",
+                          subtitle: braider.city)
                 .padding(.horizontal, 24)
 
-            // Big number row
             HStack(spacing: 12) {
-                statBlock(
-                    value: String(format: "%.1f", braider.rating),
-                    label: "Rating",
-                    icon: "star.fill",
-                    tint: AppTheme.gold
-                )
-                statBlock(
-                    value: "\(braider.yearsExperience)",
-                    label: "Years exp.",
-                    icon: "clock.fill",
-                    tint: AppTheme.accentLight
-                )
-                statBlock(
-                    value: "\(braider.reviewCount)",
-                    label: "Bookings",
-                    icon: "calendar",
-                    tint: AppTheme.sage
-                )
+                statBlock(value: breakdown.total > 0 ? String(format: "%.1f", breakdown.average) : "—",
+                          label: "Rating",
+                          icon: "star.fill",
+                          tint: AppTheme.gold)
+                statBlock(value: "\(braider.yearsExperience)",
+                          label: "Years exp.",
+                          icon: "clock.fill",
+                          tint: AppTheme.accentLight)
+                statBlock(value: "\(breakdown.total)",
+                          label: "Reviews",
+                          icon: "bubble.left.fill",
+                          tint: AppTheme.sage)
             }
             .padding(.horizontal, 24)
 
-            // Bio card
             VStack(alignment: .leading, spacing: 12) {
                 Text("The story")
                     .font(AppTheme.sans(11, weight: .bold))
                     .tracking(1.4)
                     .foregroundColor(.white.opacity(0.45))
 
-                Text(braider.bio)
+                Text(braider.bio.isEmpty ? "—" : braider.bio)
                     .font(AppTheme.sans(15))
                     .foregroundColor(.white.opacity(0.9))
                     .lineSpacing(6)
@@ -526,38 +521,39 @@ struct BraiderProfileView: View {
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.white.opacity(0.05))
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 20))
             .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: 20)
                     .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
             )
             .padding(.horizontal, 24)
 
-            // Specialties
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Specialties")
-                    .font(AppTheme.sans(11, weight: .bold))
-                    .tracking(1.4)
-                    .foregroundColor(.white.opacity(0.45))
+            if !braider.specialties.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Specialties")
+                        .font(AppTheme.sans(11, weight: .bold))
+                        .tracking(1.4)
+                        .foregroundColor(.white.opacity(0.45))
 
-                FlowLayout(spacing: 8) {
-                    ForEach(braider.specialties, id: \.self) { s in
-                        HStack(spacing: 6) {
-                            Image(systemName: "sparkle")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(AppTheme.accentLight)
-                            Text(s)
-                                .font(AppTheme.sans(13, weight: .semibold))
-                                .foregroundColor(.white)
+                    FlowLayout(spacing: 8) {
+                        ForEach(braider.specialties, id: \.self) { s in
+                            HStack(spacing: 6) {
+                                Image(systemName: "sparkle")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(AppTheme.accentLight)
+                                Text(s)
+                                    .font(AppTheme.sans(13, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(height: 38)
+                            .background(Color.white.opacity(0.08), in: Capsule())
+                            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
                         }
-                        .padding(.horizontal, 14)
-                        .frame(height: 38)
-                        .background(Color.white.opacity(0.08), in: Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
                     }
                 }
+                .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24)
         }
         .padding(.top, 32)
         .padding(.bottom, 40)
@@ -573,13 +569,11 @@ struct BraiderProfileView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(tint)
             }
-
             Text(value)
                 .font(AppTheme.serif(30))
                 .foregroundColor(.white)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
-
             Text(label.uppercased())
                 .font(AppTheme.sans(9, weight: .bold))
                 .tracking(1.1)
@@ -588,54 +582,90 @@ struct BraiderProfileView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 18))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 18)
                 .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
         )
     }
 
-    // MARK: - REVIEWS SECTION
+    // MARK: - Reviews
 
     private func reviewsSection(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 24) {
-
-            sectionHeader(eyebrow: "REVIEWS", title: "What clients say", subtitle: "\(breakdown.total) verified")
-                .padding(.horizontal, 24)
-
-            RatingBloom(breakdown: breakdown)
-                .padding(.horizontal, 24)
-
-            // Featured reviews
-            VStack(spacing: 12) {
-                ForEach(Array(reviews.prefix(3).enumerated()), id: \.element.id) { idx, r in
-                    ReviewCinemaCard(review: r, index: idx)
-                        .padding(.horizontal, 24)
+            HStack {
+                sectionHeader(eyebrow: "REVIEWS",
+                              title: "What clients say",
+                              subtitle: breakdown.total == 0 ? "Be the first" : "\(breakdown.total) total")
+                Spacer()
+                Button {
+                    Haptics.medium()
+                    showWriteReview = true
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Write")
+                            .font(AppTheme.sans(12, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .background(AppTheme.accent, in: Capsule())
+                    .shadow(color: AppTheme.accent.opacity(0.4), radius: 8, y: 3)
                 }
+                .buttonStyle(SoftPress())
             }
-
-            Button {
-                Haptics.soft()
-                showAllReviews = true
-            } label: {
-                HStack {
-                    Text("Read all \(breakdown.total) reviews")
-                        .font(AppTheme.sans(15, weight: .semibold))
-                    Spacer()
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-                .foregroundColor(.white)
-                .padding(.horizontal, 20)
-                .frame(height: 56)
-                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                )
-            }
-            .buttonStyle(SoftPress())
             .padding(.horizontal, 24)
+
+            if reviewsLoading {
+                VStack(spacing: 10) {
+                    ProgressView().tint(.white)
+                    Text("Loading reviews…")
+                        .font(AppTheme.sans(12))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+            } else if reviews.isEmpty {
+                emptyReviews
+                    .padding(.horizontal, 24)
+            } else {
+                RatingBloom(breakdown: breakdown)
+                    .padding(.horizontal, 24)
+
+                VStack(spacing: 12) {
+                    ForEach(Array(reviews.prefix(3).enumerated()), id: \.element.id) { idx, r in
+                        ReviewCinemaCard(review: r, index: idx)
+                            .padding(.horizontal, 24)
+                    }
+                }
+
+                if reviews.count > 3 {
+                    Button {
+                        Haptics.soft()
+                        showAllReviews = true
+                    } label: {
+                        HStack {
+                            Text("Read all \(reviews.count) reviews")
+                                .font(AppTheme.sans(15, weight: .semibold))
+                            Spacer()
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .frame(height: 56)
+                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                        )
+                    }
+                    .buttonStyle(SoftPress())
+                    .padding(.horizontal, 24)
+                }
+            }
         }
         .padding(.top, 32)
         .padding(.bottom, 40)
@@ -643,7 +673,58 @@ struct BraiderProfileView: View {
         .background(AppTheme.ink)
     }
 
-    // MARK: - Shared header
+    private var emptyReviews: some View {
+        Button {
+            Haptics.medium()
+            showWriteReview = true
+        } label: {
+            VStack(spacing: 16) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.06))
+                        .frame(width: 80, height: 80)
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.system(size: 32, weight: .light))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+
+                VStack(spacing: 6) {
+                    Text("No reviews yet")
+                        .font(AppTheme.serif(20))
+                        .foregroundColor(.white)
+                    Text("Be the first to review \(firstName). Your feedback helps others decide.")
+                        .font(AppTheme.sans(13))
+                        .foregroundColor(.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3)
+                        .padding(.horizontal, 20)
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Write the first review")
+                        .font(AppTheme.sans(14, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 18)
+                .frame(height: 46)
+                .background(AppTheme.bronzeGradient, in: Capsule())
+                .shadow(color: AppTheme.accent.opacity(0.35), radius: 12, y: 4)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 40)
+            .background(Color.white.opacity(0.04))
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(CardPress())
+    }
+
+    // MARK: - Section header
 
     private func sectionHeader(eyebrow: String, title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -670,7 +751,7 @@ struct BraiderProfileView: View {
     }
 }
 
-// MARK: - Scroll offset preference
+// MARK: - Scroll offset key
 
 private struct ScrollOffsetKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
@@ -760,23 +841,25 @@ struct WorkCard: View {
     }
 }
 
-// MARK: - Rating Bloom (signature visual)
+// MARK: - Rating Bloom
 
 struct RatingBloom: View {
     let breakdown: RatingBreakdown
-
     @State private var animate = false
 
-    private let barData: [(stars: Int, count: Int)] = [
-        (5, 189), (4, 22), (3, 5), (2, 1), (1, 1)
-    ]
+    private var barData: [(stars: Int, count: Int)] {
+        [
+            (5, breakdown.five),
+            (4, breakdown.four),
+            (3, breakdown.three),
+            (2, breakdown.two),
+            (1, breakdown.one)
+        ]
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 20) {
-
-            // Big number with animated ring
             ZStack {
-                // Outer ring (progress arc)
                 Circle()
                     .stroke(Color.white.opacity(0.08), lineWidth: 6)
                     .frame(width: 120, height: 120)
@@ -795,7 +878,6 @@ struct RatingBloom: View {
                     )
                     .shadow(color: AppTheme.gold.opacity(0.5), radius: 8)
 
-                // Center stack
                 VStack(spacing: 2) {
                     Text(String(format: "%.1f", breakdown.average))
                         .font(AppTheme.serif(38))
@@ -812,7 +894,6 @@ struct RatingBloom: View {
                 }
             }
 
-            // Bars
             VStack(spacing: 8) {
                 ForEach(barData, id: \.stars) { data in
                     HStack(spacing: 10) {
@@ -823,9 +904,7 @@ struct RatingBloom: View {
 
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
-                                Capsule()
-                                    .fill(Color.white.opacity(0.08))
-
+                                Capsule().fill(Color.white.opacity(0.08))
                                 Capsule()
                                     .fill(
                                         LinearGradient(
@@ -833,11 +912,7 @@ struct RatingBloom: View {
                                             startPoint: .leading, endPoint: .trailing
                                         )
                                     )
-                                    .frame(
-                                        width: animate
-                                            ? geo.size.width * ratio(data.count)
-                                            : 0
-                                    )
+                                    .frame(width: animate ? geo.size.width * ratio(data.count) : 0)
                                     .animation(
                                         .spring(response: 1.0, dampingFraction: 0.85)
                                             .delay(0.3 + Double(5 - data.stars) * 0.06),
@@ -857,9 +932,9 @@ struct RatingBloom: View {
         }
         .padding(20)
         .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 24))
         .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
+            RoundedRectangle(cornerRadius: 24)
                 .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
         )
         .onAppear {
@@ -889,8 +964,6 @@ struct ReviewCinemaCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-
-            // Left accent rail
             RoundedRectangle(cornerRadius: 2)
                 .fill(accentColor)
                 .frame(width: 3)
@@ -898,10 +971,19 @@ struct ReviewCinemaCard: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
-                    RemoteImage(url: review.userAvatar)
-                        .frame(width: 36, height: 36)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(accentColor.opacity(0.4), lineWidth: 1.5))
+                    if review.userAvatar.isEmpty {
+                        ZStack {
+                            Circle().fill(AppTheme.inkGradient).frame(width: 36, height: 36)
+                            Text(String(review.userName.prefix(1)).uppercased())
+                                .font(AppTheme.sans(14, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                    } else {
+                        RemoteImage(url: review.userAvatar)
+                            .frame(width: 36, height: 36)
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(accentColor.opacity(0.4), lineWidth: 1.5))
+                    }
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(review.userName)
@@ -911,7 +993,7 @@ struct ReviewCinemaCard: View {
                             StarRow(rating: review.rating, size: 9, color: accentColor)
                             Text("·")
                                 .foregroundColor(.white.opacity(0.3))
-                            Text(review.date)
+                            Text(review.dateString)
                                 .font(AppTheme.sans(10))
                                 .foregroundColor(.white.opacity(0.5))
                         }
@@ -924,10 +1006,10 @@ struct ReviewCinemaCard: View {
                     .font(AppTheme.sans(13))
                     .foregroundColor(.white.opacity(0.85))
                     .lineSpacing(4)
-                    .lineLimit(4)
+                    .lineLimit(6)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 8) {
+                if !review.styleDone.isEmpty {
                     Text(review.styleDone)
                         .font(AppTheme.sans(10, weight: .bold))
                         .tracking(0.4)
@@ -935,24 +1017,14 @@ struct ReviewCinemaCard: View {
                         .padding(.horizontal, 9)
                         .padding(.vertical, 4)
                         .background(accentColor.opacity(0.12), in: Capsule())
-
-                    Spacer()
-
-                    HStack(spacing: 4) {
-                        Image(systemName: "hand.thumbsup")
-                            .font(.system(size: 9))
-                        Text("\(review.helpful)")
-                            .font(AppTheme.sans(10, weight: .medium))
-                    }
-                    .foregroundColor(.white.opacity(0.4))
                 }
             }
         }
         .padding(14)
         .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
         )
         .opacity(appeared ? 1 : 0)
@@ -967,12 +1039,13 @@ struct ReviewCinemaCard: View {
     }
 }
 
-// MARK: - All reviews sheet (light)
+// MARK: - All reviews sheet
 
 struct AllReviewsSheet: View {
     let braider: Braider
     let reviews: [Review]
     let breakdown: RatingBreakdown
+    let onWriteReview: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var appeared = false
@@ -984,7 +1057,9 @@ struct AllReviewsSheet: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 16) {
-                        LightRatingSummary(breakdown: breakdown)
+                        if breakdown.total > 0 {
+                            ReviewSummaryLight(breakdown: breakdown)
+                        }
 
                         ForEach(Array(reviews.enumerated()), id: \.element.id) { idx, r in
                             LightReviewCard(review: r)
@@ -1003,10 +1078,27 @@ struct AllReviewsSheet: View {
             .navigationTitle("Reviews")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button("Done") { dismiss() }
                         .font(AppTheme.sans(15, weight: .semibold))
                         .foregroundColor(AppTheme.ink)
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        Haptics.medium()
+                        dismiss()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            onWriteReview()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "square.and.pencil")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Write")
+                                .font(AppTheme.sans(14, weight: .semibold))
+                        }
+                        .foregroundColor(AppTheme.accentDeep)
+                    }
                 }
             }
             .onAppear { withAnimation { appeared = true } }
@@ -1014,7 +1106,7 @@ struct AllReviewsSheet: View {
     }
 }
 
-struct LightRatingSummary: View {
+struct ReviewSummaryLight: View {
     let breakdown: RatingBreakdown
 
     var body: some View {
@@ -1058,9 +1150,9 @@ struct LightRatingSummary: View {
         }
         .padding(18)
         .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 20)
                 .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
         )
     }
@@ -1087,14 +1179,24 @@ struct LightReviewCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                RemoteImage(url: review.userAvatar)
-                    .frame(width: 42, height: 42)
-                    .clipShape(Circle())
+                if review.userAvatar.isEmpty {
+                    ZStack {
+                        Circle().fill(AppTheme.inkGradient).frame(width: 42, height: 42)
+                        Text(String(review.userName.prefix(1)).uppercased())
+                            .font(AppTheme.sans(15, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                } else {
+                    RemoteImage(url: review.userAvatar)
+                        .frame(width: 42, height: 42)
+                        .clipShape(Circle())
+                }
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(review.userName)
                         .font(AppTheme.sans(14, weight: .semibold))
                         .foregroundColor(AppTheme.ink)
-                    Text(review.date)
+                    Text(review.dateString)
                         .font(AppTheme.sans(11))
                         .foregroundColor(AppTheme.stone)
                 }
@@ -1108,24 +1210,20 @@ struct LightReviewCard: View {
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 10) {
-                Pill(icon: "scissors", text: review.styleDone, fg: AppTheme.accentDeep, bg: AppTheme.accentSoft)
-                Spacer()
-                HStack(spacing: 4) {
-                    Image(systemName: "hand.thumbsup")
-                        .font(.system(size: 10))
-                    Text("\(review.helpful) found helpful")
-                        .font(AppTheme.sans(11, weight: .medium))
+            if !review.styleDone.isEmpty {
+                HStack(spacing: 10) {
+                    Pill(icon: "scissors", text: review.styleDone,
+                         fg: AppTheme.accentDeep, bg: AppTheme.accentSoft)
+                    Spacer()
                 }
-                .foregroundColor(AppTheme.stone)
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 16)
                 .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
         )
     }
