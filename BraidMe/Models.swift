@@ -1,7 +1,7 @@
 import Foundation
 import CoreLocation
 
-struct Braider: Identifiable, Equatable {
+struct Braider: Identifiable, Hashable {
     let id: String
     let name: String
     let imageUrl: String
@@ -12,6 +12,10 @@ struct Braider: Identifiable, Equatable {
     
     static func == (lhs: Braider, rhs: Braider) -> Bool {
         lhs.id == rhs.id
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 
