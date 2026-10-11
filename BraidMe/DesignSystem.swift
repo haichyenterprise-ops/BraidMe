@@ -23,8 +23,11 @@ struct AppTheme {
     static let rose  = Color(hex: "#B86868")
     static let sage  = Color(hex: "#6F8069")
     static let gold  = Color(hex: "#C6A251")
+    static let warn  = Color(hex: "#C68A3C")
     static let plum  = Color(hex: "#6B4E71")
 
+    static let success = Color(hex: "#2F7A57")
+    static let danger  = Color(hex: "#B63B3F")
     static let success = Color(hex: "#2F7A57")
     static let danger  = Color(hex: "#B63B3F")
 
