@@ -7,9 +7,6 @@ import UIKit
 
 // =============================================================================
 // MainTabView — "The Spatial Canvas"
-//
-// Clean map. Fixed top chrome (pinned to top safe area). Enhanced zoom
-// with spring animations. Star-rated pins. Globe transition on profile entry.
 // =============================================================================
 
 struct MainTabView: View {
@@ -104,8 +101,11 @@ struct MainTabView: View {
                         Spacer()
                         bottomChrome
                     }
-
-                    // ─── Globe transition overlay ───
+                }
+                .ignoresSafeArea(edges: .bottom)
+                // ─── Globe overlay sits at the ROOT of the ZStack so it
+                //     covers everything during transition.
+                .overlay {
                     if globeActive, let braider = pendingProfileBraider {
                         GlobeTransitionOverlay(
                             isActive: globeActive,
@@ -114,18 +114,12 @@ struct MainTabView: View {
                             targetRating: braider.ratingText,
                             targetAvatarUrl: braider.avatarUrl
                         ) {
-                            // Transition complete — navigate
-                            globeActive = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                                selectedBraider = braider
-                                pendingProfileBraider = nil
-                            }
+                            finishGlobeTransition()
                         }
                         .transition(.opacity)
-                        .zIndex(1000)
+                        .zIndex(9999)
                     }
                 }
-                .ignoresSafeArea(edges: .bottom)
             }
             .navigationDestination(item: $selectedBraider) { braider in
                 BraiderProfileView(braider: braider)
@@ -218,7 +212,7 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Layer 3: Vignette
+    // MARK: - Vignette
 
     private var vignetteLayer: some View {
         ZStack {
@@ -264,7 +258,7 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Top Chrome (pinned at very top)
+    // MARK: - Top Chrome
 
     private var topChrome: some View {
         HStack(spacing: Space.sm) {
@@ -518,13 +512,20 @@ struct MainTabView: View {
         }
     }
 
-    /// Launches the globe transition and navigates to the profile.
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Globe Transition
+
+    /// Kicks off the globe transition. Retains `pendingProfileBraider`
+    /// so the overlay keeps its target info while it plays.
     private func openProfileWithGlobe(_ braider: Braider) {
+        guard !globeActive else { return }              // prevent double-tap
         Haptic.heavy()
         haptics.play(.pinExpand)
-        pendingProfileBraider = braider
 
-        // Slight delay so the heavy impact registers before the flash
+        pendingProfileBraider = braider
+        expandedBraiderId = nil                          // collapse capsule
+
+        // Small delay so the heavy haptic registers before the flash
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
             withAnimation(.easeIn(duration: 0.2)) {
                 globeActive = true
@@ -532,8 +533,27 @@ struct MainTabView: View {
         }
     }
 
+    /// Called by the overlay's `onComplete`. Navigation happens FIRST,
+    /// then the overlay is cleared on the next run loop so there's no
+    /// black flash between them.
+    private func finishGlobeTransition() {
+        guard let braider = pendingProfileBraider else {
+            globeActive = false
+            return
+        }
+
+        // 1. Push the destination
+        selectedBraider = braider
+
+        // 2. Clear the overlay AFTER navigation commits
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            globeActive = false
+            pendingProfileBraider = nil
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Zoom Logic (enhanced)
+    // MARK: - Zoom Logic
 
     private func adjustZoom(in closer: Bool) {
         let factor: Double = closer ? 0.55 : 1.8
@@ -541,21 +561,22 @@ struct MainTabView: View {
         let clamped = max(200, min(newDistance, 80000))
         cameraDistance = clamped
 
-        // Animated spring zoom
+        let newPitch: Double = {
+            let target = cameraPitch + (closer ? 4 : -4)
+            return max(0, min(target, 45))
+        }()
+        cameraPitch = newPitch
+
         withAnimation(.spring(response: 0.65, dampingFraction: 0.72)) {
             cameraPosition = .camera(
                 MapCamera(
                     centerCoordinate: cameraCenter,
                     distance: clamped,
                     heading: 0,
-                    pitch: min(cameraPitch + (closer ? 4 : -4), 45)
+                    pitch: newPitch
                 )
             )
         }
-
-        // Update pitch state to match
-        let newPitch = min(cameraPitch + (closer ? 4 : -4), 45)
-        cameraPitch = max(0, newPitch)
     }
 
     private func flyTo(city: City) {
@@ -711,7 +732,7 @@ struct MainTabView: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - StarOrbPin (idle pin with star rating badge)
+// MARK: - StarOrbPin
 // ═══════════════════════════════════════════════════════════════════
 
 struct StarOrbPin: View {
@@ -732,7 +753,6 @@ struct StarOrbPin: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 4) {
-                // ─── Rating badge (top) ───
                 HStack(spacing: 3) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 8, weight: .bold))
@@ -765,7 +785,6 @@ struct StarOrbPin: View {
                 .scaleEffect(appear ? 1 : 0.4)
                 .opacity(appear ? 1 : 0)
 
-                // ─── Dot ───
                 ZStack {
                     Circle()
                         .stroke(Color.gold.opacity(0.35), lineWidth: 1.2)
@@ -851,7 +870,6 @@ struct OrbCapsule: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                // Avatar
                 ZStack {
                     if braider.avatarUrl.isEmpty {
                         Circle()
@@ -946,7 +964,6 @@ struct OrbCapsule: View {
                         .shadow(color: Color.black.opacity(0.18), radius: 24, y: 10)
                         .shadow(color: Color.gold.opacity(0.15), radius: 30, y: 4)
 
-                    // Sheen sweep
                     GeometryReader { geo in
                         LinearGradient(
                             colors: [.clear, .white.opacity(0.35), .clear],
