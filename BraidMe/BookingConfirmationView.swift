@@ -12,12 +12,22 @@ struct BookingConfirmationView: View {
     @State private var circleProgress: CGFloat = 0
     @State private var checkProgress: CGFloat = 0
     @State private var contentOpacity: Double = 0
-    @State private var contentOffset: CGFloat = 20
+    @State private var contentOffset: CGFloat = 30
+    @State private var confettiTrigger = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
             Color.appBackground.ignoresSafeArea()
+
+            // Ambient celebration gradient
+            RadialGradient(
+                colors: [Color.appAccent.opacity(0.12), .clear],
+                center: .top,
+                startRadius: 0,
+                endRadius: 400
+            )
+            .ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: Space.xl) {
@@ -43,17 +53,17 @@ struct BookingConfirmationView: View {
                         Haptic.press()
                         finish()
                     } label: {
-                        HStack(spacing: Space.xxs) {
-                            Image(systemName: "map")
+                        HStack(spacing: Space.xs) {
+                            Image(systemName: "map.fill")
                                 .font(.bmUI(14, weight: .semibold))
                             Text("Back to map")
                                 .font(.bmUI(15, weight: .semibold))
                         }
                         .foregroundStyle(Color.appInkInverse)
                         .frame(maxWidth: .infinity)
-                        .frame(minHeight: 52)
-                        .padding(.vertical, Space.xs)
+                        .frame(minHeight: 56)
                         .background(Color.appInk, in: Capsule())
+                        .shadow(color: Color.appInk.opacity(0.25), radius: 16, y: 8)
                     }
                     .buttonStyle(BMPressStyle())
                     .padding(.horizontal, Space.lg)
@@ -70,30 +80,51 @@ struct BookingConfirmationView: View {
 
     private var checkmark: some View {
         ZStack {
+            // Outer ring
             Circle()
-                .stroke(Color.appDivider, lineWidth: 4)
-                .frame(width: 100, height: 100)
+                .stroke(Color.appDivider, lineWidth: 5)
+                .frame(width: 120, height: 120)
+
+            // Progress ring
             Circle()
                 .trim(from: 0, to: circleProgress)
-                .stroke(Color.appAccent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .stroke(
+                    Color.appAccent,
+                    style: StrokeStyle(lineWidth: 5, lineCap: .round)
+                )
                 .rotationEffect(.degrees(-90))
-                .frame(width: 100, height: 100)
+                .frame(width: 120, height: 120)
+
+            // Glow
+            Circle()
+                .fill(Color.appAccent.opacity(0.15))
+                .frame(width: 120, height: 120)
+                .blur(radius: circleProgress > 0.9 ? 20 : 0)
+                .opacity(circleProgress > 0.9 ? 1 : 0)
+
+            // Checkmark
             CheckShape()
                 .trim(from: 0, to: checkProgress)
-                .stroke(Color.appAccent, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
-                .frame(width: 40, height: 40)
+                .stroke(
+                    Color.appAccent,
+                    style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
+                )
+                .frame(width: 48, height: 48)
         }
     }
 
     private var header: some View {
-        VStack(spacing: Space.xs) {
+        VStack(spacing: Space.sm) {
             Text("Booking confirmed")
-                .font(.bmDisplay(28, weight: .semibold))
+                .font(.bmHero(30))
                 .foregroundStyle(Color.appInk)
+                .multilineTextAlignment(.center)
+
             Text("\(braider.name) will see your appointment shortly.")
-                .font(.bmUI(14))
+                .font(.bmUI(15))
                 .foregroundStyle(Color.appAsh)
                 .multilineTextAlignment(.center)
+                .lineSpacing(4)
                 .padding(.horizontal, Space.xl)
         }
     }
@@ -114,6 +145,7 @@ struct BookingConfirmationView: View {
             RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .stroke(Color.appDivider, lineWidth: 0.5)
         )
+        .shadow(color: Color.appInk.opacity(0.08), radius: 20, y: 10)
         .padding(.horizontal, Space.lg)
     }
 
@@ -124,7 +156,7 @@ struct BookingConfirmationView: View {
                 .foregroundStyle(Color.appAsh)
             Spacer()
             Text(value)
-                .font(emphasized ? .bmMono(15, weight: .semibold) : .bmUI(14, weight: .medium))
+                .font(emphasized ? .bmMono(16, weight: .bold) : .bmUI(14, weight: .medium))
                 .foregroundStyle(emphasized ? Color.appAccent : Color.appInk)
         }
         .padding(.horizontal, Space.md)
@@ -132,14 +164,19 @@ struct BookingConfirmationView: View {
     }
 
     private var nextSteps: some View {
-        HStack(alignment: .top, spacing: Space.sm) {
-            Image(systemName: "bell.badge")
-                .font(.bmUI(13))
-                .foregroundStyle(Color.appAccent)
+        HStack(alignment: .top, spacing: Space.md) {
+            ZStack {
+                Circle()
+                    .fill(Color.appAccent)
+                    .frame(width: 36, height: 36)
+                Image(systemName: "bell.badge.fill")
+                    .font(.bmUI(14))
+                    .foregroundStyle(Color.appInkInverse)
+            }
             Text("You'll get a message from \(braider.name) in your Bookings tab to confirm final details.")
-                .font(.bmUI(12))
-                .foregroundStyle(Color.appAsh)
-                .lineSpacing(3)
+                .font(.bmUI(13))
+                .foregroundStyle(Color.appInkSecondary)
+                .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(Space.md)
@@ -159,11 +196,12 @@ struct BookingConfirmationView: View {
             return
         }
 
-        withAnimation(.easeOut(duration: 0.55)) { circleProgress = 1 }
-        try? await Task.sleep(nanoseconds: 400_000_000)
-        withAnimation(.easeOut(duration: 0.35)) { checkProgress = 1 }
-        try? await Task.sleep(nanoseconds: 250_000_000)
-        withAnimation(Motion.reveal) {
+        withAnimation(.easeOut(duration: 0.6)) { circleProgress = 1 }
+        try? await Task.sleep(nanoseconds: 450_000_000)
+        Haptic.light()
+        withAnimation(.easeOut(duration: 0.4)) { checkProgress = 1 }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        withAnimation(Motion.heroReveal) {
             contentOpacity = 1
             contentOffset = 0
         }
@@ -171,16 +209,6 @@ struct BookingConfirmationView: View {
 
     private func finish() {
         NotificationCenter.default.post(name: .bookingFlowFinished, object: nil)
-    }
-}
-
-struct CheckShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.width * 0.15, y: rect.height * 0.55))
-        path.addLine(to: CGPoint(x: rect.width * 0.42, y: rect.height * 0.80))
-        path.addLine(to: CGPoint(x: rect.width * 0.88, y: rect.height * 0.20))
-        return path
     }
 }
 

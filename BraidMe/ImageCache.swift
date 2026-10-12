@@ -50,6 +50,8 @@ final class ImageCache {
     }
 }
 
+// MARK: - Remote Image
+
 struct RemoteImage: View {
     let url: String
     var contentMode: ContentMode = .fill
@@ -102,7 +104,7 @@ struct RemoteImage: View {
 
         if let cached = ImageCache.shared.cachedImage(for: url) {
             await MainActor.run {
-                withAnimation(.easeOut(duration: 0.28)) { self.image = cached }
+                withAnimation(.easeOut(duration: 0.32)) { self.image = cached }
                 self.phase = .loaded
             }
             return
@@ -127,7 +129,7 @@ struct RemoteImage: View {
             }
             ImageCache.shared.store(img, for: url)
             await MainActor.run {
-                withAnimation(.easeOut(duration: 0.28)) { self.image = img }
+                withAnimation(.easeOut(duration: 0.32)) { self.image = img }
                 self.phase = .loaded
             }
         } catch {
@@ -144,7 +146,7 @@ private struct MovingShimmer: View {
     var body: some View {
         GeometryReader { geo in
             LinearGradient(
-                colors: [.clear, Color.appSurface.opacity(0.6), .clear],
+                colors: [.clear, Color.appSurface.opacity(0.7), .clear],
                 startPoint: .leading, endPoint: .trailing
             )
             .frame(width: geo.size.width * 0.7)
@@ -152,7 +154,7 @@ private struct MovingShimmer: View {
             .blendMode(.overlay)
             .onAppear {
                 if !reduceMotion {
-                    withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {
+                    withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
                         x = 1.4
                     }
                 }
@@ -160,6 +162,8 @@ private struct MovingShimmer: View {
         }
     }
 }
+
+// MARK: - Legacy Avatar (kept for compatibility)
 
 struct Avatar: View {
     let url: String

@@ -13,7 +13,10 @@ struct ContentView: View {
                 splash
             } else if !session.isSignedIn {
                 AuthView()
-                    .transition(.opacity)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.98)),
+                        removal: .opacity
+                    ))
             } else if isCheckingProfile {
                 splash
             } else if needsOnboarding {
@@ -27,10 +30,16 @@ struct ContentView: View {
                         needsOnboarding = false
                     }
                 }
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
             } else {
                 MainTabView()
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                        removal: .opacity
+                    ))
             }
         }
         .background(Color.appBackground.ignoresSafeArea())
@@ -45,21 +54,50 @@ struct ContentView: View {
     private var splash: some View {
         ZStack {
             Color.appBackground.ignoresSafeArea()
-            VStack(spacing: Space.lg) {
+            
+            // Ambient gradient
+            RadialGradient(
+                colors: [Color.appAccent.opacity(0.08), .clear],
+                center: .center,
+                startRadius: 0,
+                endRadius: 300
+            )
+            .ignoresSafeArea()
+            
+            VStack(spacing: Space.xl) {
+                // Animated logo
                 ZStack {
                     Circle()
                         .fill(Color.appAccentTint)
-                        .frame(width: 88, height: 88)
+                        .frame(width: 100, height: 100)
+                    
+                    Circle()
+                        .stroke(Color.appAccent.opacity(0.3), lineWidth: 1.5)
+                        .frame(width: 100, height: 100)
+                        .scaleEffect(1.2)
+                        .opacity(0.5)
+                    
                     Image(systemName: "sparkles")
-                        .font(.bmUI(32, weight: .medium))
+                        .font(.bmUI(36, weight: .medium))
                         .foregroundStyle(Color.appAccent)
                 }
-                Text("BraidMe")
-                    .font(.bmDisplay(30, weight: .semibold))
-                    .foregroundStyle(Color.appInk)
+                .glow(color: .appAccent, radius: 30, intensity: 0.3)
+                
+                VStack(spacing: Space.xs) {
+                    Text("BraidMe")
+                        .font(.bmHero(34))
+                        .foregroundStyle(Color.appInk)
+                    
+                    Text("Where craft meets care")
+                        .font(.bmUI(13, weight: .medium))
+                        .foregroundStyle(Color.appAsh)
+                        .tracking(1)
+                }
+                
                 ProgressView()
                     .tint(Color.appAccent)
-                    .padding(.top, Space.xs)
+                    .scaleEffect(1.1)
+                    .padding(.top, Space.sm)
             }
         }
     }

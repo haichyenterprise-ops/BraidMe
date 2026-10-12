@@ -49,6 +49,7 @@ struct LocationSearchView: View {
     var onSelect: (City) -> Void
 
     @State private var query = ""
+    @State private var appeared = false
     @FocusState private var searchFocused: Bool
 
     private var filtered: [City] {
@@ -67,10 +68,14 @@ struct LocationSearchView: View {
                 Color.appBackground.ignoresSafeArea()
 
                 VStack(spacing: 0) {
+                    header
+
                     searchField
                         .padding(.horizontal, Space.lg)
-                        .padding(.top, Space.md)
                         .padding(.bottom, Space.md)
+                        .opacity(appeared ? 1 : 0)
+                        .offset(y: appeared ? 0 : 12)
+                        .animate(Motion.heroReveal.delay(0.15), value: appeared)
 
                     ScrollView(showsIndicators: false) {
                         LazyVStack(spacing: 0) {
@@ -78,7 +83,9 @@ struct LocationSearchView: View {
                                 sectionHeader("POPULAR")
                                 ForEach(suggested) { city in
                                     cityRow(city)
-                                    BMDivider().padding(.leading, Space.xxl)
+                                    if city.id != suggested.last?.id {
+                                        BMDivider().padding(.leading, 76)
+                                    }
                                 }
                                 Spacer().frame(height: Space.lg)
                                 sectionHeader("ALL CITIES")
@@ -87,7 +94,7 @@ struct LocationSearchView: View {
                             ForEach(filtered) { city in
                                 cityRow(city)
                                 if city.id != filtered.last?.id {
-                                    BMDivider().padding(.leading, Space.xxl)
+                                    BMDivider().padding(.leading, 76)
                                 }
                             }
 
@@ -105,28 +112,65 @@ struct LocationSearchView: View {
                     }
                 }
             }
-            .navigationTitle("Location")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Cancel") { dismiss() }
-                        .font(.bmUI(15, weight: .medium))
-                        .foregroundStyle(Color.appAsh)
+                ToolbarItem(placement: .navigationBarLeading) {
+                    BMGlassIconButton(icon: "xmark", size: 40, iconSize: 14, tint: .appInk) {
+                        dismiss()
+                    }
                 }
             }
+            .toolbarBackground(.hidden, for: .navigationBar)
         }
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 searchFocused = true
             }
         }
     }
 
-    private var searchField: some View {
-        HStack(spacing: Space.sm) {
-            Image(systemName: "magnifyingglass")
-                .font(.bmUI(15, weight: .medium))
+    private var header: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            HStack(spacing: Space.xs) {
+                Rectangle()
+                    .fill(Color.appAccent)
+                    .frame(width: 20, height: 2)
+                Text("EXPLORE")
+                    .font(.bmUI(10, weight: .bold))
+                    .tracking(2)
+                    .foregroundStyle(Color.appAccent)
+            }
+
+            Text("Where to?")
+                .font(.bmHero(34))
+                .foregroundStyle(Color.appInk)
+                .lineSpacing(-4)
+
+            Text("Pick a city to discover braiders nearby.")
+                .font(.bmUI(14))
                 .foregroundStyle(Color.appAsh)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.sm)
+        .padding(.bottom, Space.md)
+        .opacity(appeared ? 1 : 0)
+        .offset(y: appeared ? 0 : 16)
+        .animate(Motion.heroReveal, value: appeared)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: Space.md) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(searchFocused ? Color.appAccentTint : Color.appBackground)
+                    .frame(width: 36, height: 36)
+                Image(systemName: "magnifyingglass")
+                    .font(.bmUI(14, weight: .semibold))
+                    .foregroundStyle(searchFocused ? Color.appAccent : Color.appAsh)
+            }
+            .animation(Motion.subtle, value: searchFocused)
 
             TextField("Search city or region", text: $query)
                 .font(.bmUI(16, weight: .medium))
@@ -141,27 +185,39 @@ struct LocationSearchView: View {
                     query = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.bmUI(14))
+                        .font(.bmUI(16))
                         .foregroundStyle(Color.appSmoke)
                 }
+                .transition(.scale.combined(with: .opacity))
             }
         }
         .padding(.horizontal, Space.md)
-        .frame(height: 52)
+        .frame(height: 60)
         .background(Color.appSurface)
         .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                .stroke(Color.appDivider, lineWidth: 0.5)
+                .stroke(
+                    searchFocused ? Color.appAccent.opacity(0.5) : Color.appDivider,
+                    lineWidth: searchFocused ? 1.5 : 0.5
+                )
         )
+        .shadow(color: searchFocused ? Color.appAccent.opacity(0.1) : .clear, radius: 8, y: 2)
+        .animation(Motion.subtle, value: searchFocused)
+        .animation(Motion.subtle, value: query.isEmpty)
     }
 
     private func sectionHeader(_ text: String) -> some View {
         HStack {
-            Text(text)
-                .font(.bmUI(11, weight: .semibold))
-                .tracking(1.4)
-                .foregroundStyle(Color.appAsh)
+            HStack(spacing: Space.xs) {
+                Rectangle()
+                    .fill(Color.appAccent)
+                    .frame(width: 12, height: 2)
+                Text(text)
+                    .font(.bmUI(10, weight: .bold))
+                    .tracking(1.5)
+                    .foregroundStyle(Color.appAsh)
+            }
             Spacer()
         }
         .padding(.vertical, Space.sm)
@@ -174,7 +230,16 @@ struct LocationSearchView: View {
             dismiss()
         } label: {
             HStack(spacing: Space.md) {
-                VStack(alignment: .leading, spacing: 2) {
+                ZStack {
+                    Circle()
+                        .fill(city.id == initialCity.id ? Color.appAccentTint : Color.appBackground)
+                        .frame(width: 44, height: 44)
+                    Image(systemName: city.id == initialCity.id ? "location.fill" : "mappin")
+                        .font(.bmUI(15, weight: .semibold))
+                        .foregroundStyle(city.id == initialCity.id ? Color.appAccent : Color.appAsh)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
                     Text(city.name)
                         .font(.bmUI(15, weight: .semibold))
                         .foregroundStyle(Color.appInk)
@@ -183,18 +248,21 @@ struct LocationSearchView: View {
                         .foregroundStyle(Color.appAsh)
                 }
                 Spacer()
+
                 if city.id == initialCity.id {
                     Text("Current")
-                        .font(.bmUI(10, weight: .semibold))
+                        .font(.bmUI(10, weight: .bold))
                         .tracking(0.6)
                         .foregroundStyle(Color.appAccent)
                         .padding(.horizontal, Space.xs)
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 5)
                         .background(Color.appAccentTint, in: Capsule())
                 } else {
-                    Image(systemName: "chevron.right")
+                    Image(systemName: "arrow.up.right")
                         .font(.bmUI(12, weight: .semibold))
                         .foregroundStyle(Color.appSmoke)
+                        .frame(width: 32, height: 32)
+                        .background(Color.appBackground, in: Circle())
                 }
             }
             .padding(.vertical, Space.sm)

@@ -12,6 +12,7 @@ struct ProfileSetupView: View {
     @State private var appeared = false
     @State private var saving = false
     @State private var errorMessage: String?
+    @FocusState private var nameFocused: Bool
 
     private let range = Array(13...90)
 
@@ -24,6 +25,15 @@ struct ProfileSetupView: View {
     var body: some View {
         ZStack {
             Color.appBackground.ignoresSafeArea()
+
+            // Ambient gradient
+            RadialGradient(
+                colors: [Color.appAccent.opacity(0.1), .clear],
+                center: .top,
+                startRadius: 0,
+                endRadius: 500
+            )
+            .ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
@@ -47,7 +57,10 @@ struct ProfileSetupView: View {
         }
         .onAppear {
             if !needsName && name.isEmpty { name = displayName }
-            appeared = true
+            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if needsName { nameFocused = true }
+            }
         }
         .alert("Couldn't save", isPresented: Binding(
             get: { errorMessage != nil },
@@ -61,14 +74,19 @@ struct ProfileSetupView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            Text("SETUP · STEP 2 OF 2")
-                .font(.bmUI(11, weight: .semibold))
-                .tracking(2.0)
-                .foregroundStyle(Color.appAccent)
+            HStack(spacing: Space.xs) {
+                Rectangle()
+                    .fill(Color.appAccent)
+                    .frame(width: 24, height: 2)
+                Text("SETUP · STEP 2 OF 2")
+                    .font(.bmUI(11, weight: .bold))
+                    .tracking(2.5)
+                    .foregroundStyle(Color.appAccent)
+            }
 
             Text(needsName ? "A little\nabout you." : "How old\nare you?")
-                .font(.bmDisplay(40, weight: .semibold))
-                .lineSpacing(-4)
+                .font(.bmHero(42))
+                .lineSpacing(-6)
                 .foregroundStyle(Color.appInk)
                 .minimumScaleFactor(0.7)
                 .lineLimit(2)
@@ -78,17 +96,16 @@ struct ProfileSetupView: View {
                  : "This helps us keep BraidMe safe and shows age-appropriate styles.")
                 .font(.bmUI(15))
                 .foregroundStyle(Color.appAsh)
-                .lineSpacing(3)
+                .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
-        .animate(Motion.reveal, value: appeared)
+        .offset(y: appeared ? 0 : 24)
     }
 
     private var nameField: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             BMSectionLabel(text: "Your name")
             BMFieldRow(
                 icon: "person",
@@ -97,35 +114,38 @@ struct ProfileSetupView: View {
                 contentType: .name,
                 submitLabel: .done
             )
+            .focused($nameFocused)
         }
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
-        .animate(Motion.reveal.delay(0.05), value: appeared)
+        .offset(y: appeared ? 0 : 24)
+        .animate(Motion.heroReveal.delay(0.15), value: appeared)
     }
 
     private var agePicker: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             BMSectionLabel(text: "Your age")
 
-            VStack(spacing: 0) {
-                HStack(alignment: .lastTextBaseline, spacing: Space.xs) {
+            VStack(spacing: Space.md) {
+                HStack(alignment: .lastTextBaseline, spacing: Space.sm) {
                     Text("\(age)")
-                        .font(.bmDisplay(72, weight: .semibold))
+                        .font(.bmHero(88))
                         .foregroundStyle(Color.appInk)
                         .contentTransition(.numericText())
-                        .animation(Motion.press, value: age)
+                        .animation(Motion.bouncy, value: age)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
 
                     Text("years")
                         .font(.bmUI(18, weight: .medium))
                         .foregroundStyle(Color.appAsh)
-                        .padding(.bottom, 12)
+                        .padding(.bottom, 16)
                 }
 
                 ZStack {
                     RoundedRectangle(cornerRadius: Radius.button)
                         .fill(Color.appAccentTint)
                         .frame(height: 44)
-                        .padding(.horizontal, Space.lg)
+                        .padding(.horizontal, Space.xl)
 
                     Picker("Age", selection: $age) {
                         ForEach(range, id: \.self) { n in
@@ -135,34 +155,45 @@ struct ProfileSetupView: View {
                         }
                     }
                     .pickerStyle(.wheel)
-                    .frame(height: 170)
+                    .frame(height: 180)
                     .clipped()
                     .onChange(of: age) { _, _ in Haptic.select() }
                 }
+                .frame(height: 180)
             }
-            .padding(.vertical, Space.xxs)
+            .padding(.vertical, Space.sm)
             .background(Color.appSurface)
             .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                     .stroke(Color.appDivider, lineWidth: 0.5)
             )
+            .shadow(color: Color.appInk.opacity(0.06), radius: 16, y: 8)
         }
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
-        .animate(Motion.reveal.delay(0.10), value: appeared)
+        .offset(y: appeared ? 0 : 24)
+        .animate(Motion.heroReveal.delay(0.2), value: appeared)
     }
 
     private var footer: some View {
         VStack(spacing: Space.sm) {
             if !isValid && !name.isEmpty {
-                Text("You must be at least 13 to continue.")
-                    .font(.bmUI(13, weight: .medium))
-                    .foregroundStyle(Color.appAlert)
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.bmUI(11))
+                    Text("You must be at least 13 to continue.")
+                        .font(.bmUI(13, weight: .medium))
+                }
+                .foregroundStyle(Color.appAlert)
+                .padding(.horizontal, Space.md)
+                .padding(.vertical, 8)
+                .background(Color.appAlert.opacity(0.1), in: Capsule())
+                .transition(.scale.combined(with: .opacity))
             }
 
             BMPrimaryButton(
                 title: saving ? "Saving…" : "Continue",
+                icon: "arrow.right",
                 loading: saving
             ) {
                 save()
@@ -171,8 +202,9 @@ struct ProfileSetupView: View {
             .opacity(isValid ? 1 : 0.4)
         }
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
-        .animate(Motion.reveal.delay(0.15), value: appeared)
+        .offset(y: appeared ? 0 : 24)
+        .animate(Motion.heroReveal.delay(0.25), value: appeared)
+        .animation(Motion.bouncy, value: isValid)
     }
 
     private func save() {

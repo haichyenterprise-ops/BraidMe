@@ -12,6 +12,7 @@ struct ChatView: View {
     @State private var draft: String = ""
     @State private var observerHandle: DatabaseHandle?
     @State private var sending = false
+    @State private var appeared = false
 
     @FocusState private var inputFocused: Bool
 
@@ -21,23 +22,40 @@ struct ChatView: View {
         NavigationStack {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
+
                 VStack(spacing: 0) {
                     messagesScroll
                     inputBar
                 }
             }
-            .navigationTitle(booking.braiderName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 2) {
+                        Text(booking.braiderName)
+                            .font(.bmUI(15, weight: .semibold))
+                            .foregroundStyle(Color.appInk)
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(Color.appSignal)
+                                .frame(width: 6, height: 6)
+                            Text("Online")
+                                .font(.bmUI(11, weight: .medium))
+                                .foregroundStyle(Color.appAsh)
+                        }
+                    }
+                }
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Close") { dismiss() }
-                        .font(.bmUI(15, weight: .medium))
-                        .foregroundStyle(Color.appAsh)
+                    BMGlassIconButton(icon: "chevron.down", size: 40, iconSize: 14, tint: .appInk) {
+                        dismiss()
+                    }
                 }
             }
+            .toolbarBackground(.hidden, for: .navigationBar)
         }
         .onAppear {
             startObserving()
+            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 inputFocused = true
             }
@@ -50,10 +68,12 @@ struct ChatView: View {
         }
     }
 
+    // MARK: - Messages
+
     private var messagesScroll: some View {
         ScrollViewReader { proxy in
-            ScrollView(showsIndicators: true) {
-                LazyVStack(spacing: Space.xs) {
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: Space.sm) {
                     headerCard
 
                     if messages.isEmpty {
@@ -70,7 +90,7 @@ struct ChatView: View {
                     Color.clear.frame(height: Space.xs)
                 }
                 .padding(.horizontal, Space.md)
-                .padding(.top, Space.sm)
+                .padding(.top, Space.md)
             }
             .onChange(of: messages.count) { _, _ in
                 if let last = messages.last {
@@ -83,19 +103,31 @@ struct ChatView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: Space.sm) {
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.bmUI(28, weight: .light))
-                .foregroundStyle(Color.appSmoke)
-            Text("Start the conversation")
-                .font(.bmUI(14, weight: .semibold))
-                .foregroundStyle(Color.appInk)
-            Text("Ask \(booking.braiderName) about timing, prep, or anything else.")
-                .font(.bmUI(12))
-                .foregroundStyle(Color.appAsh)
-                .multilineTextAlignment(.center)
-                .lineSpacing(3)
-                .padding(.horizontal, Space.lg)
+        VStack(spacing: Space.md) {
+            ZStack {
+                Circle()
+                    .fill(Color.appAccentTint)
+                    .frame(width: 80, height: 80)
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.bmUI(30, weight: .light))
+                    .foregroundStyle(Color.appAccent)
+            }
+            .scaleEffect(appeared ? 1 : 0.8)
+            .opacity(appeared ? 1 : 0)
+
+            VStack(spacing: Space.xs) {
+                Text("Start the conversation")
+                    .font(.bmDisplay(20, weight: .semibold))
+                    .foregroundStyle(Color.appInk)
+                Text("Ask \(booking.braiderName) about timing, prep, or anything else.")
+                    .font(.bmUI(13))
+                    .foregroundStyle(Color.appAsh)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, Space.lg)
+            }
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 12)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, Space.xxl)
@@ -103,33 +135,49 @@ struct ChatView: View {
 
     private var headerCard: some View {
         VStack(spacing: 4) {
-            Text("Conversation about")
-                .font(.bmUI(11, weight: .medium))
-                .foregroundStyle(Color.appSmoke)
+            HStack(spacing: 6) {
+                Image(systemName: "calendar")
+                    .font(.bmUI(10))
+                Text(booking.date.formatted(date: .abbreviated, time: .omitted))
+                    .font(.bmUI(12, weight: .semibold))
+                Text("·")
+                Image(systemName: "clock")
+                    .font(.bmUI(10))
+                Text(booking.time)
+                    .font(.bmUI(12, weight: .semibold))
+            }
+            .foregroundStyle(Color.appAccent)
+
             Text(booking.style)
                 .font(.bmUI(14, weight: .semibold))
                 .foregroundStyle(Color.appInk)
-            Text("\(booking.date.formatted(date: .abbreviated, time: .omitted)) · \(booking.time)")
-                .font(.bmUI(12))
-                .foregroundStyle(Color.appAsh)
         }
         .frame(maxWidth: .infinity)
         .padding(Space.md)
         .background(Color.appAccentTint)
         .clipShape(RoundedRectangle(cornerRadius: Radius.button))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.button)
+                .stroke(Color.appAccent.opacity(0.2), lineWidth: 1)
+        )
         .padding(.bottom, Space.sm)
     }
 
     private func dateSeparator(_ date: Date) -> some View {
-        HStack(spacing: Space.sm) {
-            BMDivider()
+        HStack(spacing: Space.md) {
+            Rectangle()
+                .fill(Color.appDivider)
+                .frame(height: 0.5)
             Text(dateLabel(date))
-                .font(.bmUI(11, weight: .medium))
+                .font(.bmUI(11, weight: .semibold))
+                .tracking(0.5)
                 .foregroundStyle(Color.appSmoke)
                 .fixedSize()
-            BMDivider()
+            Rectangle()
+                .fill(Color.appDivider)
+                .frame(height: 0.5)
         }
-        .padding(.vertical, Space.sm)
+        .padding(.vertical, Space.md)
     }
 
     private func dateLabel(_ date: Date) -> String {
@@ -149,56 +197,99 @@ struct ChatView: View {
                     .foregroundStyle(isMine ? Color.appInkInverse : Color.appInk)
                     .padding(.horizontal, Space.md)
                     .padding(.vertical, Space.sm)
-                    .background(isMine ? Color.appInk : Color.appSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.button))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Radius.button)
-                            .stroke(isMine ? Color.clear : Color.appDivider, lineWidth: isMine ? 0 : 0.5)
+                    .background(
+                        Group {
+                            if isMine {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Color.appInk)
+                            } else {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Color.appSurface)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                            .stroke(Color.appDivider, lineWidth: 0.5)
+                                    )
+                            }
+                        }
                     )
+                    .shadow(color: Color.appInk.opacity(isMine ? 0.15 : 0.04), radius: 8, y: 2)
                 Text(msg.timestamp.formatted(date: .omitted, time: .shortened))
-                    .font(.bmUI(10))
+                    .font(.bmUI(10, weight: .medium))
                     .foregroundStyle(Color.appSmoke)
-                    .padding(.horizontal, Space.xxs)
+                    .padding(.horizontal, Space.xs)
             }
             if !isMine { Spacer(minLength: 60) }
         }
     }
 
+    // MARK: - Input Bar
+
     private var inputBar: some View {
-        HStack(spacing: Space.xs) {
-            TextField("Message…", text: $draft, axis: .vertical)
-                .font(.bmUI(15))
-                .lineLimit(1...4)
-                .padding(.horizontal, Space.md)
-                .padding(.vertical, Space.sm)
-                .background(Color.appSurface)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.button))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.button)
-                        .stroke(Color.appDivider, lineWidth: 0.5)
-                )
-                .focused($inputFocused)
+        HStack(spacing: Space.sm) {
+            HStack(spacing: Space.sm) {
+                TextField("Message…", text: $draft, axis: .vertical)
+                    .font(.bmUI(15))
+                    .lineLimit(1...5)
+                    .foregroundStyle(Color.appInk)
+                    .focused($inputFocused)
+
+                if !draft.isEmpty {
+                    Button {
+                        Haptic.select()
+                        draft = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.bmUI(15))
+                            .foregroundStyle(Color.appSmoke)
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.sm)
+            .background(Color.appSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(
+                        inputFocused ? Color.appAccent.opacity(0.4) : Color.appDivider,
+                        lineWidth: inputFocused ? 1.5 : 0.5
+                    )
+            )
+            .animation(Motion.subtle, value: inputFocused)
+            .animation(Motion.subtle, value: draft.isEmpty)
 
             Button(action: sendMessage) {
                 ZStack {
+                    Circle()
+                        .fill(canSend ? Color.appInk : Color.appSmoke)
+                        .frame(width: 44, height: 44)
+                        .shadow(color: canSend ? Color.appInk.opacity(0.2) : .clear, radius: 8, y: 4)
+
                     if sending {
-                        ProgressView().tint(Color.appInkInverse).scaleEffect(0.8)
+                        ProgressView()
+                            .tint(Color.appInkInverse)
+                            .scaleEffect(0.8)
                     } else {
                         Image(systemName: "arrow.up")
-                            .font(.bmUI(15, weight: .bold))
+                            .font(.bmUI(16, weight: .bold))
                             .foregroundStyle(Color.appInkInverse)
                     }
                 }
-                .frame(width: 44, height: 44)
-                .background(canSend ? Color.appInk : Color.appSmoke, in: Circle())
+                .scaleEffect(canSend ? 1 : 0.95)
+                .animation(Motion.bouncy, value: canSend)
             }
             .disabled(!canSend || sending)
             .buttonStyle(BMIconPressStyle())
         }
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.sm)
-        .background(Color.appBackground)
-        .overlay(alignment: .top) { BMDivider() }
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.appDivider)
+                .frame(height: 0.5)
+        }
     }
 
     private var canSend: Bool {
@@ -215,7 +306,7 @@ struct ChatView: View {
         let text = draft.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty, !currentUserId.isEmpty else { return }
         draft = ""
-        Haptic.select()
+        Haptic.medium()
         sending = true
 
         Task {

@@ -58,31 +58,38 @@ struct UserInfoSheet: View {
         NavigationStack {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
+
+                // Ambient gradient
+                RadialGradient(
+                    colors: [Color.appAccent.opacity(0.08), .clear],
+                    center: .top,
+                    startRadius: 0,
+                    endRadius: 400
+                )
+                .ignoresSafeArea()
+
                 ScrollView(showsIndicators: true) {
                     VStack(spacing: Space.lg) {
                         avatarSection
                         quickActions
                         infoSection
                         signOutButton
-                        Text("BraidMe v1.0 · \(providerLabel) account")
-                            .font(.bmUI(11))
-                            .foregroundStyle(Color.appSmoke)
-                            .padding(.top, Space.xs)
+                        footer
                         Color.clear.frame(height: Space.lg)
                     }
                     .padding(.horizontal, Space.lg)
                     .padding(.top, Space.md)
                 }
             }
-            .navigationTitle("Your Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { dismiss() }
-                        .font(.bmUI(15, weight: .medium))
-                        .foregroundStyle(Color.appInk)
+                ToolbarItem(placement: .navigationBarLeading) {
+                    BMGlassIconButton(icon: "xmark", size: 40, iconSize: 14, tint: .appInk) {
+                        dismiss()
+                    }
                 }
             }
+            .toolbarBackground(.hidden, for: .navigationBar)
         }
         .sheet(isPresented: $showBookings) {
             BookingsListView().environmentObject(session)
@@ -109,7 +116,7 @@ struct UserInfoSheet: View {
             Task { await uploadAvatar(newValue) }
         }
         .onAppear {
-            appeared = true
+            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
             let uid = session.uid
             guard !uid.isEmpty else { return }
             Task {
@@ -120,38 +127,51 @@ struct UserInfoSheet: View {
         }
     }
 
+    // MARK: - Avatar Section
+
     private var avatarSection: some View {
         VStack(spacing: Space.md) {
             ZStack(alignment: .bottomTrailing) {
                 ZStack {
+                    // Outer glow ring
+                    Circle()
+                        .stroke(
+                            LinearGradient(
+                                colors: [Color.appAccent.opacity(0.6), Color.appAccentSoft.opacity(0.2)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 3
+                        )
+                        .frame(width: 116, height: 116)
+
                     if avatarUrl.isEmpty {
                         Circle()
                             .fill(Color.appInk)
-                            .frame(width: 100, height: 100)
+                            .frame(width: 108, height: 108)
                         Text(initials)
-                            .font(.bmDisplay(36, weight: .semibold))
+                            .font(.bmDisplay(40, weight: .semibold))
                             .foregroundStyle(Color.appInkInverse)
                     } else {
                         RemoteImage(url: avatarUrl)
-                            .frame(width: 100, height: 100)
+                            .frame(width: 108, height: 108)
                             .clipShape(Circle())
                     }
-                    Circle()
-                        .stroke(Color.appAccent, lineWidth: 2)
-                        .frame(width: 104, height: 104)
                 }
+                .shadow(color: Color.appAccent.opacity(0.2), radius: 20, y: 8)
 
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     ZStack {
                         Circle()
                             .fill(Color.appInk)
-                            .frame(width: 34, height: 34)
+                            .frame(width: 38, height: 38)
                             .overlay(Circle().stroke(Color.appSurface, lineWidth: 3))
+                            .shadow(color: Color.appInk.opacity(0.25), radius: 8, y: 4)
                         if uploadingAvatar {
                             ProgressView().tint(Color.appInkInverse).scaleEffect(0.7)
                         } else {
                             Image(systemName: "camera.fill")
-                                .font(.bmUI(13, weight: .semibold))
+                                .font(.bmUI(14, weight: .semibold))
                                 .foregroundStyle(Color.appInkInverse)
                         }
                     }
@@ -160,22 +180,29 @@ struct UserInfoSheet: View {
                 .offset(x: 4, y: 4)
             }
 
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 Text(displayName)
-                    .font(.bmDisplay(22, weight: .semibold))
+                    .font(.bmDisplay(24, weight: .semibold))
                     .foregroundStyle(Color.appInk)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                Text("Signed in with \(providerLabel)")
-                    .font(.bmUI(12, weight: .medium))
-                    .foregroundStyle(Color.appAsh)
+
+                HStack(spacing: 5) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.bmUI(10))
+                        .foregroundStyle(Color.appAccent)
+                    Text("\(providerLabel) account")
+                        .font(.bmUI(12, weight: .medium))
+                        .foregroundStyle(Color.appAsh)
+                }
             }
         }
         .padding(.top, Space.md)
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
-        .animate(Motion.reveal, value: appeared)
+        .offset(y: appeared ? 0 : 24)
     }
+
+    // MARK: - Quick Actions
 
     private var quickActions: some View {
         HStack(spacing: Space.sm) {
@@ -188,8 +215,8 @@ struct UserInfoSheet: View {
             quickAction(icon: "star.fill", value: "New", label: "Member", enabled: false) {}
         }
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
-        .animate(Motion.reveal.delay(0.05), value: appeared)
+        .offset(y: appeared ? 0 : 24)
+        .animate(Motion.heroReveal.delay(0.15), value: appeared)
     }
 
     private func quickAction(icon: String, value: String, label: String, enabled: Bool, action: @escaping () -> Void) -> some View {
@@ -199,15 +226,21 @@ struct UserInfoSheet: View {
             action()
         } label: {
             VStack(spacing: Space.xs) {
-                Image(systemName: icon)
-                    .font(.bmUI(15, weight: .semibold))
-                    .foregroundStyle(Color.appAccent)
+                ZStack {
+                    Circle()
+                        .fill(Color.appAccentTint)
+                        .frame(width: 40, height: 40)
+                    Image(systemName: icon)
+                        .font(.bmUI(15, weight: .semibold))
+                        .foregroundStyle(Color.appAccent)
+                }
                 Text(value)
-                    .font(.bmDisplay(18, weight: .semibold))
+                    .font(.bmDisplay(20, weight: .semibold))
                     .foregroundStyle(Color.appInk)
+                    .contentTransition(.numericText())
                 Text(label.uppercased())
-                    .font(.bmUI(9, weight: .semibold))
-                    .tracking(0.8)
+                    .font(.bmUI(9, weight: .bold))
+                    .tracking(1)
                     .foregroundStyle(Color.appAsh)
             }
             .frame(maxWidth: .infinity)
@@ -218,21 +251,24 @@ struct UserInfoSheet: View {
                 RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                     .stroke(Color.appDivider, lineWidth: 0.5)
             )
-            .opacity(enabled ? 1 : 0.6)
+            .shadow(color: Color.appInk.opacity(enabled ? 0.06 : 0), radius: 12, y: 4)
+            .opacity(enabled ? 1 : 0.5)
         }
         .buttonStyle(BMPressStyle(scale: 0.98))
         .disabled(!enabled)
     }
 
+    // MARK: - Info Section
+
     private var infoSection: some View {
         VStack(spacing: 0) {
-            infoRow(icon: "person", label: "Name", value: displayName)
-            BMDivider(inset: 60)
-            infoRow(icon: "envelope", label: "Email", value: userEmail)
-            BMDivider(inset: 60)
+            infoRow(icon: "person.fill", label: "Name", value: displayName)
+            BMDivider(inset: 64)
+            infoRow(icon: "envelope.fill", label: "Email", value: userEmail)
+            BMDivider(inset: 64)
             infoRow(icon: "calendar", label: "Age", value: userAge)
-            BMDivider(inset: 60)
-            infoRow(icon: "location", label: "City", value: userCity)
+            BMDivider(inset: 64)
+            infoRow(icon: "location.fill", label: "City", value: userCity)
         }
         .background(Color.appSurface)
         .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
@@ -240,23 +276,26 @@ struct UserInfoSheet: View {
             RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .stroke(Color.appDivider, lineWidth: 0.5)
         )
+        .shadow(color: Color.appInk.opacity(0.06), radius: 16, y: 8)
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
-        .animate(Motion.reveal.delay(0.10), value: appeared)
+        .offset(y: appeared ? 0 : 24)
+        .animate(Motion.heroReveal.delay(0.2), value: appeared)
     }
 
     private func infoRow(icon: String, label: String, value: String) -> some View {
         HStack(spacing: Space.md) {
             ZStack {
-                Circle().fill(Color.appAccentTint).frame(width: 32, height: 32)
+                Circle()
+                    .fill(Color.appAccentTint)
+                    .frame(width: 36, height: 36)
                 Image(systemName: icon)
-                    .font(.bmUI(12, weight: .semibold))
+                    .font(.bmUI(13, weight: .semibold))
                     .foregroundStyle(Color.appAccent)
             }
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(label.uppercased())
-                    .font(.bmUI(10, weight: .semibold))
-                    .tracking(1.0)
+                    .font(.bmUI(9, weight: .bold))
+                    .tracking(1.2)
                     .foregroundStyle(Color.appAsh)
                 Text(value)
                     .font(.bmUI(14, weight: .medium))
@@ -270,6 +309,8 @@ struct UserInfoSheet: View {
         .padding(.vertical, Space.sm)
     }
 
+    // MARK: - Sign Out
+
     private var signOutButton: some View {
         Button {
             Haptic.warning()
@@ -277,24 +318,37 @@ struct UserInfoSheet: View {
         } label: {
             HStack(spacing: Space.xs) {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.bmUI(13, weight: .semibold))
+                    .font(.bmUI(14, weight: .semibold))
                 Text("Sign Out")
                     .font(.bmUI(15, weight: .semibold))
             }
             .foregroundStyle(Color.appAlert)
             .frame(maxWidth: .infinity)
-            .frame(minHeight: 52)
-            .padding(.vertical, Space.xs)
-            .background(Color.appSurface)
+            .frame(minHeight: 56)
+            .background(Color.appAlert.opacity(0.08))
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.button)
-                    .stroke(Color.appAlert.opacity(0.3), lineWidth: 1)
+                    .stroke(Color.appAlert.opacity(0.25), lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: Radius.button))
         }
         .buttonStyle(BMPressStyle())
         .padding(.top, Space.xs)
         .opacity(appeared ? 1 : 0)
+        .offset(y: appeared ? 0 : 24)
+        .animate(Motion.heroReveal.delay(0.25), value: appeared)
+    }
+
+    private var footer: some View {
+        VStack(spacing: 6) {
+            Text("BraidMe")
+                .font(.bmDisplay(14, weight: .semibold))
+                .foregroundStyle(Color.appInk)
+            Text("v1.0 · Made with care")
+                .font(.bmUI(11))
+                .foregroundStyle(Color.appSmoke)
+        }
+        .padding(.top, Space.md)
     }
 
     private func signOut() {

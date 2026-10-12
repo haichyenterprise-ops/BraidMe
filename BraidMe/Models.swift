@@ -1,6 +1,10 @@
 import Foundation
 import CoreLocation
 
+// =============================================================================
+// BraidMe Models — with convenience extensions for the UI layer
+// =============================================================================
+
 // MARK: - User
 
 struct UserProfile: Identifiable, Codable, Hashable {
@@ -44,6 +48,36 @@ struct UserProfile: Identifiable, Codable, Hashable {
             avatarUrl: data["avatarUrl"] as? String,
             createdAt: created
         )
+    }
+}
+
+extension UserProfile {
+    /// Two-letter initials for avatar fallbacks.
+    var initials: String {
+        displayName
+            .split(separator: " ")
+            .prefix(2)
+            .compactMap { $0.first }
+            .map(String.init)
+            .joined()
+            .uppercased()
+            .isEmpty ? "·" : displayName
+                .split(separator: " ")
+                .prefix(2)
+                .compactMap { $0.first }
+                .map(String.init)
+                .joined()
+                .uppercased()
+    }
+
+    /// Whether onboarding has been completed (based on age + name)
+    var isProfileComplete: Bool {
+        age > 0 && !displayName.isEmpty && displayName != "BraidMe User"
+    }
+
+    /// Best-guess first name for greetings
+    var firstName: String {
+        displayName.split(separator: " ").first.map(String.init) ?? displayName
     }
 }
 
@@ -109,6 +143,47 @@ struct Braider: Identifiable, Hashable {
     }
 }
 
+extension Braider {
+    /// Two-letter initials for avatar fallbacks.
+    var initials: String {
+        let r = name
+            .split(separator: " ")
+            .prefix(2)
+            .compactMap { $0.first }
+            .map(String.init)
+            .joined()
+            .uppercased()
+        return r.isEmpty ? "·" : r
+    }
+
+    /// First name only — for warm greetings like "Sarah will see your booking"
+    var firstName: String {
+        name.split(separator: " ").first.map(String.init) ?? name
+    }
+
+    /// Location string with fallback
+    var shortLocation: String {
+        city.isEmpty ? "Location TBD" : city
+    }
+
+    /// Whether the braider has any bookable services
+    var isBookable: Bool {
+        !services.isEmpty && services.contains { $0.hasAvailability }
+    }
+
+    /// Total review count formatted for the badge
+    var reviewCountText: String {
+        "\(reviewCount) review\(reviewCount == 1 ? "" : "s")"
+    }
+
+    /// Formatted rating text (e.g., "4.8")
+    var ratingText: String {
+        String(format: "%.1f", rating)
+    }
+}
+
+// MARK: - Portfolio
+
 struct PortfolioItem: Identifiable, Hashable {
     let id: String
     let imageUrl: String
@@ -136,6 +211,26 @@ struct BraidService: Identifiable, Hashable {
     }
 }
 
+extension BraidService {
+    /// "2h 30m" style duration
+    var durationText: String {
+        let h = durationMinutes / 60
+        let m = durationMinutes % 60
+        if h == 0 { return "\(m)m" }
+        if m == 0 { return "\(h)h" }
+        return "\(h)h \(m)m"
+    }
+
+    /// Whether the service has any available time slots for a given date
+    func hasSlots(on date: Date) -> Bool {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = .current
+        let key = f.string(from: date)
+        return !(availableSlots[key] ?? []).isEmpty
+    }
+}
+
 // MARK: - Reviews
 
 struct Review: Identifiable, Hashable {
@@ -155,6 +250,29 @@ struct Review: Identifiable, Hashable {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
+
+extension Review {
+    /// Two-letter initials for avatar fallbacks.
+    var initials: String {
+        let r = userName
+            .split(separator: " ")
+            .prefix(2)
+            .compactMap { $0.first }
+            .map(String.init)
+            .joined()
+            .uppercased()
+        return r.isEmpty ? "·" : r
+    }
+
+    /// Short relative date (e.g., "2w ago")
+    var shortDateString: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+// MARK: - Rating Breakdown
 
 struct RatingBreakdown: Hashable {
     let five: Int
@@ -186,6 +304,23 @@ struct RatingBreakdown: Hashable {
         }
         return RatingBreakdown(five: f, four: fo, three: t, two: tw, one: o)
     }
+
+    /// Count for a specific star tier
+    func count(for stars: Int) -> Int {
+        switch stars {
+        case 5: return five
+        case 4: return four
+        case 3: return three
+        case 2: return two
+        default: return one
+        }
+    }
+
+    /// Ratio of a specific star tier (0.0 – 1.0)
+    func ratio(for stars: Int) -> Double {
+        guard total > 0 else { return 0 }
+        return Double(count(for: stars)) / Double(total)
+    }
 }
 
 // MARK: - Chat
@@ -197,6 +332,7 @@ struct ChatMessage: Identifiable, Hashable {
     let text: String
     let timestamp: Date
 }
+
 // MARK: - Booking
 
 struct Booking: Identifiable, Codable {
@@ -209,27 +345,73 @@ struct Booking: Identifiable, Codable {
     let price: Int
     let status: String
     let createdAt: Date
-    let customerName: String?   // NEW
+    let customerName: String?
 
-
-var dictionary: [String: Any] {
-    var d: [String: Any] = [
-        "id": id,
-        "braiderName": braiderName,
-        "braiderId": braiderId,
-        "date": date,
-        "time": time,
-        "style": style,
-        "price": price,
-        "status": status,
-        "createdAt": createdAt
-    ]
-    if let customerName { d["customerName"] = customerName }
-    return d
+    var dictionary: [String: Any] {
+        var d: [String: Any] = [
+            "id": id,
+            "braiderName": braiderName,
+            "braiderId": braiderId,
+            "date": date,
+            "time": time,
+            "style": style,
+            "price": price,
+            "status": status,
+            "createdAt": createdAt
+        ]
+        if let customerName { d["customerName"] = customerName }
+        return d
+    }
 }
+
+extension Booking {
+    /// Whether this booking is upcoming (from today onwards)
+    var isUpcoming: Bool {
+        date >= Calendar.current.startOfDay(for: Date())
+            && status != "completed"
+            && status != "cancelled"
+    }
+
+    /// Whether this booking can still be cancelled
+    var isCancellable: Bool {
+        status == "confirmed" && date > Date()
+    }
+
+    /// Whether the user can still message the braider
+    var canMessage: Bool {
+        status == "confirmed" || status == "cancellation_requested"
+    }
+
+    /// Whether this booking is considered "past" for filtering
+    var isPast: Bool {
+        let now = Calendar.current.startOfDay(for: Date())
+        return date < now || status == "completed" || status == "cancelled"
+    }
+
+    /// Human-readable status label
+    var statusLabel: String {
+        switch status {
+        case "confirmed":              return "Confirmed"
+        case "completed":              return "Completed"
+        case "cancelled":              return "Cancelled"
+        case "cancellation_requested": return "Pending"
+        case "cancellation_denied":    return "Denied"
+        default:                       return status.capitalized
+        }
+    }
+
+    /// Formatted time string for display
+    var timeText: String {
+        time.isEmpty ? "TBD" : time
+    }
+
+    /// Whether this is happening today
+    var isToday: Bool {
+        Calendar.current.isDateInToday(date)
+    }
 }
 
-// MARK: - Time slot
+// MARK: - Time Slot
 
 struct TimeSlot: Identifiable, Hashable {
     let id: String
@@ -242,4 +424,12 @@ enum DayPeriod: String, Hashable {
     case morning = "Morning"
     case afternoon = "Afternoon"
     case evening = "Evening"
+
+    var icon: String {
+        switch self {
+        case .morning:   return "sunrise.fill"
+        case .afternoon: return "sun.max.fill"
+        case .evening:   return "moon.stars.fill"
+        }
+    }
 }

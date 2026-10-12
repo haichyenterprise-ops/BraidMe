@@ -14,12 +14,16 @@ final class FirebaseManager: ObservableObject {
     var db: Firestore { dbRef }
     var rtdbRoot: DatabaseReference { rtdb }
 
+    // MARK: - Published State
+
     @Published var braiders: [Braider] = []
     @Published var currentUser: UserProfile?
     @Published var bookings: [Booking] = []
     @Published var savedBraiderIds: Set<String> = []
     @Published var isLoadingBraiders = false
     @Published var braidersError: String?
+
+    // MARK: - Location Permission Memory
 
     var locationPermissionDecision: String? {
         get { UserDefaults.standard.string(forKey: "locationPermissionDecision") }
@@ -28,6 +32,8 @@ final class FirebaseManager: ObservableObject {
 
     var hasAskedForLocation: Bool { locationPermissionDecision != nil }
 
+    // MARK: - UID Resolution
+
     var currentUid: String? {
         UserDefaults.standard.string(forKey: "currentUid")
             ?? UserDefaults.standard.string(forKey: "appleUserId")
@@ -35,6 +41,8 @@ final class FirebaseManager: ObservableObject {
     }
 
     private init() {}
+
+    // MARK: - Users
 
     @discardableResult
     func upsertUser(
@@ -99,6 +107,8 @@ final class FirebaseManager: ObservableObject {
         }
     }
 
+    // MARK: - Saved Braiders
+
     func loadSavedBraiders(uid: String) async {
         guard !uid.isEmpty else { return }
         do {
@@ -132,6 +142,8 @@ final class FirebaseManager: ObservableObject {
         }
     }
 
+    // MARK: - Braiders
+
     func fetchBraidersFromFirestore() async {
         isLoadingBraiders = true
         braidersError = nil
@@ -147,6 +159,8 @@ final class FirebaseManager: ObservableObject {
         }
         isLoadingBraiders = false
     }
+
+    // MARK: - Bookings
 
     func loadBookings(uid: String) async {
         guard !uid.isEmpty else { return }
@@ -190,42 +204,42 @@ final class FirebaseManager: ObservableObject {
         }
     }
 
-func createBooking(
-    braider: Braider,
-    date: Date,
-    time: String,
-    service: BraidService,
-    price: Int,
-    uid: String,
-    customerName: String,
-    completion: @escaping (Bool) -> Void
-) {
-    let id = UUID().uuidString
-    let booking = Booking(
-        id: id,
-        braiderName: braider.name,
-        braiderId: braider.id,
-        date: date,
-        time: time,
-        style: service.name,
-        price: price,
-        status: "confirmed",
-        createdAt: Date(),
-        customerName: customerName
-    )
-    var payload = booking.dictionary
-    payload["uid"] = uid
-    payload["customerName"] = customerName
+    func createBooking(
+        braider: Braider,
+        date: Date,
+        time: String,
+        service: BraidService,
+        price: Int,
+        uid: String,
+        customerName: String,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let id = UUID().uuidString
+        let booking = Booking(
+            id: id,
+            braiderName: braider.name,
+            braiderId: braider.id,
+            date: date,
+            time: time,
+            style: service.name,
+            price: price,
+            status: "confirmed",
+            createdAt: Date(),
+            customerName: customerName
+        )
+        var payload = booking.dictionary
+        payload["uid"] = uid
+        payload["customerName"] = customerName
 
-    dbRef.collection("bookings").document(id).setData(payload) { error in
-        DispatchQueue.main.async {
-            if error == nil {
-                self.bookings.insert(booking, at: 0)
+        dbRef.collection("bookings").document(id).setData(payload) { error in
+            DispatchQueue.main.async {
+                if error == nil {
+                    self.bookings.insert(booking, at: 0)
+                }
+                completion(error == nil)
             }
-            completion(error == nil)
         }
     }
-}
 
     func requestCancellation(bookingId: String, reason: String) async throws {
         try await dbRef.collection("bookings").document(bookingId).setData([
@@ -246,6 +260,8 @@ func createBooking(
             bookings[idx] = updated
         }
     }
+
+    // MARK: - Reviews
 
     func fetchReviews(braiderId: String) async -> [Review] {
         guard !braiderId.isEmpty else { return [] }
@@ -316,6 +332,7 @@ func createBooking(
             .document(reviewId)
             .setData(payload)
 
+        // Recompute aggregates
         let all = await fetchReviews(braiderId: braiderId)
         let count = all.count
         let avg = all.isEmpty ? 0 : all.reduce(0.0) { $0 + $1.rating } / Double(all.count)
@@ -329,35 +346,13 @@ func createBooking(
                 "lastReviewedAt": now
             ], merge: true)
 
+        // Optimistic local update
         if let idx = braiders.firstIndex(where: { $0.id == braiderId }) {
-            let b = braiders[idx]
-            let updated = Braider(
-                id: b.id,
-                name: b.name,
-                tagline: b.tagline,
-                avatarUrl: b.avatarUrl,
-                coverUrl: b.coverUrl,
-                latitude: b.latitude,
-                longitude: b.longitude,
-                rating: avg,
-                reviewCount: count,
-                priceFrom: b.priceFrom,
-                bio: b.bio,
-                story: b.story,
-                city: b.city,
-                specialties: b.specialties,
-                yearsExperience: b.yearsExperience,
-                responseTime: b.responseTime,
-                verified: b.verified,
-                published: b.published,
-                portfolio: b.portfolio,
-                services: b.services,
-                availableSlots: b.availableSlots,
-                availableDates: b.availableDates
-            )
-            braiders[idx] = updated
+            braiders[idx] = braiders[idx].updated(rating: avg, reviewCount: count)
         }
     }
+
+    // MARK: - Chat (Realtime DB)
 
     static func chatId(for bookingId: String) -> String {
         return "chat_\(bookingId)"
@@ -417,6 +412,8 @@ func createBooking(
         rtdb.child("chats").child(chatId).child("messages").removeObserver(withHandle: handle)
     }
 }
+
+// MARK: - Braider Mapper
 
 enum BraiderMapper {
     static func from(id: String, data: [String: Any]) -> Braider? {

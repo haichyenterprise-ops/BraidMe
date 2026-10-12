@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct EmailAuthView: View {
-
     enum Mode: Equatable { case signup, login }
 
     let mode: Mode
@@ -35,7 +34,7 @@ struct EmailAuthView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header.padding(.horizontal, Space.lg)
-            Spacer().frame(height: Space.lg)
+            Spacer().frame(height: Space.xl)
             formBlock.padding(.horizontal, Space.lg)
             Spacer().frame(height: Space.lg)
             submitBlock.padding(.horizontal, Space.lg)
@@ -45,7 +44,7 @@ struct EmailAuthView: View {
             }
         }
         .onAppear {
-            appeared = true
+            withAnimation(Motion.heroReveal) { appeared = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 focused = isSignup ? .name : .email
             }
@@ -67,6 +66,7 @@ struct EmailAuthView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Space.md) {
+            // Back button
             Button {
                 Haptic.select()
                 onBack()
@@ -78,17 +78,24 @@ struct EmailAuthView: View {
                         .font(.bmUI(14, weight: .medium))
                 }
                 .foregroundStyle(Color.appAsh)
+                .padding(.vertical, Space.xs)
             }
+            .buttonStyle(BMPressStyle(scale: 0.96))
 
-            VStack(alignment: .leading, spacing: Space.xs) {
-                Text(isSignup ? "CREATE ACCOUNT" : "WELCOME BACK")
-                    .font(.bmUI(11, weight: .semibold))
-                    .tracking(2.0)
-                    .foregroundStyle(Color.appAccent)
+            VStack(alignment: .leading, spacing: Space.sm) {
+                HStack(spacing: Space.xs) {
+                    Rectangle()
+                        .fill(Color.appAccent)
+                        .frame(width: 24, height: 2)
+                    Text(isSignup ? "CREATE ACCOUNT" : "WELCOME BACK")
+                        .font(.bmUI(11, weight: .bold))
+                        .tracking(2.5)
+                        .foregroundStyle(Color.appAccent)
+                }
 
                 Text(isSignup ? "Sign up\nwith email." : "Log in\nto BraidMe.")
-                    .font(.bmDisplay(34, weight: .semibold))
-                    .lineSpacing(-3)
+                    .font(.bmHero(36))
+                    .lineSpacing(-5)
                     .foregroundStyle(Color.appInk)
                     .minimumScaleFactor(0.7)
                     .lineLimit(2)
@@ -98,13 +105,13 @@ struct EmailAuthView: View {
                      : "Enter your email and password to continue.")
                     .font(.bmUI(14))
                     .foregroundStyle(Color.appAsh)
-                    .lineSpacing(3)
+                    .lineSpacing(4)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 12)
-        .animate(Motion.reveal, value: appeared)
+        .offset(y: appeared ? 0 : 20)
+        .animate(Motion.heroReveal, value: appeared)
     }
 
     private var formBlock: some View {
@@ -119,6 +126,9 @@ struct EmailAuthView: View {
                 )
                 .focused($focused, equals: .name)
                 .onSubmit { focused = .email }
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 16)
+                .animate(Motion.heroReveal.delay(0.05), value: appeared)
             }
 
             BMFieldRow(
@@ -131,6 +141,9 @@ struct EmailAuthView: View {
             )
             .focused($focused, equals: .email)
             .onSubmit { focused = .password }
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 16)
+            .animate(Motion.heroReveal.delay(0.1), value: appeared)
 
             BMPasswordRow(
                 placeholder: "Password",
@@ -141,6 +154,9 @@ struct EmailAuthView: View {
             .onSubmit {
                 if isSignup { focused = .confirm } else { submit() }
             }
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 16)
+            .animate(Motion.heroReveal.delay(0.15), value: appeared)
 
             if isSignup {
                 BMPasswordRow(
@@ -150,8 +166,11 @@ struct EmailAuthView: View {
                 )
                 .focused($focused, equals: .confirm)
                 .onSubmit { submit() }
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 16)
+                .animate(Motion.heroReveal.delay(0.2), value: appeared)
 
-                VStack(alignment: .leading, spacing: Space.xxs) {
+                VStack(alignment: .leading, spacing: Space.xs) {
                     validationRow(ok: password.count >= 6, label: "At least 6 characters")
                     validationRow(
                         ok: !confirmPassword.isEmpty && confirmPassword == password,
@@ -160,20 +179,24 @@ struct EmailAuthView: View {
                 }
                 .padding(.top, Space.xxs)
                 .padding(.horizontal, Space.xxs)
+                .opacity(appeared ? 1 : 0)
+                .animate(Motion.heroReveal.delay(0.25), value: appeared)
             }
         }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
-        .animate(Motion.reveal.delay(0.08), value: appeared)
     }
 
     private func validationRow(ok: Bool, label: String) -> some View {
-        HStack(spacing: Space.xxs) {
-            Image(systemName: ok ? "checkmark.circle.fill" : "circle")
-                .font(.bmUI(11, weight: .semibold))
-                .foregroundStyle(ok ? Color.appSignal : Color.appSmoke)
+        HStack(spacing: Space.xs) {
+            ZStack {
+                Circle()
+                    .fill(ok ? Color.appSignal.opacity(0.15) : Color.appDivider)
+                    .frame(width: 18, height: 18)
+                Image(systemName: ok ? "checkmark" : "circle")
+                    .font(.bmUI(9, weight: .bold))
+                    .foregroundStyle(ok ? Color.appSignal : Color.appSmoke)
+            }
             Text(label)
-                .font(.bmUI(12))
+                .font(.bmUI(12, weight: .medium))
                 .foregroundStyle(ok ? Color.appSignal : Color.appAsh)
         }
     }
@@ -181,7 +204,7 @@ struct EmailAuthView: View {
     private var submitBlock: some View {
         BMPrimaryButton(
             title: isSignup ? "Create account" : "Log in",
-            icon: isSignup ? "checkmark" : "arrow.right",
+            icon: isSignup ? "arrow.right" : "arrow.right",
             loading: session.isBusy
         ) {
             submit()
@@ -189,8 +212,8 @@ struct EmailAuthView: View {
         .disabled(!canSubmit || session.isBusy)
         .opacity(canSubmit ? 1 : 0.45)
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
-        .animate(Motion.reveal.delay(0.16), value: appeared)
+        .offset(y: appeared ? 0 : 20)
+        .animate(Motion.heroReveal.delay(0.3), value: appeared)
     }
 
     private var forgotButton: some View {
@@ -247,7 +270,7 @@ struct EmailAuthView: View {
     }
 }
 
-// MARK: - Field components
+// MARK: - Field Components
 
 struct BMFieldRow: View {
     let icon: String
@@ -257,12 +280,19 @@ struct BMFieldRow: View {
     var keyboard: UIKeyboardType = .default
     var submitLabel: SubmitLabel = .next
 
+    @FocusState private var isFocused: Bool
+
     var body: some View {
-        HStack(spacing: Space.sm) {
-            Image(systemName: icon)
-                .font(.bmUI(14, weight: .medium))
-                .foregroundStyle(Color.appAsh)
-                .frame(width: 18)
+        HStack(spacing: Space.md) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isFocused ? Color.appAccentTint : Color.appBackground)
+                    .frame(width: 36, height: 36)
+                Image(systemName: icon)
+                    .font(.bmUI(14, weight: .medium))
+                    .foregroundStyle(isFocused ? Color.appAccent : Color.appAsh)
+            }
+            .animation(Motion.subtle, value: isFocused)
 
             TextField(placeholder, text: $text)
                 .font(.bmUI(16, weight: .medium))
@@ -272,6 +302,7 @@ struct BMFieldRow: View {
                 .submitLabel(submitLabel)
                 .textInputAutocapitalization(keyboard == .emailAddress ? .never : .words)
                 .autocorrectionDisabled(true)
+                .focused($isFocused)
 
             if !text.isEmpty {
                 Button {
@@ -279,19 +310,26 @@ struct BMFieldRow: View {
                     text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.bmUI(14))
+                        .font(.bmUI(16))
                         .foregroundStyle(Color.appSmoke)
                 }
+                .transition(.scale.combined(with: .opacity))
             }
         }
         .padding(.horizontal, Space.md)
-        .frame(height: 56)
+        .frame(height: 60)
         .background(Color.appSurface)
         .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                .stroke(text.isEmpty ? Color.appDivider : Color.appAccent.opacity(0.5), lineWidth: 1)
+                .stroke(
+                    isFocused ? Color.appAccent.opacity(0.5) : Color.appDivider,
+                    lineWidth: isFocused ? 1.5 : 0.5
+                )
         )
+        .shadow(color: isFocused ? Color.appAccent.opacity(0.1) : .clear, radius: 8, y: 2)
+        .animation(Motion.subtle, value: isFocused)
+        .animation(Motion.subtle, value: text.isEmpty)
     }
 }
 
@@ -301,13 +339,19 @@ struct BMPasswordRow: View {
     var isNew: Bool = false
 
     @State private var show = false
+    @FocusState private var isFocused: Bool
 
     var body: some View {
-        HStack(spacing: Space.sm) {
-            Image(systemName: "lock")
-                .font(.bmUI(14, weight: .medium))
-                .foregroundStyle(Color.appAsh)
-                .frame(width: 18)
+        HStack(spacing: Space.md) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isFocused ? Color.appAccentTint : Color.appBackground)
+                    .frame(width: 36, height: 36)
+                Image(systemName: "lock")
+                    .font(.bmUI(14, weight: .medium))
+                    .foregroundStyle(isFocused ? Color.appAccent : Color.appAsh)
+            }
+            .animation(Motion.subtle, value: isFocused)
 
             Group {
                 if show {
@@ -321,6 +365,7 @@ struct BMPasswordRow: View {
             .textContentType(isNew ? .newPassword : .password)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled(true)
+            .focused($isFocused)
 
             Button {
                 Haptic.select()
@@ -332,12 +377,17 @@ struct BMPasswordRow: View {
             }
         }
         .padding(.horizontal, Space.md)
-        .frame(height: 56)
+        .frame(height: 60)
         .background(Color.appSurface)
         .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                .stroke(text.isEmpty ? Color.appDivider : Color.appAccent.opacity(0.5), lineWidth: 1)
+                .stroke(
+                    isFocused ? Color.appAccent.opacity(0.5) : Color.appDivider,
+                    lineWidth: isFocused ? 1.5 : 0.5
+                )
         )
+        .shadow(color: isFocused ? Color.appAccent.opacity(0.1) : .clear, radius: 8, y: 2)
+        .animation(Motion.subtle, value: isFocused)
     }
 }

@@ -35,6 +35,8 @@
     <array>
         <string>UIInterfaceOrientationPortrait</string>
     </array>
+    <key>UIUserInterfaceStyle</key>
+    <string>Light</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>BraidMe uses your location to find braiders near you.</string>
     <key>NSPhotoLibraryUsageDescription</key>
@@ -50,9 +52,18 @@
             <string>Editor</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>com.googleusercontent.apps.REPLACE_WITH_CLIENT_ID</string>
+                <string>com.googleusercontent.apps.158058529601-34lkbg1ha528nv1e4vaamb4t9rfr0261</string>
             </array>
         </dict>
     </array>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <key>NSAllowsArbitraryLoadsInWebContent</key>
+        <true/>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
 </dict>
 </plist>
