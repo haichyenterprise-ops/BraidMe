@@ -511,8 +511,8 @@ struct BMLoadingView: View {
 struct BMAvatar: View {
     let url: String
     var size: CGFloat = 44
-    var ringed: Bool = false
     var initials: String? = nil
+    var ringed: Bool = false
     var glow: Bool = false
     
     var body: some View {
@@ -698,6 +698,8 @@ struct BMAnimatedCheckmark: View {
         }
     }
 }
+
+// MARK: - Check Shape
 
 struct CheckShape: Shape {
     func path(in rect: CGRect) -> Path {
