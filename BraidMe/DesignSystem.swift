@@ -9,7 +9,7 @@ import UIKit
 extension Color {
     fileprivate enum Palette {
         static let ink        = Color(hex: "#0B0B0F")
-        static let graphite   = Color(hex: "#17171C")
+        static let graphite   = Color(hex: "#161A21")
         static let charcoal   = Color(hex: "#24242A")
         static let ash        = Color(hex: "#8A8479")
         static let smoke      = Color(hex: "#B5AFA4")
