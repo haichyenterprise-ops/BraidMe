@@ -2,17 +2,17 @@ import SwiftUI
 import UIKit
 
 // =============================================================================
-// GlobeMorphView — 11.4s cinematic globe transition.
+// GlobeMorphView — Star Vortex Transition
 //
-//  0.00  Stars fade in (behind the black overlay MainTabView uses)
-//  0.00  Globe fades in at CENTER, SMALL
-//  2.20  Globe fully visible (idle spin 0.3)
-//  3.50  Accelerate: 0.3 → 1.0 → 2.5 → 4.0 over 4 seconds
-//  7.50  Continents dissolve, oceans glow
-//  8.00  Gold flash, morph completes
-//  8.30  Avatar revealed at center
-// 10.80  ZOOM INTO AVATAR (0.6s) — scale 1.0 → 4.5
-// 11.40  Profile handed off
+// Replaces the globe with a kinetic avatar extraction + orbiting stars.
+//
+//  0.00s  Tap → map dims to 30%, avatar extracts from pin position
+//  1.00s  Avatar settles at center, gold rim glow
+//  1.30s  Stars emerge from avatar, one per 0.15s (N stars for N rating)
+//  2.05s  Stars orbit the avatar — fast rotation, particle trails
+//  4.05s  Stars accelerate outward, pull toward right edge
+//  4.40s  Everything swooshes right with parallax + motion blur
+//  5.00s  Profile in place. Transition ends.
 // =============================================================================
 
 struct GlobeMorphView: View {
@@ -20,153 +20,103 @@ struct GlobeMorphView: View {
     let isFastMode: Bool
     let onFinish: () -> Void
 
-    // SceneKit bindings
-    @State private var cameraDistance: Float = 7.5
-    @State private var globeOpacity: Float = 0
-    @State private var atmosphereOpacity: Float = 0
-    @State private var ringOpacity: Float = 0
-    @State private var spinSpeed: Float = 0
-    @State private var globeScale: Float = 1.0
-    @State private var morphProgress: Float = 0
+    // Computed star count from rating (Q1 = A: round to nearest)
+    private var starCount: Int {
+        let rounded = Int(braider.rating.rounded())
+        return max(1, min(5, rounded))
+    }
 
-    // Overlay state
-    @State private var starOpacity: Double = 0
-    @State private var backdropOpacity: Double = 0
-    @State private var goldFlashOpacity: Double = 0
-
-    @State private var avatarScale: CGFloat = 0.4
+    // ─── Animation state ───
+    @State private var dimOpacity: Double = 0
+    @State private var avatarScale: CGFloat = 0.05
+    @State private var avatarOffset: CGSize = CGSize(width: 0, height: -260)
     @State private var avatarOpacity: Double = 0
+    @State private var avatarGlowOpacity: Double = 0
+    @State private var avatarPulse: CGFloat = 1.0
 
-    @State private var textOpacity: Double = 0
-    @State private var textOffset: CGFloat = 20
-    @State private var starRatingOpacity: Double = 0
+    @State private var starsEmerged: [Bool] = [false, false, false, false, false]
+    @State private var orbitAngle: Double = 0
+    @State private var orbitRadius: CGFloat = 140
+    @State private var starTrailOpacity: Double = 0
+    @State private var starParticlePhase: CGFloat = 0
 
-    // Final zoom-into-avatar
-    @State private var zoomOuterScale: CGFloat = 1.0
-    @State private var sceneExitOpacity: Double = 1.0
+    @State private var swooshOffset: CGFloat = 0
+    @State private var swooshScale: CGFloat = 1.0
+    @State private var swooshOpacity: Double = 1.0
+    @State private var screenShift: CGFloat = 0
 
     @State private var sequenceID = UUID()
-
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ZStack {
-            // ─── Pure black backdrop ───
-            Color.black
-                .ignoresSafeArea()
-                .opacity(backdropOpacity)
-
-            // ─── Star field ───
-            starField
-                .opacity(starOpacity)
-
-            // ─── Everything below scales together for the final zoom ───
+        GeometryReader { geo in
             ZStack {
-                // SceneKit globe
-                GlobeSceneView(
-                    cameraDistance: $cameraDistance,
-                    globeOpacity: $globeOpacity,
-                    atmosphereOpacity: $atmosphereOpacity,
-                    ringOpacity: $ringOpacity,
-                    spinSpeed: $spinSpeed,
-                    scale: $globeScale,
-                    morphProgress: $morphProgress
-                )
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-
-                // Gold flash (during morph)
-                Color(red: 1.0, green: 0.88, blue: 0.55)
+                // ─── Dim layer over map (map still visible at 30%) ───
+                Color.black
                     .ignoresSafeArea()
-                    .opacity(goldFlashOpacity)
-                    .allowsHitTesting(false)
-                    .blendMode(.screen)
+                    .opacity(dimOpacity * 0.7)
 
-                // Gold glow around avatar
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                Color.goldLight.opacity(0.5),
-                                Color.gold.opacity(0.2),
-                                .clear
-                            ],
-                            center: .center,
-                            startRadius: 30,
-                            endRadius: 200
+                // ─── Everything that swooshes right on exit ───
+                ZStack {
+                    // Avatar gold halo
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [
+                                    Color.goldLight.opacity(0.55),
+                                    Color.gold.opacity(0.25),
+                                    .clear
+                                ],
+                                center: .center,
+                                startRadius: 0,
+                                endRadius: 190
+                            )
                         )
-                    )
-                    .frame(width: 400, height: 400)
-                    .opacity(avatarOpacity * 0.7)
-                    .allowsHitTesting(false)
+                        .frame(width: 380, height: 380)
+                        .blur(radius: 20)
+                        .opacity(avatarGlowOpacity)
 
-                // Avatar medallion
-                avatarMedallion
-
-                // Text block
-                VStack(spacing: 10) {
-                    Text("ENTERING")
-                        .font(.system(size: 10, weight: .bold))
-                        .tracking(5)
-                        .foregroundStyle(Color.gold)
-                        .opacity(textOpacity)
-
-                    Text(braider.name)
-                        .font(.system(size: 38, weight: .regular, design: .serif))
-                        .tracking(-1.2)
-                        .foregroundStyle(.white)
-                        .opacity(textOpacity)
-                        .offset(y: textOffset)
-
-                    HStack(spacing: 7) {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color.gold)
-                        Text(braider.ratingText)
-                            .font(.system(size: 16, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.95))
+                    // Orbiting stars
+                    ZStack {
+                        ForEach(0..<5, id: \.self) { index in
+                            if index < starCount {
+                                StarNode(
+                                    index: index,
+                                    totalStars: starCount,
+                                    orbitRadius: orbitRadius,
+                                    orbitAngle: orbitAngle,
+                                    emerged: starsEmerged[index],
+                                    trailOpacity: starTrailOpacity,
+                                    particlePhase: starParticlePhase
+                                )
+                            }
+                        }
                     }
-                    .opacity(starRatingOpacity)
-                    .offset(y: textOffset)
+                    .opacity(avatarGlowOpacity)
+
+                    // Avatar medallion
+                    avatarMedallion
+                        .scaleEffect(avatarPulse)
+
+                    // Big stars pulsing behind avatar (radiance)
+                    ForEach(0..<5, id: \.self) { index in
+                        if index < starCount {
+                            PulsingStar(
+                                angle: Double(index) / Double(starCount) * 360 + orbitAngle * 0.2,
+                                radius: orbitRadius * 1.15,
+                                delay: Double(index) * 0.15,
+                                active: starsEmerged[index]
+                            )
+                        }
+                    }
                 }
-                .offset(y: 250)
+                .scaleEffect(swooshScale)
+                .offset(x: swooshOffset)
+                .opacity(swooshOpacity)
             }
-            .scaleEffect(zoomOuterScale)
-            .opacity(sceneExitOpacity)
+            .offset(x: screenShift)
+            .onAppear { play(in: geo.size) }
         }
-        .ignoresSafeArea()
-        .allowsHitTesting(true)
-        .onAppear { play() }
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Star field
-
-    private var starField: some View {
-        Canvas { context, size in
-            var rng = SeededRNG(seed: 0xC0FFEE)
-
-            // Far layer: dim tiny stars
-            for _ in 0..<140 {
-                let x = CGFloat.random(in: 0...size.width, using: &rng)
-                let y = CGFloat.random(in: 0...size.height, using: &rng)
-                let r = CGFloat.random(in: 0.3...0.7, using: &rng)
-                let alpha = Double.random(in: 0.2...0.5, using: &rng)
-                let circle = Path(ellipseIn: CGRect(x: x, y: y, width: r * 2, height: r * 2))
-                context.fill(circle, with: .color(.white.opacity(alpha)))
-            }
-
-            // Near layer: brighter stars
-            for _ in 0..<60 {
-                let x = CGFloat.random(in: 0...size.width, using: &rng)
-                let y = CGFloat.random(in: 0...size.height, using: &rng)
-                let r = CGFloat.random(in: 0.8...1.6, using: &rng)
-                let alpha = Double.random(in: 0.5...0.95, using: &rng)
-                let circle = Path(ellipseIn: CGRect(x: x, y: y, width: r * 2, height: r * 2))
-                context.fill(circle, with: .color(.white.opacity(alpha)))
-            }
-        }
-        .allowsHitTesting(false)
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -174,243 +124,345 @@ struct GlobeMorphView: View {
 
     private var avatarMedallion: some View {
         ZStack {
+            // Outer gold ring with rotation gradient
             Circle()
-                .fill(
-                    RadialGradient(
+                .stroke(
+                    AngularGradient(
                         colors: [
-                            Color.gold.opacity(0.55),
-                            .clear
+                            Color.goldLight,
+                            Color.gold,
+                            Color.goldDeep,
+                            Color.gold,
+                            Color.goldLight
                         ],
                         center: .center,
-                        startRadius: 0,
-                        endRadius: 110
-                    )
+                        angle: .degrees(orbitAngle)
+                    ),
+                    lineWidth: 4
                 )
-                .frame(width: 240, height: 240)
-                .blur(radius: 14)
-                .opacity(avatarOpacity)
+                .frame(width: 190, height: 190)
 
+            // Frosted glass container
             Circle()
                 .fill(.regularMaterial)
-                .frame(width: 148, height: 148)
-                .overlay(
-                    Circle().stroke(
-                        LinearGradient(
-                            colors: [Color.goldLight, Color.gold, Color.goldDeep],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 4
-                    )
-                )
-                .shadow(color: Color.gold.opacity(0.7), radius: 30, y: 6)
+                .frame(width: 178, height: 178)
+                .shadow(color: Color.gold.opacity(0.55), radius: 40, y: 8)
 
+            // Avatar image or initials
             if braider.avatarUrl.isEmpty {
                 Circle()
                     .fill(Color.gold.opacity(0.20))
-                    .frame(width: 130, height: 130)
+                    .frame(width: 160, height: 160)
                     .overlay(
                         Text(braider.initials)
-                            .font(.system(size: 48, weight: .bold, design: .serif))
+                            .font(.system(size: 58, weight: .bold, design: .serif))
                             .foregroundStyle(Color.gold)
                     )
             } else {
                 RemoteImage(url: braider.avatarUrl)
-                    .frame(width: 130, height: 130)
+                    .frame(width: 160, height: 160)
                     .clipShape(Circle())
             }
+
+            // Inner rim highlight
+            Circle()
+                .stroke(.white.opacity(0.35), lineWidth: 1)
+                .frame(width: 160, height: 160)
         }
+        .frame(width: 190, height: 190)
         .scaleEffect(avatarScale)
+        .offset(avatarOffset)
         .opacity(avatarOpacity)
     }
 
     // ═══════════════════════════════════════════════════════════════
     // MARK: - Sequence
 
-    private func play() {
+    private func play(in size: CGSize) {
         let token = UUID()
         sequenceID = token
 
         if reduceMotion {
-            backdropOpacity = 1
-            starOpacity = 1
-            globeOpacity = 1
-            atmosphereOpacity = 1
-            spinSpeed = 1
-            avatarOpacity = 1
+            dimOpacity = 1
             avatarScale = 1
-            textOpacity = 1
-            starRatingOpacity = 1
-            textOffset = 0
+            avatarOffset = .zero
+            avatarOpacity = 1
+            avatarGlowOpacity = 1
+            starsEmerged = [true, true, true, true, true]
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 onFinish()
             }
             return
         }
 
-        // ─── Timing (fast mode compresses everything by ~55%) ───
-        let m: Double = isFastMode ? 0.5 : 1.0
+        let m: Double = isFastMode ? 0.55 : 1.0
 
-        let tStars       = 0.0 * m
-        let tGlobe       = 2.20 * m
-        let tIdleSpin    = 3.00 * m
-        let tAccelerate  = 3.50 * m
-        let tMorphStart  = 7.50 * m
-        let tFlash       = 8.00 * m
-        let tAvatar      = 8.30 * m
-        let tCalm        = 8.80 * m
-        let tZoom        = 10.80 * m
-        let tComplete    = 11.40 * m
+        let tDim: TimeInterval       = 0.00 * m
+        let tExtract: TimeInterval   = 0.00 * m
+        let tSettle: TimeInterval    = 1.00 * m
+        let tStarsStart: TimeInterval = 1.30 * m
+        let tStarsAllIn: TimeInterval = 2.05 * m
+        let tOrbitFor: TimeInterval  = 4.05 * m
+        let tSwoosh: TimeInterval    = 4.40 * m
+        let tComplete: TimeInterval  = 5.00 * m
 
-        // ─── 0.00 — Backdrop + stars fade in ───
-        withAnimation(.easeIn(duration: 0.6)) {
-            backdropOpacity = 1
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + tStars) {
+        // ─── 0.00 — Dim map ───
+        DispatchQueue.main.asyncAfter(deadline: .now() + tDim) {
             guard sequenceID == token else { return }
-            withAnimation(.easeIn(duration: 0.6)) {
-                starOpacity = 1
+            withAnimation(.easeIn(duration: 0.50)) {
+                dimOpacity = 1.0
             }
         }
 
-        // ─── 2.20 — Globe fades in, small, centered, idle spin ───
-        DispatchQueue.main.asyncAfter(deadline: .now() + tGlobe) {
-            guard sequenceID == token else { return }
-            Haptic.light()
-            withAnimation(.easeIn(duration: 0.8)) {
-                globeOpacity = 1
-                atmosphereOpacity = 1
-                ringOpacity = 0.85
-            }
-        }
-
-        // ─── 3.00 — Idle spin ───
-        DispatchQueue.main.asyncAfter(deadline: .now() + tIdleSpin) {
-            guard sequenceID == token else { return }
-            spinSpeed = 0.3
-        }
-
-        // ─── 3.50 — Begin 4-second acceleration ───
-        DispatchQueue.main.asyncAfter(deadline: .now() + tAccelerate) {
+        // ─── 0.00 — Avatar extracts from pin ───
+        DispatchQueue.main.asyncAfter(deadline: .now() + tExtract) {
             guard sequenceID == token else { return }
             Haptic.medium()
 
-            let rampSteps = 40
-            let rampDuration = (tMorphStart - tAccelerate)  // 4.0s in normal mode
-            let stepInterval = rampDuration / Double(rampSteps)
-
-            for step in 0..<rampSteps {
-                let t = Double(step) / Double(rampSteps)
-                // Ease-in curve: slow build, steep end
-                let eased = pow(t, 1.7)
-                let speed = Float(0.3 + eased * 3.7)   // 0.3 → 4.0
-
-                DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * stepInterval) {
-                    guard sequenceID == token else { return }
-                    spinSpeed = speed
-
-                    // Subtle camera push-in as speed climbs
-                    cameraDistance = Float(7.5 - eased * 1.5)   // 7.5 → 6.0
-
-                    // Slight globe scale-up as it speeds
-                    globeScale = Float(1.0 + eased * 0.1)
-                }
-            }
-        }
-
-        // ─── 7.50 — Peak speed, morph begins ───
-        DispatchQueue.main.asyncAfter(deadline: .now() + tMorphStart) {
-            guard sequenceID == token else { return }
-            Haptic.heavy()
-
-            // Ramp morph progress over 0.5s
-            let morphDuration: TimeInterval = 0.5
-            let morphSteps = 20
-            let morphInterval = morphDuration / Double(morphSteps)
-
-            for step in 0..<morphSteps {
-                let t = Float(step) / Float(morphSteps)
-                DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * morphInterval) {
-                    guard sequenceID == token else { return }
-                    morphProgress = t
-                }
-            }
-        }
-
-        // ─── 8.00 — Gold flash peak ───
-        DispatchQueue.main.asyncAfter(deadline: .now() + tFlash) {
-            guard sequenceID == token else { return }
-            Haptic.heavy()
-
-            withAnimation(.easeOut(duration: 0.15)) {
-                goldFlashOpacity = 1.0
-            }
-        }
-
-        // ─── 8.30 — Flash recedes, avatar revealed ───
-        DispatchQueue.main.asyncAfter(deadline: .now() + tAvatar) {
-            guard sequenceID == token else { return }
-            Haptic.success()
-
-            // Globe disappears
-            withAnimation(.easeOut(duration: 0.4)) {
-                globeOpacity = 0
-                atmosphereOpacity = 0
-                ringOpacity = 0
-                morphProgress = 1
-            }
-
-            // Flash recedes
-            withAnimation(.easeIn(duration: 0.5)) {
-                goldFlashOpacity = 0
-            }
-
-            // Avatar materializes
-            withAnimation(.spring(response: 0.55, dampingFraction: 0.62)) {
+            // Big overshoot — comes from "the pin"
+            withAnimation(.spring(response: 0.85, dampingFraction: 0.58)) {
                 avatarScale = 1.0
+                avatarOffset = .zero
                 avatarOpacity = 1.0
             }
+            withAnimation(.easeOut(duration: 0.90).delay(0.20)) {
+                avatarGlowOpacity = 1.0
+            }
         }
 
-        // ─── 8.80 — Calm. Text reveal. ───
-        DispatchQueue.main.asyncAfter(deadline: .now() + tCalm) {
+        // ─── 1.00 — Subtle pulse once settled ───
+        DispatchQueue.main.asyncAfter(deadline: .now() + tSettle) {
+            guard sequenceID == token else { return }
+            withAnimation(.easeInOut(duration: 0.60).repeatForever(autoreverses: true)) {
+                avatarPulse = 1.03
+            }
+        }
+
+        // ─── 1.30 — Stars emerge one by one ───
+        DispatchQueue.main.asyncAfter(deadline: .now() + tStarsStart) {
             guard sequenceID == token else { return }
 
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.82)) {
-                textOpacity = 1
-                textOffset = 0
+            // Start orbital rotation — slow at first, accelerates
+            withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
+                orbitAngle = 360
             }
-            withAnimation(.spring(response: 0.55, dampingFraction: 0.82).delay(0.2)) {
-                starRatingOpacity = 1
+
+            // Particle trail fades in
+            withAnimation(.easeIn(duration: 0.4)) {
+                starTrailOpacity = 1.0
+            }
+
+            // Emerge each star
+            for i in 0..<starCount {
+                let delay = Double(i) * 0.15
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    guard sequenceID == token else { return }
+                    Haptic.light()
+                    withAnimation(.spring(response: 0.55, dampingFraction: 0.55)) {
+                        starsEmerged[i] = true
+                    }
+                }
             }
         }
 
-        // ─── 10.80 — ZOOM INTO AVATAR ───
-        DispatchQueue.main.asyncAfter(deadline: .now() + tZoom) {
+        // ─── 2.05 — All stars are orbiting. Let them orbit. ───
+        DispatchQueue.main.asyncAfter(deadline: .now() + tStarsAllIn) {
+            guard sequenceID == token else { return }
+            // No animation — just a marker
+        }
+
+        // ─── 4.05 — Orbit radius expands, stars pull right ───
+        DispatchQueue.main.asyncAfter(deadline: .now() + tOrbitFor) {
+            guard sequenceID == token else { return }
+            Haptic.medium()
+
+            // Orbit radius expands
+            withAnimation(.easeInOut(duration: 0.35)) {
+                orbitRadius = 260
+            }
+        }
+
+        // ─── 4.40 — Swoosh off to the right ───
+        DispatchQueue.main.asyncAfter(deadline: .now() + tSwoosh) {
             guard sequenceID == token else { return }
             Haptic.heavy()
 
-            // Text fades out in the first 0.15s so it doesn't distract
-            withAnimation(.easeOut(duration: 0.15)) {
-                textOpacity = 0
-                starRatingOpacity = 0
+            // The whole assembly (avatar + stars + halo) swooshes right
+            withAnimation(.easeIn(duration: 0.45)) {
+                swooshOffset = size.width * 1.4
+                swooshScale = 1.15
+                swooshOpacity = 0.0
             }
 
-            // The entire scene scales up aggressively
-            withAnimation(.easeIn(duration: 0.55)) {
-                zoomOuterScale = 4.5
-            }
-
-            // Scene fades slightly as it peaks, so the profile is behind
-            withAnimation(.easeIn(duration: 0.55).delay(0.1)) {
-                sceneExitOpacity = 0
+            // The whole screen shifts right too — parallax
+            withAnimation(.easeInOut(duration: 0.55)) {
+                screenShift = size.width * 0.35
             }
         }
 
-        // ─── 11.40 — Complete ───
+        // ─── 5.00 — Complete ───
         DispatchQueue.main.asyncAfter(deadline: .now() + tComplete) {
             guard sequenceID == token else { return }
             onFinish()
         }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Orbiting Star Node
+
+private struct StarNode: View {
+    let index: Int
+    let totalStars: Int
+    let orbitRadius: CGFloat
+    let orbitAngle: Double
+    let emerged: Bool
+    let trailOpacity: Double
+    let particlePhase: CGFloat
+
+    /// Each star sits at its own angle slice
+    private var baseAngle: Double {
+        (Double(index) / Double(totalStars)) * 360
+    }
+
+    private var currentAngle: Double {
+        baseAngle + orbitAngle
+    }
+
+    var body: some View {
+        let radians = currentAngle * .pi / 180
+        let x = cos(radians) * Double(orbitRadius)
+        let y = sin(radians) * Double(orbitRadius)
+
+        ZStack {
+            // ── Trail ──
+            if emerged && trailOpacity > 0 {
+                TrailArc(
+                    radius: orbitRadius,
+                    angle: currentAngle,
+                    trailLength: 40
+                )
+                .opacity(trailOpacity * 0.55)
+                .offset(
+                    x: cos((currentAngle - 20) * .pi / 180) * Double(orbitRadius),
+                    y: sin((currentAngle - 20) * .pi / 180) * Double(orbitRadius)
+                )
+            }
+
+            // ── Star body ──
+            ZStack {
+                // Glow
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                Color.goldLight.opacity(0.9),
+                                Color.gold.opacity(0.3),
+                                .clear
+                            ],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 26
+                        )
+                    )
+                    .frame(width: 52, height: 52)
+
+                // Star icon
+                Image(systemName: "star.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Color.goldLight, Color.gold, Color.goldDeep],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .shadow(color: Color.gold.opacity(0.8), radius: 12)
+            }
+            .scaleEffect(emerged ? 1.0 : 0.0)
+            .opacity(emerged ? 1.0 : 0.0)
+        }
+        .offset(x: x, y: y)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Trail arc (drawn behind each star)
+
+private struct TrailArc: View {
+    let radius: CGFloat
+    let angle: Double
+    let trailLength: Double
+
+    var body: some View {
+        Canvas { context, size in
+            var path = Path()
+            let steps = 12
+            let start = angle - trailLength
+            let end = angle
+
+            for i in 0...steps {
+                let t = Double(i) / Double(steps)
+                let a = (start + (end - start) * t) * .pi / 180
+                let x = cos(a) * Double(radius)
+                let y = sin(a) * Double(radius)
+                if i == 0 {
+                    path.move(to: CGPoint(x: size.width / 2 + x, y: size.height / 2 + y))
+                } else {
+                    path.addLine(to: CGPoint(x: size.width / 2 + x, y: size.height / 2 + y))
+                }
+            }
+
+            context.stroke(
+                path,
+                with: .linearGradient(
+                    Gradient(colors: [
+                        Color.gold.opacity(0),
+                        Color.goldLight.opacity(0.6),
+                        Color.gold.opacity(0.9)
+                    ]),
+                    startPoint: .zero,
+                    endPoint: CGPoint(x: size.width, y: size.height)
+                ),
+                style: StrokeStyle(lineWidth: 2, lineCap: .round)
+            )
+        }
+        .frame(width: radius * 2 + 60, height: radius * 2 + 60)
+        .allowsHitTesting(false)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Pulsing star behind avatar
+
+private struct PulsingStar: View {
+    let angle: Double
+    let radius: CGFloat
+    let delay: Double
+    let active: Bool
+
+    @State private var pulse: CGFloat = 0.7
+
+    var body: some View {
+        let rad = angle * .pi / 180
+        let x = cos(rad) * Double(radius)
+        let y = sin(rad) * Double(radius)
+
+        Circle()
+            .fill(Color.goldLight.opacity(0.25))
+            .frame(width: 40, height: 40)
+            .scaleEffect(pulse)
+            .opacity(active ? 0.6 : 0)
+            .offset(x: x, y: y)
+            .onAppear {
+                guard active else { return }
+                withAnimation(
+                    .easeInOut(duration: 0.9)
+                    .repeatForever(autoreverses: true)
+                    .delay(delay)
+                ) {
+                    pulse = 1.4
+                }
+            }
     }
 }

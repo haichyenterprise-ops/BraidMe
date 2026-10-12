@@ -8,8 +8,8 @@ import UIKit
 // =============================================================================
 // MainTabView — "The Spatial Canvas"
 //
-// Globe transition is a ZStack overlay. Map zooms behind a black curtain
-// so MapKit tile-loading artifacts (grey zones) are never visible.
+// Star-vortex transition — no globe, no SceneKit. Map dims, avatar extracts
+// from pin position, stars orbit, then swoosh right into the profile.
 // =============================================================================
 
 struct MainTabView: View {
@@ -54,12 +54,10 @@ struct MainTabView: View {
     // ─── Shockwaves ───
     @State private var shockwaves: [Shockwave] = []
 
-    // ─── Globe transition ───
-    @State private var globeActive = false
-    @State private var globeBraider: Braider?
+    // ─── Transition ───
+    @State private var transitionActive = false
+    @State private var transitionBraider: Braider?
     @State private var hasPlayedCinematicOnce = false
-    /// Full-screen black curtain that hides MapKit's grey tiles during zoom-out
-    @State private var blackoutOpacity: Double = 0
 
     // ─── Gyro gate ───
     @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
@@ -102,31 +100,24 @@ struct MainTabView: View {
                         Spacer()
                     }
                     .ignoresSafeArea(edges: .top)
-                    .opacity(globeActive ? 0 : 1)
-                    .animation(.easeInOut(duration: 0.3), value: globeActive)
+                    .opacity(transitionActive ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.3), value: transitionActive)
 
                     // ─── Bottom chrome ───
                     VStack(spacing: 0) {
                         Spacer()
                         bottomChrome
                     }
-                    .opacity(globeActive ? 0 : 1)
-                    .animation(.easeInOut(duration: 0.3), value: globeActive)
+                    .opacity(transitionActive ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.3), value: transitionActive)
 
-                    // ─── BLACK CURTAIN (hides grey tiles during zoom) ───
-                    Color.black
-                        .ignoresSafeArea()
-                        .opacity(blackoutOpacity)
-                        .allowsHitTesting(blackoutOpacity > 0.5)
-                        .zIndex(500)
-
-                    // ─── GLOBE OVERLAY ───
-                    if globeActive, let braider = globeBraider {
+                    // ─── Star vortex transition overlay ───
+                    if transitionActive, let braider = transitionBraider {
                         GlobeMorphView(
                             braider: braider,
                             isFastMode: hasPlayedCinematicOnce
                         ) {
-                            finishGlobeTransition()
+                            finishTransition()
                         }
                         .transition(.opacity)
                         .zIndex(1000)
@@ -170,7 +161,7 @@ struct MainTabView: View {
     // MARK: - Map Canvas
 
     private func mapCanvas(size: CGSize) -> some View {
-        Map(position: $cameraPosition, interactionModes: globeActive ? [] : [.pan, .zoom]) {
+        Map(position: $cameraPosition, interactionModes: transitionActive ? [] : [.pan, .zoom]) {
             ForEach(fb.braiders) { braider in
                 Annotation(
                     "",
@@ -181,7 +172,7 @@ struct MainTabView: View {
                         if expandedBraiderId == braider.id {
                             OrbCapsule(
                                 braider: braider,
-                                onTap: { openProfileWithGlobe(braider) },
+                                onTap: { startTransition(braider) },
                                 onDismiss: { collapseExpanded() }
                             )
                             .matchedGeometryEffect(
@@ -520,99 +511,44 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Globe Transition
-    //
-    // Story:
-    //  0.00  Tap → collapse pin, disengage map, black curtain fades in
-    //  0.00  Map zooms out behind the curtain (grey tiles hidden)
-    //  1.60  Curtain at 100%. Globe overlay activates.
-    //  ...
-    // 11.40  GlobeMorphView finishes → push profile
-    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Star Vortex Transition
 
-    private func openProfileWithGlobe(_ braider: Braider) {
-        guard !globeActive else { return }
+    private func startTransition(_ braider: Braider) {
+        guard !transitionActive else { return }
 
         Haptic.heavy()
         haptics.play(.pinExpand)
 
-        // Collapse the pin
         withAnimation(Motion.collapse) {
             expandedBraiderId = nil
         }
 
-        globeBraider = braider
+        transitionBraider = braider
 
-        // ─── 0.00 — Black curtain fades in (hides grey tiles) ───
-        withAnimation(.easeIn(duration: 0.4)) {
-            blackoutOpacity = 1.0
-        }
-
-        // ─── 0.00 — Map camera pulls back (behind the curtain) ───
-        withAnimation(.easeInOut(duration: 1.6)) {
-            cameraPosition = .camera(
-                MapCamera(
-                    centerCoordinate: braider.coordinate,
-                    distance: 40_000_000,
-                    heading: 0,
-                    pitch: 0
-                )
-            )
-        }
-        cameraCenter = braider.coordinate
-        cameraDistance = 40_000_000
-        cameraPitch = 0
-
-        // ─── 1.60 — Activate globe overlay ───
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
             hasPlayedCinematicOnce = true
-            withAnimation(.easeIn(duration: 0.2)) {
-                globeActive = true
+            withAnimation(.easeIn(duration: 0.20)) {
+                transitionActive = true
             }
         }
     }
 
-    /// Called by GlobeMorphView when its sequence ends.
-    private func finishGlobeTransition() {
-        guard let braider = globeBraider else {
-            globeActive = false
-            blackoutOpacity = 0
+    private func finishTransition() {
+        guard let braider = transitionBraider else {
+            transitionActive = false
             return
         }
 
-        // 1. Push the profile (behind the globe)
         selectedBraider = braider
 
-        // 2. Fade the globe out
         DispatchQueue.main.async {
             withAnimation(.easeOut(duration: 0.35)) {
-                globeActive = false
+                transitionActive = false
             }
         }
 
-        // 3. Restore the map behind the profile
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            let resetDistance: Double = 5500
-            let resetPitch: Double = 10
-            cameraCenter = braider.coordinate
-            cameraDistance = resetDistance
-            cameraPitch = resetPitch
-            cameraPosition = .camera(
-                MapCamera(
-                    centerCoordinate: braider.coordinate,
-                    distance: resetDistance,
-                    heading: 0,
-                    pitch: resetPitch
-                )
-            )
-            withAnimation(.easeOut(duration: 0.5)) {
-                blackoutOpacity = 0
-            }
-        }
-
-        // 4. Cleanup
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-            globeBraider = nil
+            transitionBraider = nil
         }
     }
 
