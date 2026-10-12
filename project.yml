@@ -56,6 +56,7 @@ targets:
         NSLocationWhenInUseUsageDescription: "BraidMe uses your location to find braiders near you."
         NSPhotoLibraryUsageDescription: "BraidMe needs access to your photos to set your profile picture."
         NSCameraUsageDescription: "BraidMe uses your camera to take profile photos."
+        NSMotionUsageDescription: "BraidMe uses motion to subtly light-tilt elements as you move your device."
         NSApplePayMerchantID: "merchant.com.example.BraidMe"
         CFBundleURLTypes:
           - CFBundleTypeRole: Editor

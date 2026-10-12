@@ -2,57 +2,61 @@ import SwiftUI
 import UIKit
 
 // =============================================================================
-// BraidMe Design System — "Obsidian" Premium Edition
-// A luxurious, high-tech visual language inspired by high-end fashion & tech
+// BraidMe Design System — "Obsidian Couture"
+// Ultra-luxurious visual language. Dynamic materials, gold-only accent,
+// gyro-reactive borders, layered haptics, spatial motion.
 // =============================================================================
 
 // MARK: - Color Palette
 
 extension Color {
     fileprivate enum Palette {
-        // Core neutrals — deep, rich, sophisticated
-        static let void         = Color(hex: "#050507")      // Deepest black
-        static let obsidian     = Color(hex: "#0A0A0D")      // Primary dark
-        static let onyx         = Color(hex: "#121218")      // Elevated surface
-        static let graphite     = Color(hex: "#1A1A22")      // Card surface
-        static let slate        = Color(hex: "#252530")      // Borders/dividers
-        static let steel        = Color(hex: "#3A3A48")      // Muted elements
+        // ─── Core neutrals (light) ───
+        static let cream        = Color(hex: "#FAF8F5")
+        static let pearl        = Color(hex: "#F2EEE8")
+        static let linen        = Color(hex: "#E8E2D9")
+        static let sand         = Color(hex: "#D4CCC0")
         
-        // Light neutrals — warm, editorial
-        static let cream        = Color(hex: "#FAF8F5")      // Primary light bg
-        static let pearl        = Color(hex: "#F2EEE8")      // Secondary light
-        static let linen        = Color(hex: "#E8E2D9")      // Tertiary light
-        static let sand         = Color(hex: "#D4CCC0")      // Muted light
+        // ─── Core neutrals (dark) ───
+        static let onyx         = Color(hex: "#121218")
+        static let graphite     = Color(hex: "#1A1A22")
+        static let slate        = Color(hex: "#252530")
+        static let steel        = Color(hex: "#3A3A48")
+        static let void         = Color(hex: "#050507")
         
-        // Text hierarchy
-        static let ink          = Color(hex: "#0F0F12")      // Primary text (light mode)
-        static let charcoal     = Color(hex: "#2A2A32")      // Secondary text
-        static let pewter       = Color(hex: "#6B6B78")      // Tertiary text
-        static let fog          = Color(hex: "#9A9AA5")      // Quaternary text
+        // ─── Text hierarchy ───
+        static let ink          = Color(hex: "#0F0F12")
+        static let charcoal     = Color(hex: "#2A2A32")
+        static let pewter       = Color(hex: "#6B6B78")
+        static let fog          = Color(hex: "#9A9AA5")
         
-        // Accent — molten gold with depth
-        static let gold         = Color(hex: "#C9A227")      // Primary accent
-        static let goldLight    = Color(hex: "#E8C84A")      // Light accent
-        static let goldDeep     = Color(hex: "#8B7119")      // Deep accent
-        static let amber        = Color(hex: "#D4A84B")      // Warm accent
+        // ─── Gold scale (only accent) ───
+        static let goldSoft     = Color(hex: "#F2DFA0")
+        static let goldLight    = Color(hex: "#E8C84A")
+        static let gold         = Color(hex: "#C9A227")
+        static let goldDeep     = Color(hex: "#8B7119")
+        static let goldInk      = Color(hex: "#5C4A15")
         
-        // Semantic
-        static let emerald      = Color(hex: "#34D399")      // Success
-        static let ruby         = Color(hex: "#F87171")      // Error
-        static let sapphire     = Color(hex: "#60A5FA")      // Info
-        static let amethyst     = Color(hex: "#A78BFA")      // Premium
+        // ─── Semantic ───
+        static let emerald      = Color(hex: "#34D399")
+        static let ruby         = Color(hex: "#F87171")
+        static let sapphire     = Color(hex: "#60A5FA")
+        static let amethyst     = Color(hex: "#A78BFA")
     }
     
-    // Adaptive colors
+    // ─── Adaptive surfaces ───
     static var appBackground: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.void) : UIColor(Palette.cream) })
+        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.onyx) : UIColor(Palette.cream) })
     }
     static var appSurface: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.onyx) : UIColor.white })
+        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.graphite) : UIColor.white })
     }
     static var appSurfaceElevated: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.graphite) : UIColor(Palette.pearl) })
+        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.slate) : UIColor(Palette.pearl) })
     }
+    static var appSurfaceInverse: Color { Palette.onyx }
+    
+    // ─── Adaptive text ───
     static var appInk: Color {
         Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.cream) : UIColor(Palette.ink) })
     }
@@ -60,40 +64,46 @@ extension Color {
         Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.sand) : UIColor(Palette.charcoal) })
     }
     static var appInkTertiary: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.pewter) : UIColor(Palette.pewter) })
+        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.fog) : UIColor(Palette.pewter) })
     }
     static var appDivider: Color {
         Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.slate) : UIColor(Palette.linen) })
     }
     
-    // Legacy aliases for compatibility
+    // ─── Legacy aliases (kept for compatibility) ───
     static var appAsh: Color { appInkSecondary }
     static var appSmoke: Color { appInkTertiary }
     static var appInkInverse: Color { Palette.cream }
-    static var appSurfaceInverse: Color { Palette.obsidian }
     
-    // Accent system
+    // ─── Gold accent system ───
     static var appAccent: Color { Palette.gold }
     static var appAccentSoft: Color { Palette.goldLight }
     static var appAccentDeep: Color { Palette.goldDeep }
     static var appAccentTint: Color {
         Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-            ? UIColor(Palette.gold).withAlphaComponent(0.15)
+            ? UIColor(Palette.gold).withAlphaComponent(0.16)
             : UIColor(Palette.gold).withAlphaComponent(0.10) })
     }
     static var appAccentGlow: Color {
         Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-            ? UIColor(Palette.gold).withAlphaComponent(0.35)
+            ? UIColor(Palette.goldLight).withAlphaComponent(0.35)
             : UIColor(Palette.gold).withAlphaComponent(0.25) })
     }
     
-    // Semantic
+    // ─── Semantic ───
     static var appSignal: Color { Palette.emerald }
     static var appAlert: Color { Palette.ruby }
     static var appInfo: Color { Palette.sapphire }
     static var appPremium: Color { Palette.amethyst }
     
-    // Gradients
+    // ─── Direct gold accessors ───
+    static var goldSoft: Color { Palette.goldSoft }
+    static var goldLight: Color { Palette.goldLight }
+    static var gold: Color { Palette.gold }
+    static var goldDeep: Color { Palette.goldDeep }
+    static var goldInk: Color { Palette.goldInk }
+    
+    // ─── Gradients ───
     static var accentGradient: LinearGradient {
         LinearGradient(
             colors: [Palette.goldLight, Palette.gold, Palette.goldDeep],
@@ -102,9 +112,25 @@ extension Color {
         )
     }
     
+    static var goldHairline: LinearGradient {
+        LinearGradient(
+            colors: [Palette.gold.opacity(0), Palette.gold, Palette.gold.opacity(0)],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+    
+    static var goldRim: LinearGradient {
+        LinearGradient(
+            colors: [Palette.goldLight.opacity(0.9), Palette.gold.opacity(0.2)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+    
     static var darkGradient: LinearGradient {
         LinearGradient(
-            colors: [Palette.obsidian, Palette.void],
+            colors: [Palette.onyx, Palette.void],
             startPoint: .top,
             endPoint: .bottom
         )
@@ -121,6 +147,7 @@ extension Color {
         )
     }
     
+    // ─── Hex init ───
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
@@ -155,6 +182,12 @@ extension Font {
     static func bmHero(_ size: CGFloat) -> Font {
         .system(size: size, weight: .bold, design: .serif)
     }
+    static func bmSerif(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .serif)
+    }
+    static func bmSans(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .default)
+    }
 }
 
 // MARK: - Spacing
@@ -174,38 +207,54 @@ enum Space {
 // MARK: - Radius
 
 enum Radius {
-    static let chip:   CGFloat = 8
+    static let chip:   CGFloat = 10
     static let button: CGFloat = 16
     static let card:   CGFloat = 24
     static let modal:  CGFloat = 36
     static let pill:   CGFloat = 999
     static let hero:   CGFloat = 32
+    static let squircle: CGFloat = 20
 }
 
 // MARK: - Motion
 
 enum Motion {
+    // ─── Navigation & sheets ───
     static let navigation = Animation.spring(response: 0.45, dampingFraction: 0.86)
+    static let sheet      = Animation.spring(response: 0.42, dampingFraction: 0.88)
+    
+    // ─── Interactions ───
     static let press      = Animation.spring(response: 0.25, dampingFraction: 0.75)
     static let reveal     = Animation.spring(response: 0.55, dampingFraction: 0.82)
-    static let sheet      = Animation.spring(response: 0.42, dampingFraction: 0.88)
     static let subtle     = Animation.easeOut(duration: 0.22)
     static let smooth     = Animation.easeInOut(duration: 0.35)
     static let bouncy     = Animation.spring(response: 0.35, dampingFraction: 0.65)
     static let slow       = Animation.easeInOut(duration: 0.6)
     
-    // Stagger timing
+    // ─── Physical dynamics ───
+    static let morph      = Animation.spring(response: 0.5, dampingFraction: 0.75)
+    static let expand     = Animation.spring(response: 0.38, dampingFraction: 0.65)
+    static let collapse   = Animation.spring(response: 0.42, dampingFraction: 0.78)
+    static let cardDrop   = Animation.spring(response: 0.5, dampingFraction: 0.78)
+    static let cardMorph  = Animation.spring(response: 0.55, dampingFraction: 0.72)
+    
+    // ─── Hero ───
+    static let heroReveal = Animation.spring(response: 0.8, dampingFraction: 0.75)
+    static let cameraFly  = Animation.smooth(duration: 0.9)
+    
+    // ─── Loops ───
+    static let shimmer    = Animation.linear(duration: 2.5).repeatForever(autoreverses: false)
+    static let pulse      = Animation.easeInOut(duration: 2.0).repeatForever(autoreverses: true)
+    static let breathe    = Animation.easeInOut(duration: 2.4).repeatForever(autoreverses: true)
+    static let marquee    = Animation.linear(duration: 30).repeatForever(autoreverses: false)
+    static let sheenLoop  = Animation.linear(duration: 2.5).repeatForever(autoreverses: false)
+    
+    // ─── Stagger ───
     static let staggerStep: Double = 0.05
     static func stagger(_ index: Int) -> Double { Double(index) * staggerStep }
-    
-    // Hero animations
-    static let heroReveal = Animation.spring(response: 0.8, dampingFraction: 0.75)
-    static let shimmer    = Animation.linear(duration: 1.8).repeatForever(autoreverses: false)
-    static let pulse      = Animation.easeInOut(duration: 2.0).repeatForever(autoreverses: true)
-    static let breathe    = Animation.easeInOut(duration: 3.0).repeatForever(autoreverses: true)
 }
 
-// MARK: - Adaptive Animation
+// MARK: - Adaptive Animation Modifier
 
 struct AdaptiveAnimation<V: Equatable>: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -222,7 +271,7 @@ extension View {
     }
 }
 
-// MARK: - Button Styles
+// MARK: - Button Press Styles
 
 struct BMPressStyle: ButtonStyle {
     var scale: CGFloat = 0.97
@@ -257,6 +306,17 @@ struct BMGlowPressStyle: ButtonStyle {
     }
 }
 
+/// Advanced squircle press — heavier physics for couture-tier interactions
+struct BMSquirclePressStyle: ButtonStyle {
+    var scale: CGFloat = 0.965
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .opacity(configuration.isPressed ? 0.96 : 1)
+            .animation(Motion.expand, value: configuration.isPressed)
+    }
+}
+
 // MARK: - Haptics
 
 enum Haptic {
@@ -265,9 +325,44 @@ enum Haptic {
     static func light()   { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
     static func medium()  { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
     static func heavy()   { UIImpactFeedbackGenerator(style: .heavy).impactOccurred() }
+    static func rigid()   { UIImpactFeedbackGenerator(style: .rigid).impactOccurred() }
     static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
     static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
     static func error()   { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+}
+
+// MARK: - Dual-Layer Glass Stroke
+
+/// A stroke that layers a light top-left highlight with a deeper bottom-right shade.
+/// The signature finish for floating glass panels.
+struct DualLayerGlassStroke: ViewModifier {
+    var cornerRadius: CGFloat = Radius.card
+    var lineWidth: CGFloat = 0.8
+    @Environment(\.colorScheme) private var colorScheme
+    
+    func body(content: Content) -> some View {
+        content.overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.goldLight.opacity(colorScheme == .dark ? 0.55 : 0.75),
+                            Color.gold.opacity(colorScheme == .dark ? 0.35 : 0.45),
+                            Color.goldDeep.opacity(colorScheme == .dark ? 0.20 : 0.25)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: lineWidth
+                )
+        )
+    }
+}
+
+extension View {
+    func dualLayerGlassStroke(cornerRadius: CGFloat = Radius.card, lineWidth: CGFloat = 0.8) -> some View {
+        modifier(DualLayerGlassStroke(cornerRadius: cornerRadius, lineWidth: lineWidth))
+    }
 }
 
 // MARK: - FlowLayout
@@ -307,7 +402,7 @@ struct FlowLayout: Layout {
     }
 }
 
-// MARK: - Shimmer Effect
+// MARK: - Shimmer
 
 struct ShimmerModifier: ViewModifier {
     @State private var phase: CGFloat = -1
@@ -318,11 +413,7 @@ struct ShimmerModifier: ViewModifier {
             .overlay(
                 GeometryReader { geo in
                     LinearGradient(
-                        colors: [
-                            .clear,
-                            Color.white.opacity(0.4),
-                            .clear
-                        ],
+                        colors: [.clear, Color.white.opacity(0.4), .clear],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
@@ -346,7 +437,7 @@ extension View {
     }
 }
 
-// MARK: - Glow Effect
+// MARK: - Glow
 
 struct GlowModifier: ViewModifier {
     var color: Color
@@ -366,47 +457,37 @@ extension View {
     }
 }
 
-// MARK: - Glass Effect
+// MARK: - Noise Texture Canvas
 
-struct GlassBackground: View {
-    var cornerRadius: CGFloat = Radius.card
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(.ultraThinMaterial)
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(colorScheme == .dark ? 0.15 : 0.6),
-                                Color.white.opacity(colorScheme == .dark ? 0.05 : 0.2)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-            )
-    }
-}
-
-// MARK: - Noise Texture
-
+/// Static-seeded film-grain canvas. Does not regenerate every frame.
 struct NoiseTexture: View {
     var opacity: Double = 0.03
+    var seed: UInt64 = 42
     
     var body: some View {
         Canvas { context, size in
-            for _ in 0..<Int(size.width * size.height / 100) {
-                let x = CGFloat.random(in: 0...size.width)
-                let y = CGFloat.random(in: 0...size.height)
+            var rng = SeededRNG(seed: seed)
+            let count = Int(size.width * size.height / 180)
+            for _ in 0..<count {
+                let x = CGFloat.random(in: 0...size.width, using: &rng)
+                let y = CGFloat.random(in: 0...size.height, using: &rng)
                 let rect = CGRect(x: x, y: y, width: 1, height: 1)
                 context.fill(Path(rect), with: .color(.white.opacity(opacity)))
             }
         }
         .allowsHitTesting(false)
+    }
+}
+
+/// Deterministic RNG so grain is stable across renders.
+struct SeededRNG: RandomNumberGenerator {
+    private var state: UInt64
+    init(seed: UInt64) { self.state = seed == 0 ? 0x9E3779B97F4A7C15 : seed }
+    mutating func next() -> UInt64 {
+        state ^= state << 13
+        state ^= state >> 7
+        state ^= state << 17
+        return state
     }
 }
 
@@ -422,11 +503,11 @@ struct AnimatedGradientBorder: View {
             .stroke(
                 AngularGradient(
                     colors: [
-                        Color.appAccent.opacity(0.1),
-                        Color.appAccent.opacity(0.8),
-                        Color.appAccentSoft.opacity(0.3),
-                        Color.appAccent.opacity(0.8),
-                        Color.appAccent.opacity(0.1)
+                        Color.gold.opacity(0.08),
+                        Color.goldLight.opacity(0.85),
+                        Color.gold.opacity(0.25),
+                        Color.goldDeep.opacity(0.6),
+                        Color.gold.opacity(0.08)
                     ],
                     center: .center,
                     angle: .degrees(rotation)
@@ -434,7 +515,7 @@ struct AnimatedGradientBorder: View {
                 lineWidth: lineWidth
             )
             .onAppear {
-                withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) {
+                withAnimation(.linear(duration: 5).repeatForever(autoreverses: false)) {
                     rotation = 360
                 }
             }
@@ -444,22 +525,77 @@ struct AnimatedGradientBorder: View {
 // MARK: - Pulse Ring
 
 struct PulseRing: View {
-    var color: Color = .appAccent
+    var color: Color = .gold
     var size: CGFloat = 60
+    var duration: Double = 1.8
     @State private var scale: CGFloat = 1
-    @State private var opacity: Double = 0.6
+    @State private var opacity: Double = 0.7
     
     var body: some View {
         Circle()
-            .stroke(color, lineWidth: 2)
+            .stroke(color, lineWidth: 1.5)
             .frame(width: size, height: size)
             .scaleEffect(scale)
             .opacity(opacity)
             .onAppear {
-                withAnimation(.easeOut(duration: 1.5).repeatForever(autoreverses: false)) {
-                    scale = 1.8
+                withAnimation(.easeOut(duration: duration).repeatForever(autoreverses: false)) {
+                    scale = 2.0
                     opacity = 0
                 }
             }
+    }
+}
+
+// MARK: - Check Shape
+
+struct CheckShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.width * 0.15, y: rect.height * 0.55))
+        path.addLine(to: CGPoint(x: rect.width * 0.42, y: rect.height * 0.80))
+        path.addLine(to: CGPoint(x: rect.width * 0.88, y: rect.height * 0.20))
+        return path
+    }
+}
+
+// MARK: - Glass Background
+
+struct GlassBackground: View {
+    var cornerRadius: CGFloat = Radius.card
+    @Environment(\.colorScheme) private var colorScheme
+    
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(colorScheme == .dark ? 0.18 : 0.65),
+                                Color.white.opacity(colorScheme == .dark ? 0.06 : 0.22)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            )
+    }
+}
+
+// MARK: - Squircle Convenience
+
+extension View {
+    /// Standard BraidMe squircle — continuous corner curve.
+    func bmSquircle(_ radius: CGFloat = Radius.card) -> some View {
+        clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+    }
+    
+    /// Squircle + dual-layer gold stroke, the couture panel treatment.
+    func bmCouturePanel(_ radius: CGFloat = Radius.card) -> some View {
+        self
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .dualLayerGlassStroke(cornerRadius: radius)
     }
 }

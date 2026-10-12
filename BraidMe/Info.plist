@@ -43,6 +43,8 @@
     <string>BraidMe needs access to your photos to set your profile picture.</string>
     <key>NSCameraUsageDescription</key>
     <string>BraidMe uses your camera to take profile photos.</string>
+    <key>NSMotionUsageDescription</key>
+    <string>BraidMe uses motion to subtly light-tilt elements as you move your device.</string>
     <key>NSApplePayMerchantID</key>
     <string>merchant.com.example.BraidMe</string>
     <key>CFBundleURLTypes</key>
