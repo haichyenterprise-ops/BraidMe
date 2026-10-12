@@ -4,11 +4,7 @@ import CoreHaptics
 import UIKit
 
 // =============================================================================
-// BraiderProfileView — "Haute Couture Dossier"
-//
-// Cinematic editorial profile. 3-layer parallax hero. Palette-tinted shadows.
-// Odometer metrics. 3D cover-flow portfolio with working magnifier lens.
-// 82pt scramble rating. Magnetic sheen CTA.
+// BraiderProfileView — Lag-free editorial profile.
 // =============================================================================
 
 struct BraiderProfileView: View {
@@ -20,33 +16,22 @@ struct BraiderProfileView: View {
     @StateObject private var motion = ProfileMotion()
     @StateObject private var haptics = ProfileHaptics()
 
-    // ─── Scroll tracking ───
-    @State private var scrollOffset: CGFloat = 0
-    @State private var heroHeight: CGFloat = 0
-
-    // ─── Data ───
     @State private var reviews: [Review] = []
     @State private var reviewsLoading = true
-
-    // ─── Palette ───
     @State private var ambientPalette: Color? = nil
 
-    // ─── Navigation ───
     @State private var showWriteReview = false
     @State private var showAllReviews = false
     @State private var showBooking = false
     @State private var showBookingForService: BraidService?
     @State private var selectedPortfolioItem: PortfolioItem?
 
-    // ─── Animation ───
     @State private var heroAppeared = false
     @State private var contentAppeared = false
     @State private var savedPulse = false
 
-    // ─── Portfolio carousel ───
     @State private var portfolioIndex: Int = 0
 
-    // ─── Gyro gate ───
     @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
 
     // ═══════════════════════════════════════════════════════════════
@@ -63,77 +48,27 @@ struct BraiderProfileView: View {
         reviews.isEmpty ? braider.reviewCount : reviews.count
     }
 
-    private var collapseProgress: CGFloat {
-        guard heroHeight > 0 else { return 0 }
-        let scrolled = -scrollOffset
-        let threshold = heroHeight * 0.55
-        return min(max(scrolled / threshold, 0), 1)
-    }
-
-    private var heroParallax: CGFloat {
-        guard heroHeight > 0 else { return 0 }
-        return (-scrollOffset) * 0.25
-    }
-
-    private var foregroundParallax: CGFloat {
-        guard heroHeight > 0 else { return 0 }
-        return (-scrollOffset) * 0.55
-    }
-
-    private var heroScale: CGFloat {
-        guard heroHeight > 0 else { return 1 }
-        if scrollOffset > 0 {
-            return 1 + (scrollOffset / heroHeight) * 0.4
-        }
-        return 1
-    }
-
     // ═══════════════════════════════════════════════════════════════
     // MARK: - Body
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Color.appBackground.ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    heroSection
-                        .frame(height: heroHeight > 0 ? heroHeight : 560)
-                        .background(
-                            GeometryReader { proxy in
-                                Color.clear.preference(
-                                    key: ProfileHeroHeightKey.self,
-                                    value: proxy.size.height
-                                )
-                            }
-                        )
-
-                    contentSections
-                        .background(Color.appBackground)
-                }
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                hero
+                contentSections
+                    .background(Color.appBackground)
             }
-            .coordinateSpace(name: "profile-scroll")
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: ProfileScrollOffsetKey.self,
-                        value: proxy.frame(in: .named("profile-scroll")).minY
-                    )
-                }
-            )
-            .onPreferenceChange(ProfileScrollOffsetKey.self) { scrollOffset = $0 }
-            .onPreferenceChange(ProfileHeroHeightKey.self) { heroHeight = $0 }
-            .ignoresSafeArea(edges: .top)
-
-            compactHeader
-            floatingTopControls
-                .opacity(1 - min(collapseProgress * 2.5, 1))
         }
+        .coordinateSpace(name: "profile-scroll")
+        .background(Color.appBackground)
+        .ignoresSafeArea(edges: .top)
         .toolbar(.hidden, for: .navigationBar)
+        .overlay(alignment: .top) {
+            topControls
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             bookingDock
         }
-        .environment(\.ambientPalette, ambientPalette)
         .sheet(isPresented: $showWriteReview) {
             WriteReviewSheet(braider: braider) {
                 Task { await loadReviews() }
@@ -164,15 +99,9 @@ struct BraiderProfileView: View {
         .task {
             await loadReviews()
             haptics.prepare()
-            if gyroTiltEnabled {
-                motion.start()
-            }
-            withAnimation(.spring(response: 1.0, dampingFraction: 0.78).delay(0.1)) {
-                heroAppeared = true
-            }
-            withAnimation(.spring(response: 0.9, dampingFraction: 0.82).delay(0.4)) {
-                contentAppeared = true
-            }
+            if gyroTiltEnabled { motion.start() }
+            withAnimation(.spring(response: 0.9, dampingFraction: 0.82)) { heroAppeared = true }
+            withAnimation(.spring(response: 0.9, dampingFraction: 0.85).delay(0.15)) { contentAppeared = true }
         }
         .onDisappear {
             motion.stop()
@@ -180,25 +109,24 @@ struct BraiderProfileView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Hero Section
+    // MARK: - Hero
 
-    private var heroSection: some View {
-        GeometryReader { geo in
+    private var hero: some View {
+        GeometryReader { geo in            let minY = geo.frame(in: .named("profile-scroll")).minY
+            let stretch = max(0, minY)
+            let parallax = minY * 0.4
+
             ZStack(alignment: .bottom) {
                 Group {
                     if !braider.coverUrl.isEmpty {
                         RemoteImage(url: braider.coverUrl, onPaletteReady: { color in
-                            withAnimation(.easeIn(duration: 0.6)) {
-                                ambientPalette = Color(uiColor: color)
-                            }
+                            ambientPalette = Color(uiColor: color)
                         })
                         .frame(width: geo.size.width, height: geo.size.height + 120)
                         .clipped()
                     } else if let first = braider.portfolio.first {
                         RemoteImage(url: first.imageUrl, onPaletteReady: { color in
-                            withAnimation(.easeIn(duration: 0.6)) {
-                                ambientPalette = Color(uiColor: color)
-                            }
+                            ambientPalette = Color(uiColor: color)
                         })
                         .frame(width: geo.size.width, height: geo.size.height + 120)
                         .clipped()
@@ -211,11 +139,11 @@ struct BraiderProfileView: View {
                         .frame(width: geo.size.width, height: geo.size.height + 120)
                     }
                 }
-                .offset(y: heroParallax)
-                .scaleEffect(heroScale, anchor: .top)
-                .frame(width: geo.size.width, height: geo.size.height)
+                .offset(y: -parallax)
+                .frame(width: geo.size.width, height: geo.size.height + stretch)
                 .clipped()
 
+                // Gradient veil
                 LinearGradient(
                     stops: [
                         .init(color: .black.opacity(0.55), location: 0.00),
@@ -227,32 +155,13 @@ struct BraiderProfileView: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(width: geo.size.width, height: geo.size.height)
-
-                NoiseTexture(opacity: 0.03, seed: 152)
-                    .blendMode(.overlay)
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .allowsHitTesting(false)
 
                 heroContent
                     .padding(.horizontal, 24)
                     .padding(.bottom, 40)
-                    .offset(y: foregroundParallax)
-                    .opacity(1 - min(collapseProgress * 1.8, 1))
-                    .rotation3DEffect(
-                        .degrees(gyroTiltEnabled ? motion.tiltX : 0),
-                        axis: (x: 1, y: 0, z: 0),
-                        perspective: 0.4
-                    )
-                    .rotation3DEffect(
-                        .degrees(gyroTiltEnabled ? motion.tiltY : 0),
-                        axis: (x: 0, y: 1, z: 0),
-                        perspective: 0.4
-                    )
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .clipped()
         }
+        .frame(height: 560)
     }
 
     private var heroContent: some View {
@@ -268,7 +177,7 @@ struct BraiderProfileView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(Color.goldLight)
                     }
-                    Text(heroEyebrowText)
+                    Text(braider.verified ? "VERIFIED ARTIST" : "INDEPENDENT BRAIDER")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(3)
                         .foregroundStyle(.white.opacity(0.92))
@@ -318,10 +227,6 @@ struct BraiderProfileView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var heroEyebrowText: String {
-        braider.verified ? "VERIFIED ARTIST" : "INDEPENDENT BRAIDER"
-    }
-
     private func metaPill(icon: String, text: String, accent: Bool = false) -> some View {
         HStack(spacing: 5) {
             Image(systemName: icon)
@@ -338,9 +243,9 @@ struct BraiderProfileView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Floating Top Controls
+    // MARK: - Top controls
 
-    private var floatingTopControls: some View {
+    private var topControls: some View {
         HStack {
             glassButton(icon: "chevron.left", tint: .white) {
                 Haptic.press()
@@ -396,183 +301,32 @@ struct BraiderProfileView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Compact Sticky Header
-
-    private var compactHeader: some View {
-        HStack(spacing: 12) {
-            smallGlassButton(icon: "chevron.left") {
-                Haptic.press()
-                haptics.play(.dismiss)
-                dismiss()
-            }
-
-            HStack(spacing: 10) {
-                if braider.avatarUrl.isEmpty {
-                    Circle()
-                        .fill(Color.gold.opacity(0.18))
-                        .frame(width: 34, height: 34)
-                        .overlay(
-                            Text(braider.initials)
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(Color.gold)
-                        )
-                } else {
-                    RemoteImage(url: braider.avatarUrl)
-                        .frame(width: 34, height: 34)
-                        .clipShape(Circle())
-                }
-
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 5) {
-                        Text(braider.name)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.appInk)
-                            .lineLimit(1)
-                        if braider.verified {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(Color.gold)
-                        }
-                    }
-                    HStack(spacing: 4) {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 8))
-                            .foregroundStyle(Color.gold)
-                        Text(ratingText)
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Color.appInk)
-                        Text("·")
-                            .foregroundStyle(Color.appSmoke)
-                        Text("\(ratingCount) reviews")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Color.appAsh)
-                    }
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().stroke(Color.appDivider.opacity(0.5), lineWidth: 0.5))
-            .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
-
-            Spacer()
-
-            smallGlassButton(
-                icon: isSaved ? "heart.fill" : "heart",
-                tint: isSaved ? Color.appAlert : Color.appInk
-            ) {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
-                    savedPulse = true
-                }
-                Haptic.press()
-                haptics.play(.select)
-                Task {
-                    guard !session.uid.isEmpty else { return }
-                    await fb.toggleSave(braiderId: braider.id, uid: session.uid)
-                    Haptic.success()
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
-                        savedPulse = false
-                    }
-                }
-            }
-            .scaleEffect(savedPulse ? 1.2 : 1)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 58)
-        .padding(.bottom, 12)
-        .background(
-            Group {
-                if collapseProgress > 0.4 {
-                    ZStack {
-                        Color.appBackground
-                            .opacity(collapseProgress)
-                            .ignoresSafeArea(edges: .top)
-
-                        VStack {
-                            Spacer()
-                            Rectangle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.clear,
-                                            Color.gold.opacity(0.35),
-                                            Color.clear
-                                        ],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .frame(height: 0.8)
-                                .opacity((collapseProgress - 0.4) / 0.6)
-                        }
-                    }
-                }
-            }
-        )
-        .opacity(collapseProgress > 0.4 ? min((collapseProgress - 0.4) / 0.5, 1) : 0)
-        .animation(.smooth(duration: 0.25), value: collapseProgress)
-    }
-
-    private func smallGlassButton(icon: String, tint: Color = .appInk, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 40, height: 40)
-                .background(.regularMaterial, in: Circle())
-                .overlay(Circle().stroke(Color.appDivider.opacity(0.6), lineWidth: 0.5))
-        }
-        .buttonStyle(BMIconPressStyle())
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Content Sections
+    // MARK: - Content
 
     private var contentSections: some View {
         VStack(spacing: 0) {
             metricsCard
             bioSection
             specialtiesMarquee
-            portfolioGallery
-            servicesList
-            reviewsEditorial
-            footer
+            portfolioSection
+            servicesSection
+            reviewsSection
+            footerSection
         }
         .padding(.bottom, 110)
     }
 
-    // ─── Metrics Card ───
+    // ─── Metrics ───
 
     private var metricsCard: some View {
         HStack(spacing: 0) {
-            ProfileMetricCell(
-                value: ratingText,
-                label: "Rating",
-                icon: "star.fill",
-                appeared: contentAppeared,
-                delay: 0.0
-            )
+            metricCell(value: ratingText, label: "Rating", icon: "star.fill")
             metricDivider
-            ProfileMetricCell(
-                value: "\(braider.yearsExperience)",
-                label: "Years",
-                appeared: contentAppeared,
-                delay: 0.05
-            )
+            metricCell(value: "\(braider.yearsExperience)", label: "Years")
             metricDivider
-            ProfileMetricCell(
-                value: "\(ratingCount)",
-                label: "Reviews",
-                appeared: contentAppeared,
-                delay: 0.1
-            )
+            metricCell(value: "\(ratingCount)", label: "Reviews")
             metricDivider
-            ProfileMetricCell(
-                value: "£\(braider.priceFrom)",
-                label: "From",
-                appeared: contentAppeared,
-                delay: 0.15
-            )
+            metricCell(value: "£\(braider.priceFrom)", label: "From")
         }
         .padding(.vertical, 24)
         .background {
@@ -594,13 +348,34 @@ struct BraiderProfileView: View {
                         )
                 )
                 .shadow(color: Color.black.opacity(0.10), radius: 28, y: 14)
-                .shadow(color: (ambientPalette ?? Color.black).opacity(0.10), radius: 40, y: 8)
+                .shadow(color: (ambientPalette ?? Color.black).opacity(0.08), radius: 40, y: 8)
         }
         .padding(.horizontal, 24)
         .offset(y: -70)
         .padding(.bottom, -70)
         .opacity(contentAppeared ? 1 : 0)
         .scaleEffect(contentAppeared ? 1 : 0.94)
+    }
+
+    private func metricCell(value: String, label: String, icon: String? = nil) -> some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 4) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.gold)
+                }
+                Text(value)
+                    .font(.system(size: 22, weight: .medium, design: .serif))
+                    .foregroundStyle(Color.appInk)
+                    .contentTransition(.numericText(countsDown: false))
+            }
+            Text(label.uppercased())
+                .font(.system(size: 8, weight: .bold))
+                .tracking(1.5)
+                .foregroundStyle(Color.appAsh)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private var metricDivider: some View {
@@ -625,15 +400,7 @@ struct BraiderProfileView: View {
         Group {
             if !braider.bio.isEmpty {
                 VStack(alignment: .leading, spacing: 16) {
-                    HStack(spacing: 10) {
-                        Rectangle()
-                            .fill(Color.gold)
-                            .frame(width: 24, height: 1.5)
-                        Text("THE ARTIST")
-                            .font(.system(size: 10, weight: .bold))
-                            .tracking(3)
-                            .foregroundStyle(Color.appAsh)
-                    }
+                    sectionEyebrow("THE ARTIST")
 
                     HStack(alignment: .top, spacing: 16) {
                         Rectangle()
@@ -657,55 +424,32 @@ struct BraiderProfileView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 24)
                 .padding(.top, 34)
-                .opacity(contentAppeared ? 1 : 0)
-                .offset(y: contentAppeared ? 0 : 20)
             }
         }
     }
 
-    // ─── Specialties Marquee ───
+    // ─── Specialties marquee ───
 
     private var specialtiesMarquee: some View {
         Group {
             if !braider.specialties.isEmpty {
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 10) {
-                        Rectangle()
-                            .fill(Color.gold)
-                            .frame(width: 24, height: 1.5)
-                        Text("SIGNATURES")
-                            .font(.system(size: 10, weight: .bold))
-                            .tracking(3)
-                            .foregroundStyle(Color.appAsh)
-                    }
-                    .padding(.horizontal, 24)
+                    sectionEyebrow("SIGNATURES")
+                        .padding(.horizontal, 24)
 
-                    MarqueeView(
-                        items: braider.specialties,
-                        spacing: 10
-                    )
+                    MarqueeView(items: braider.specialties, spacing: 10)
                 }
                 .padding(.top, 30)
-                .opacity(contentAppeared ? 1 : 0)
-                .offset(y: contentAppeared ? 0 : 20)
             }
         }
     }
 
-    // ─── Portfolio Gallery ───
+    // ─── Portfolio ───
 
-    private var portfolioGallery: some View {
+    private var portfolioSection: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Rectangle()
-                        .fill(Color.gold)
-                        .frame(width: 24, height: 1.5)
-                    Text("SELECTED WORK")
-                        .font(.system(size: 10, weight: .bold))
-                        .tracking(3)
-                        .foregroundStyle(Color.appAsh)
-                }
+                sectionEyebrow("SELECTED WORK")
                 Text("The portfolio")
                     .font(.system(size: 34, weight: .regular, design: .serif))
                     .tracking(-0.8)
@@ -714,18 +458,32 @@ struct BraiderProfileView: View {
             .padding(.horizontal, 24)
 
             if braider.portfolio.isEmpty {
-                portfolioEmpty
-                    .padding(.horizontal, 24)
-            } else {
-                PortfolioCoverFlow(
-                    items: braider.portfolio,
-                    selectedIndex: $portfolioIndex,
-                    onSelect: { item in
-                        Haptic.select()
-                        haptics.play(.select)
-                        selectedPortfolioItem = item
-                    }
+                emptyCard(
+                    icon: "camera",
+                    title: "Portfolio coming soon",
+                    message: "New styles from \(braider.firstName) will appear here."
                 )
+                .padding(.horizontal, 24)
+            } else {
+                // Simple horizontal scroll — cards freely swipeable
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 16) {
+                        ForEach(Array(braider.portfolio.enumerated()), id: \.element.id) { index, item in
+                            PortfolioCardView(
+                                item: item,
+                                index: index,
+                                onTap: {
+                                    Haptic.select()
+                                    haptics.play(.select)
+                                    selectedPortfolioItem = item
+                                }
+                            )
+                        }
+                    }
+                    .scrollTargetLayout()
+                    .padding(.horizontal, 40)
+                }
+                .scrollTargetBehavior(.viewAligned)
             }
         }
         .padding(.top, 40)
@@ -734,44 +492,12 @@ struct BraiderProfileView: View {
         }
     }
 
-    private var portfolioEmpty: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.gold.opacity(0.12))
-                    .frame(width: 48, height: 48)
-                Image(systemName: "camera")
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(Color.gold)
-            }
-            Text("Portfolio coming soon")
-                .font(.system(size: 20, weight: .regular, design: .serif))
-                .foregroundStyle(Color.appInk)
-            Text("New styles from \(braider.firstName) will appear here.")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.appAsh)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(24)
-        .background(Color.appSurface)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
-        .dualLayerGlassStroke(cornerRadius: Radius.squircle)
-    }
-
     // ─── Services ───
 
-    private var servicesList: some View {
+    private var servicesSection: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Rectangle()
-                        .fill(Color.gold)
-                        .frame(width: 24, height: 1.5)
-                    Text("CRAFTED SESSIONS")
-                        .font(.system(size: 10, weight: .bold))
-                        .tracking(3)
-                        .foregroundStyle(Color.appAsh)
-                }
+                sectionEyebrow("CRAFTED SESSIONS")
                 Text("Services")
                     .font(.system(size: 34, weight: .regular, design: .serif))
                     .tracking(-0.8)
@@ -780,12 +506,16 @@ struct BraiderProfileView: View {
             .padding(.horizontal, 24)
 
             if braider.services.isEmpty {
-                servicesEmpty
-                    .padding(.horizontal, 24)
+                emptyCard(
+                    icon: "calendar",
+                    title: "Services coming soon",
+                    message: "Check back soon for available styles and appointments."
+                )
+                .padding(.horizontal, 24)
             } else {
                 VStack(spacing: 14) {
                     ForEach(braider.services) { service in
-                        ServiceCoutureCard(service: service) {
+                        ServiceRowCard(service: service) {
                             Haptic.press()
                             haptics.play(.select)
                             showBookingForService = service
@@ -798,46 +528,13 @@ struct BraiderProfileView: View {
         .padding(.top, 44)
     }
 
-    private var servicesEmpty: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.gold.opacity(0.12))
-                    .frame(width: 48, height: 48)
-                Image(systemName: "calendar")
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(Color.gold)
-            }
-            Text("Services coming soon")
-                .font(.system(size: 20, weight: .regular, design: .serif))
-                .foregroundStyle(Color.appInk)
-            Text("Check back soon for available styles and appointments.")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.appAsh)
-                .lineSpacing(4)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(24)
-        .background(Color.appSurface)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
-        .dualLayerGlassStroke(cornerRadius: Radius.squircle)
-    }
-
     // ─── Reviews ───
 
-    private var reviewsEditorial: some View {
+    private var reviewsSection: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        Rectangle()
-                            .fill(Color.gold)
-                            .frame(width: 24, height: 1.5)
-                        Text("THE RECORD")
-                            .font(.system(size: 10, weight: .bold))
-                            .tracking(3)
-                            .foregroundStyle(Color.appAsh)
-                    }
+                    sectionEyebrow("THE RECORD")
                     Text("Kind words")
                         .font(.system(size: 34, weight: .regular, design: .serif))
                         .tracking(-0.8)
@@ -868,14 +565,17 @@ struct BraiderProfileView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 40)
             } else if reviews.isEmpty {
-                reviewsEmpty
-                    .padding(.horizontal, 24)
+                emptyCard(
+                    icon: "quote.opening",
+                    title: "The first word is yours",
+                    message: "There are no reviews yet. Book an appointment and share your experience."
+                )
+                .padding(.horizontal, 24)
             } else {
-                GiantRatingBlock(
+                RatingSummaryBlock(
                     ratingText: ratingText,
                     reviewCount: reviews.count,
-                    breakdown: RatingBreakdown.from(reviews),
-                    appeared: contentAppeared
+                    breakdown: RatingBreakdown.from(reviews)
                 )
                 .padding(.horizontal, 24)
 
@@ -886,17 +586,7 @@ struct BraiderProfileView: View {
 
                         if index < min(reviews.count, 3) - 1 {
                             Rectangle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.gold.opacity(0),
-                                            Color.gold.opacity(0.25),
-                                            Color.gold.opacity(0)
-                                        ],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
+                                .fill(Color.appDivider)
                                 .frame(height: 0.5)
                                 .padding(.horizontal, 24)
                         }
@@ -951,34 +641,7 @@ struct BraiderProfileView: View {
         .padding(.top, 44)
     }
 
-    private var reviewsEmpty: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.gold.opacity(0.12))
-                    .frame(width: 48, height: 48)
-                Image(systemName: "quote.opening")
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(Color.gold)
-            }
-            Text("The first word is yours")
-                .font(.system(size: 20, weight: .regular, design: .serif))
-                .foregroundStyle(Color.appInk)
-            Text("There are no reviews yet. Book an appointment and share your experience.")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.appAsh)
-                .lineSpacing(4)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(24)
-        .background(Color.appSurface)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
-        .dualLayerGlassStroke(cornerRadius: Radius.squircle)
-    }
-
-    // ─── Footer ───
-
-    private var footer: some View {
+    private var footerSection: some View {
         VStack(spacing: 8) {
             Text("BRAIDME")
                 .font(.system(size: 10, weight: .bold))
@@ -995,7 +658,47 @@ struct BraiderProfileView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Booking Dock
+    // MARK: - Helpers
+
+    private func sectionEyebrow(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Rectangle()
+                .fill(Color.gold)
+                .frame(width: 24, height: 1.5)
+            Text(text)
+                .font(.system(size: 10, weight: .bold))
+                .tracking(3)
+                .foregroundStyle(Color.appAsh)
+        }
+    }
+
+    private func emptyCard(icon: String, title: String, message: String) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.gold.opacity(0.12))
+                    .frame(width: 48, height: 48)
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .light))
+                    .foregroundStyle(Color.gold)
+            }
+            Text(title)
+                .font(.system(size: 20, weight: .regular, design: .serif))
+                .foregroundStyle(Color.appInk)
+            Text(message)
+                .font(.system(size: 14))
+                .foregroundStyle(Color.appAsh)
+                .lineSpacing(4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(24)
+        .background(Color.appSurface)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
+        .dualLayerGlassStroke(cornerRadius: Radius.squircle)
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Booking dock
 
     private var bookingDock: some View {
         HStack(spacing: 16) {
@@ -1011,15 +714,41 @@ struct BraiderProfileView: View {
             }
             Spacer()
 
-            MagneticSheenCTA(
-                title: "Book now",
-                ambientPalette: ambientPalette,
-                onTap: {
-                    Haptic.press()
-                    haptics.play(.pinExpand)
-                    showBooking = true
+            Button {
+                Haptic.press()
+                haptics.play(.pinExpand)
+                showBooking = true
+            } label: {
+                HStack(spacing: 10) {
+                    Text("Book now")
+                        .font(.system(size: 14, weight: .semibold))
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 12, weight: .bold))
                 }
-            )
+                .foregroundStyle(Color.goldLight)
+                .padding(.horizontal, 24)
+                .frame(height: 56)
+                .background(Color.appInk)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Color.goldLight.opacity(0.6),
+                                    Color.gold.opacity(0.3),
+                                    Color.goldDeep.opacity(0.5)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: Color.appInk.opacity(0.25), radius: 16, y: 8)
+                .shadow(color: (ambientPalette ?? Color.gold).opacity(0.2), radius: 20, y: 6)
+            }
+            .buttonStyle(BMSquirclePressStyle())
         }
         .padding(.horizontal, 24)
         .padding(.top, 14)
@@ -1027,13 +756,6 @@ struct BraiderProfileView: View {
         .background {
             ZStack {
                 Rectangle().fill(.regularMaterial)
-
-                LinearGradient(
-                    colors: [Color.clear, Color.gold.opacity(0.04)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-
                 VStack {
                     Rectangle()
                         .fill(
@@ -1069,365 +791,103 @@ struct BraiderProfileView: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Preference Keys
+// MARK: - Portfolio Card (working swipe + magnifier)
 // ═══════════════════════════════════════════════════════════════════
 
-struct ProfileScrollOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-struct ProfileHeroHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Metric Cell
-// ═══════════════════════════════════════════════════════════════════
-
-struct ProfileMetricCell: View {
-    let value: String
-    let label: String
-    var icon: String? = nil
-    let appeared: Bool
-    let delay: Double
-
-    @State private var displayValue: String = "0"
-
-    var body: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 4) {
-                if let icon {
-                    Image(systemName: icon)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.gold)
-                }
-                Text(displayValue)
-                    .font(.system(size: 22, weight: .medium, design: .serif))
-                    .foregroundStyle(Color.appInk)
-                    .contentTransition(.numericText(countsDown: false))
-            }
-            Text(label.uppercased())
-                .font(.system(size: 8, weight: .bold))
-                .tracking(1.5)
-                .foregroundStyle(Color.appAsh)
-        }
-        .frame(maxWidth: .infinity)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 + delay) {
-                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                    displayValue = value
-                }
-            }
-        }
-        .onChange(of: value) { _, new in
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                displayValue = new
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Marquee View
-// ═══════════════════════════════════════════════════════════════════
-
-struct MarqueeView: View {
-    let items: [String]
-    let spacing: CGFloat
-
-    @State private var offset: CGFloat = 0
-    @State private var contentWidth: CGFloat = 0
-    @State private var isPaused = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        GeometryReader { _ in
-            HStack(spacing: spacing) {
-                ForEach(0..<2, id: \.self) { _ in
-                    HStack(spacing: spacing) {
-                        ForEach(items, id: \.self) { item in
-                            chipView(item)
-                        }
-                    }
-                    .background(
-                        GeometryReader { inner in
-                            Color.clear.preference(
-                                key: MarqueeWidthKey.self,
-                                value: inner.size.width
-                            )
-                        }
-                    )
-                }
-            }
-            .offset(x: offset)
-            .onPreferenceChange(MarqueeWidthKey.self) { width in
-                contentWidth = width
-            }
-            .onAppear {
-                guard !reduceMotion else { return }
-                startMarquee()
-            }
-        }
-        .frame(height: 40)
-        .clipped()
-    }
-
-    private func chipView(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 13, weight: .medium, design: .serif))
-            .foregroundStyle(Color.appInk)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(Color.appSurface, in: Capsule())
-            .overlay(Capsule().stroke(Color.appDivider, lineWidth: 0.8))
-            .onTapGesture {
-                isPaused.toggle()
-                Haptic.select()
-            }
-    }
-
-    private func startMarquee() {
-        guard contentWidth > 0 else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                startMarquee()
-            }
-            return
-        }
-        let totalWidth = contentWidth / 2 + spacing
-        let duration = Double(totalWidth) / 40.0
-        offset = 0
-        withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
-            offset = -totalWidth
-        }
-    }
-}
-
-private struct MarqueeWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Portfolio Cover Flow (FIXED — uses GeometryReader-based math)
-// ═══════════════════════════════════════════════════════════════════
-
-struct PortfolioCoverFlow: View {
-    let items: [PortfolioItem]
-    @Binding var selectedIndex: Int
-    let onSelect: (PortfolioItem) -> Void
-
-    @State private var scrollID: Int? = 0
-
-    private let cardWidth: CGFloat = 260
-    private let cardHeight: CGFloat = 340
-    private let spacing: CGFloat = 20
-    private let horizontalPadding: CGFloat = 60
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(spacing: spacing) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    GeometryReader { proxy in
-                        let minX = proxy.frame(in: .global).minX
-                        let distance = abs(minX - screenMidX())
-
-                        PortfolioCoverCard(
-                            item: item,
-                            index: index,
-                            isCentered: scrollID == index,
-                            distance: distance,
-                            onTap: { onSelect(item) }
-                        )
-                        .frame(width: cardWidth, height: cardHeight + 70)
-                    }
-                    .frame(width: cardWidth, height: cardHeight + 70)
-                    .id(index)
-                }
-            }
-            .scrollTargetLayout()
-            .padding(.horizontal, horizontalPadding)
-        }
-        .scrollTargetBehavior(.viewAligned)
-        .scrollPosition(id: $scrollID)
-        .onChange(of: scrollID) { _, newValue in
-            if let newValue = newValue {
-                Haptic.light()
-                selectedIndex = newValue
-            }
-        }
-    }
-
-    private func screenMidX() -> CGFloat {
-        let screenWidth = UIScreen.main.bounds.width
-        return screenWidth / 2
-    }
-}
-
-struct PortfolioCoverCard: View {
+struct PortfolioCardView: View {
     let item: PortfolioItem
     let index: Int
-    let isCentered: Bool
-    let distance: CGFloat
     let onTap: () -> Void
 
     @State private var magnifierActive = false
-    @State private var magnifierLocation: CGPoint = .zero
+    @State private var magnifierLocation: CGPoint = CGPoint(x: 130, y: 170)
 
-    // 3D transforms based on distance from center
-    private var scale: CGFloat {
-        let d = min(distance / 400, 1)
-        return isCentered ? 1 : max(0.85, 1 - d * 0.15)
-    }
-
-    private var opacity: Double {
-        isCentered ? 1 : max(0.5, 1 - (distance / 500))
-    }
-
-    private var rotation: Double {
-        guard !isCentered else { return 0 }
-        let maxRotation: Double = 14
-        return distance / 500 * maxRotation
-    }
+    private let cardWidth: CGFloat = 260
+    private let cardHeight: CGFloat = 340
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ZStack(alignment: .topLeading) {
-                // Base image
-                RemoteImage(url: item.imageUrl)
-                    .frame(width: 260, height: 340)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                // Gradient overlay
-                LinearGradient(
-                    colors: [.clear, .clear, .black.opacity(0.6)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+        ZStack(alignment: .topLeading) {
+            // ─── Image ───
+            RemoteImage(url: item.imageUrl)
+                .frame(width: cardWidth, height: cardHeight)
+                .clipped()
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+            // ─── Gradient overlay ───
+            LinearGradient(
+                colors: [.clear, .clear, .black.opacity(0.6)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .allowsHitTesting(false)
+
+            // ─── Index ───
+            Text(String(format: "%02d", index + 1))
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.6), radius: 4, y: 1)
+                .padding(16)
                 .allowsHitTesting(false)
 
-                // Holographic index
-                Text(String(format: "%02d", index + 1))
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.6), radius: 4, y: 1)
-                    .padding(16)
+            // ─── Gold border ───
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.goldLight.opacity(0.7),
+                            Color.gold.opacity(0.2),
+                            Color.goldDeep.opacity(0.55)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+                .allowsHitTesting(false)
 
-                // Magnifier lens overlay
-                if magnifierActive {
-                    MagnifierLens(
-                        imageUrl: item.imageUrl,
-                        location: magnifierLocation,
-                        cardSize: CGSize(width: 260, height: 340),
-                        size: 140
-                    )
-                    .allowsHitTesting(false)
-                    .transition(.scale.combined(with: .opacity))
-                }
-
-                // Gold border when centered
-                if isCentered {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color.goldLight.opacity(0.9),
-                                    Color.gold.opacity(0.3),
-                                    Color.goldDeep.opacity(0.7)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1.5
-                        )
-                        .allowsHitTesting(false)
-                }
+            // ─── Magnifier lens ───
+            if magnifierActive {
+                MagnifierLens(
+                    imageUrl: item.imageUrl,
+                    location: magnifierLocation,
+                    cardSize: CGSize(width: cardWidth, height: cardHeight),
+                    size: 140
+                )
+                .allowsHitTesting(false)
             }
-            .frame(width: 260, height: 340)
-            .overlay(
-                // Gesture capture layer
-                Color.clear
-                    .contentShape(Rectangle())
-                    .gesture(
-                        LongPressGesture(minimumDuration: 0.3)
-                            .sequenced(before: DragGesture(minimumDistance: 0))
-                            .onChanged { value in
-                                switch value {
-                                case .first(true):
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                        magnifierActive = true
-                                    }
-                                    Haptic.medium()
-                                case .second(true, let drag):
-                                    if let drag = drag {
-                                        magnifierLocation = drag.location
-                                    }
-                                default:
-                                    break
-                                }
-                            }
-                            .onEnded { _ in
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    magnifierActive = false
-                                }
-                            }
-                    )
-                    .onTapGesture {
-                        onTap()
-                    }
-            )
-
-            // Meta
-            VStack(alignment: .leading, spacing: 5) {
-                if !item.tag.isEmpty {
-                    Text(item.tag.uppercased())
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(1.5)
-                        .foregroundStyle(Color.gold)
-                }
-                if !item.caption.isEmpty {
-                    Text(item.caption)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color.appInk)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                }
-            }
-            .frame(width: 260, alignment: .leading)
         }
-        .scaleEffect(scale)
-        .opacity(opacity)
-        .rotation3DEffect(
-            .degrees(rotation),
-            axis: (x: 0, y: 1, z: 0),
-            anchor: .center,
-            perspective: 0.6
+        .frame(width: cardWidth, height: cardHeight)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
+        .onLongPressGesture(minimumDuration: 0.25, pressing: { pressing in
+            if pressing {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    magnifierActive = true
+                }
+                Haptic.medium()
+            } else {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    magnifierActive = false
+                }
+            }
+        }, perform: {})
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    if magnifierActive {
+                        magnifierLocation = value.location
+                    }
+                }
         )
-        .shadow(
-            color: isCentered ? Color.gold.opacity(0.35) : Color.black.opacity(0.12),
-            radius: isCentered ? 28 : 12,
-            y: isCentered ? 14 : 6
-        )
-        .animation(.spring(response: 0.55, dampingFraction: 0.78), value: isCentered)
-        .animation(.spring(response: 0.55, dampingFraction: 0.78), value: distance)
+        .shadow(color: Color.black.opacity(0.15), radius: 20, y: 10)
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Magnifier Lens (FIXED)
-// ═══════════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Magnifier Lens (FIXED)
+// MARK: - Magnifier Lens
 // ═══════════════════════════════════════════════════════════════════
 
 struct MagnifierLens: View {
@@ -1479,14 +939,12 @@ struct MagnifierLens: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Service Couture Card
+// MARK: - Service Row Card
 // ═══════════════════════════════════════════════════════════════════
 
-struct ServiceCoutureCard: View {
+struct ServiceRowCard: View {
     let service: BraidService
     let onTap: () -> Void
-
-    @State private var sheen: CGFloat = -1
 
     var body: some View {
         Button(action: onTap) {
@@ -1519,49 +977,29 @@ struct ServiceCoutureCard: View {
                     )
 
                     if service.popular {
-                        ZStack {
-                            Text("SIGNATURE")
-                                .font(.system(size: 9, weight: .bold))
-                                .tracking(2)
-                                .foregroundStyle(Color.goldInk)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(
-                                    LinearGradient(
-                                        colors: [Color.goldLight, Color.gold],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    ),
-                                    in: Capsule()
-                                )
-                                .overlay(Capsule().stroke(.white.opacity(0.3), lineWidth: 0.5))
-
-                            Capsule()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [.clear, .white.opacity(0.6), .clear],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .frame(width: 40, height: 22)
-                                .offset(x: sheen * 60)
-                                .blendMode(.overlay)
-                                .clipShape(Capsule())
-                                .allowsHitTesting(false)
-                        }
-                        .padding(12)
+                        Text("SIGNATURE")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(2)
+                            .foregroundStyle(Color.goldInk)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                LinearGradient(
+                                    colors: [Color.goldLight, Color.gold],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                ),
+                                in: Capsule()
+                            )
+                            .overlay(Capsule().stroke(.white.opacity(0.3), lineWidth: 0.5))
+                            .padding(12)
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
                         Spacer()
-
                         Text(service.name)
                             .font(.system(size: 22, weight: .medium, design: .serif))
-                            .tracking(-0.3)
                             .foregroundStyle(.white)
-                            .multilineTextAlignment(.leading)
-
                         HStack(spacing: 12) {
                             HStack(spacing: 4) {
                                 Image(systemName: "clock")
@@ -1571,8 +1009,7 @@ struct ServiceCoutureCard: View {
                             }
                             .foregroundStyle(.white.opacity(0.85))
 
-                            Text("·")
-                                .foregroundStyle(.white.opacity(0.5))
+                            Text("·").foregroundStyle(.white.opacity(0.5))
 
                             Text("£\(service.priceFrom)")
                                 .font(.system(size: 14, weight: .semibold, design: .monospaced))
@@ -1634,43 +1071,29 @@ struct ServiceCoutureCard: View {
             .shadow(color: Color.black.opacity(0.08), radius: 18, y: 8)
         }
         .buttonStyle(BMSquirclePressStyle())
-        .onAppear {
-            withAnimation(
-                .linear(duration: 2.5)
-                .repeatForever(autoreverses: false)
-                .delay(2)
-            ) {
-                sheen = 1
-            }
-        }
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Giant Rating Block
+// MARK: - Rating Summary
 // ═══════════════════════════════════════════════════════════════════
 
-struct GiantRatingBlock: View {
+struct RatingSummaryBlock: View {
     let ratingText: String
     let reviewCount: Int
     let breakdown: RatingBreakdown
-    let appeared: Bool
 
-    @State private var scrambleDisplay: String = "0.0"
-    @State private var scrambleTimer: Timer?
-    @State private var scrambleCount = 0
     @State private var barAppeared = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 26) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(scrambleDisplay)
-                    .font(.system(size: 82, weight: .regular, design: .serif))
-                    .tracking(-4)
+                Text(ratingText)
+                    .font(.system(size: 72, weight: .regular, design: .serif))
+                    .tracking(-3)
                     .foregroundStyle(Color.appInk)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                    .contentTransition(.numericText(countsDown: false))
 
                 HStack(spacing: 3) {
                     ForEach(0..<5, id: \.self) { i in
@@ -1685,7 +1108,7 @@ struct GiantRatingBlock: View {
                     .foregroundStyle(Color.appAsh)
                     .padding(.top, 4)
             }
-            .frame(width: 160, alignment: .leading)
+            .frame(width: 150, alignment: .leading)
 
             Rectangle()
                 .fill(
@@ -1712,7 +1135,6 @@ struct GiantRatingBlock: View {
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
                                 Capsule().fill(Color.appDivider)
-
                                 Capsule()
                                     .fill(
                                         LinearGradient(
@@ -1741,43 +1163,10 @@ struct GiantRatingBlock: View {
         .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
         .dualLayerGlassStroke(cornerRadius: Radius.squircle)
         .shadow(color: Color.black.opacity(0.06), radius: 24, y: 12)
-        .onAppear { startScramble() }
-        .onDisappear { scrambleTimer?.invalidate() }
-    }
-
-    private func startScramble() {
-        guard appeared else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                startScramble()
+        .onAppear {
+            withAnimation(.spring(response: 0.9, dampingFraction: 0.85).delay(0.2)) {
+                barAppeared = true
             }
-            return
-        }
-
-        let target = ratingText
-        let digits = Array(target)
-        scrambleCount = 0
-
-        scrambleTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { timer in
-            scrambleCount += 1
-
-            if scrambleCount >= 10 {
-                timer.invalidate()
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
-                    scrambleDisplay = target
-                    barAppeared = true
-                }
-                return
-            }
-
-            var scrambled = ""
-            for char in digits {
-                if char.isNumber {
-                    scrambled.append(String(Int.random(in: 0...9)))
-                } else {
-                    scrambled.append(char)
-                }
-            }
-            scrambleDisplay = scrambled
         }
     }
 }
@@ -1856,115 +1245,77 @@ struct EditorialReviewCard: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Magnetic Sheen CTA
+// MARK: - Marquee
 // ═══════════════════════════════════════════════════════════════════
 
-struct MagneticSheenCTA: View {
-    let title: String
-    let ambientPalette: Color?
-    let onTap: () -> Void
+struct MarqueeView: View {
+    let items: [String]
+    let spacing: CGFloat
 
-    @State private var magneticOffset: CGSize = .zero
-    @State private var sheen: CGFloat = -1
-    @State private var pressed = false
+    @State private var offset: CGFloat = 0
+    @State private var contentWidth: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Button(action: {
-            Haptic.press()
-            onTap()
-        }) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.appInk)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.06),
-                                        Color.clear
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
+        GeometryReader { _ in
+            HStack(spacing: spacing) {
+                ForEach(0..<2, id: \.self) { _ in
+                    HStack(spacing: spacing) {
+                        ForEach(items, id: \.self) { item in
+                            chipView(item)
+                        }
+                    }
+                    .background(
+                        GeometryReader { inner in
+                            Color.clear.preference(
+                                key: MarqueeWidthKey.self,
+                                value: inner.size.width
                             )
+                        }
                     )
-
-                HStack(spacing: 10) {
-                    Text(title)
-                        .font(.system(size: 14, weight: .semibold))
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 12, weight: .bold))
                 }
-                .foregroundStyle(Color.goldLight)
-
-                GeometryReader { geo in
-                    LinearGradient(
-                        colors: [
-                            .clear,
-                            Color.goldLight.opacity(0.4),
-                            .clear
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: geo.size.width * 0.4)
-                    .offset(x: sheen * geo.size.width * 1.4)
-                    .blendMode(.overlay)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .allowsHitTesting(false)
-
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.goldLight.opacity(0.6),
-                                Color.gold.opacity(0.3),
-                                Color.goldDeep.opacity(0.5)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
             }
-            .frame(height: 56)
-            .frame(minWidth: 150)
-            .padding(.horizontal, 24)
-            .offset(magneticOffset)
-            .shadow(color: Color.appInk.opacity(0.25), radius: 16, y: 8)
-            .shadow(color: (ambientPalette ?? Color.gold).opacity(0.20), radius: 20, y: 6)
-            .scaleEffect(pressed ? 0.97 : 1)
-        }
-        .buttonStyle(.plain)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    pressed = true
-                    let loc = value.location
-                    let dx = max(-4, min(4, (loc.x - 100) * 0.05))
-                    let dy = max(-4, min(4, (loc.y - 28) * 0.05))
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        magneticOffset = CGSize(width: dx, height: dy)
-                    }
-                }
-                .onEnded { _ in
-                    pressed = false
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                        magneticOffset = .zero
-                    }
-                }
-        )
-        .onAppear {
-            withAnimation(
-                .linear(duration: 2.5)
-                .repeatForever(autoreverses: false)
-                .delay(3)
-            ) {
-                sheen = 1
+            .offset(x: offset)
+            .onPreferenceChange(MarqueeWidthKey.self) { width in
+                contentWidth = width
+            }
+            .onAppear {
+                guard !reduceMotion else { return }
+                startMarquee()
             }
         }
+        .frame(height: 40)
+        .clipped()
+    }
+
+    private func chipView(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: .medium, design: .serif))
+            .foregroundStyle(Color.appInk)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color.appSurface, in: Capsule())
+            .overlay(Capsule().stroke(Color.appDivider, lineWidth: 0.8))
+    }
+
+    private func startMarquee() {
+        guard contentWidth > 0 else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { startMarquee() }
+            return
+        }
+        let totalWidth = contentWidth / 2 + spacing
+        let duration = Double(totalWidth) / 40.0
+        offset = 0
+        withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
+            offset = -totalWidth
+        }
+    }
+}
+
+private struct MarqueeWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
@@ -1978,7 +1329,7 @@ struct PortfolioLightbox: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var appeared = false
-    @State private var imageScale: CGFloat = 1.08
+    @State private var imageScale: CGFloat = 1.05
     @State private var dragOffset: CGSize = .zero
 
     var body: some View {
@@ -2074,7 +1425,7 @@ struct PortfolioLightbox: View {
         }
         .statusBarHidden()
         .onAppear {
-            withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.82)) {
                 appeared = true
                 imageScale = 1
             }
@@ -2105,12 +1456,6 @@ struct AllReviewsSheet: View {
                         ForEach(Array(reviews.enumerated()), id: \.element.id) { index, r in
                             EditorialReviewCard(review: r)
                                 .padding(.horizontal, 24)
-                                .opacity(appeared ? 1 : 0)
-                                .offset(y: appeared ? 0 : 16)
-                                .animation(
-                                    .spring(response: 0.5, dampingFraction: 0.85).delay(Double(index) * 0.03),
-                                    value: appeared
-                                )
 
                             if index < reviews.count - 1 {
                                 Rectangle()
@@ -2121,6 +1466,7 @@ struct AllReviewsSheet: View {
                         }
                         Color.clear.frame(height: 40)
                     }
+                    .padding(.top, 12)
                 }
             }
             .navigationTitle("Reviews")
@@ -2128,7 +1474,7 @@ struct AllReviewsSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Done") { dismiss() }
-                        .font(.bmUI(15, weight: .medium))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(Color.appInk)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -2140,14 +1486,12 @@ struct AllReviewsSheet: View {
                         }
                     } label: {
                         Text("Write")
-                            .font(.bmUI(15, weight: .semibold))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(Color.gold)
                     }
                 }
             }
-            .onAppear {
-                withAnimation { appeared = true }
-            }
+            .onAppear { appeared = true }
         }
     }
 }

@@ -7,6 +7,9 @@ import UIKit
 
 // =============================================================================
 // MainTabView — "The Spatial Canvas"
+//
+// The globe is a ZStack OVERLAY (not a fullScreenCover). This means no
+// slide-up transition — the globe fades in over the map, seamlessly.
 // =============================================================================
 
 struct MainTabView: View {
@@ -36,7 +39,6 @@ struct MainTabView: View {
     // ─── Selection ───
     @State private var selectedBraider: Braider?
     @State private var expandedBraiderId: String?
-    @State private var pendingProfileBraider: Braider?
     @Namespace private var orbNamespace
 
     // ─── Sheets ───
@@ -52,10 +54,11 @@ struct MainTabView: View {
     // ─── Shockwaves ───
     @State private var shockwaves: [Shockwave] = []
 
-    // ─── Globe transition ───
-    @State private var showGlobeMorph = false
+    // ─── Globe transition (ZStack overlay — NOT a modal) ───
+    @State private var globeActive = false
+    @State private var globeBraider: Braider?
     @State private var hasPlayedCinematicOnce = false
-    @State private var mapProxyRef: MapProxy?
+    @State private var mapFadeOpacity: Double = 1.0
 
     // ─── Gyro gate ───
     @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
@@ -80,20 +83,18 @@ struct MainTabView: View {
         NavigationStack {
             GeometryReader { geo in
                 ZStack {
-                    // ─── Map with proxy for camera control ───
-                    MapReader { proxy in
-                        mapCanvas(size: geo.size)
-                            .onAppear {
-                                mapProxyRef = proxy
-                            }
-                    }
+                    // ─── Map layer ───
+                    mapCanvas(size: geo.size)
+                        .opacity(mapFadeOpacity)
 
                     NoiseTexture(opacity: 0.035, seed: 937)
                         .blendMode(.overlay)
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
+                        .opacity(mapFadeOpacity)
 
                     vignetteLayer
+                        .opacity(mapFadeOpacity)
 
                     // ─── Top chrome ───
                     VStack(spacing: 0) {
@@ -103,36 +104,33 @@ struct MainTabView: View {
                         Spacer()
                     }
                     .ignoresSafeArea(edges: .top)
-                    .opacity(showGlobeMorph ? 0 : 1)
+                    .opacity(globeActive ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.3), value: globeActive)
 
                     // ─── Bottom chrome ───
                     VStack(spacing: 0) {
                         Spacer()
                         bottomChrome
                     }
-                    .opacity(showGlobeMorph ? 0 : 1)
+                    .opacity(globeActive ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.3), value: globeActive)
+
+                    // ─── GLOBE OVERLAY (ZStack layer, no modal) ───
+                    if globeActive, let braider = globeBraider {
+                        GlobeMorphView(
+                            braider: braider,
+                            isFastMode: hasPlayedCinematicOnce
+                        ) {
+                            finishGlobeTransition()
+                        }
+                        .transition(.opacity)
+                        .zIndex(1000)
+                    }
                 }
                 .ignoresSafeArea(edges: .bottom)
             }
             .navigationDestination(item: $selectedBraider) { braider in
                 BraiderProfileView(braider: braider)
-            }
-            // ─── Globe morph modal (fades in, no slide) ───
-            .fullScreenCover(isPresented: $showGlobeMorph) {
-                if let braider = pendingProfileBraider {
-                    GlobeMorphView(
-                        braider: braider,
-                        isFastMode: hasPlayedCinematicOnce
-                    ) {
-                        finishGlobeTransition()
-                    }
-                    .presentationBackground(.clear)
-                    .interactiveDismissDisabled()
-                } else {
-                    Color.black
-                        .ignoresSafeArea()
-                        .onAppear { showGlobeMorph = false }
-                }
             }
             .sheet(isPresented: $showProfileSheet) {
                 UserInfoSheet()
@@ -167,7 +165,7 @@ struct MainTabView: View {
     // MARK: - Layer 1: Map Canvas
 
     private func mapCanvas(size: CGSize) -> some View {
-        Map(position: $cameraPosition, interactionModes: showGlobeMorph ? [] : [.pan, .zoom]) {
+        Map(position: $cameraPosition, interactionModes: globeActive ? [] : [.pan, .zoom]) {
             ForEach(fb.braiders) { braider in
                 Annotation(
                     "",
@@ -523,128 +521,79 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Globe Transition (map pull-back + globe morph)
+    // MARK: - Globe Transition
     //
-    // The story:
-    //   1. Collapse the pin, disable interaction
-    //   2. Map zooms out to space (1.2s) via direct camera binding
-    //   3. Present GlobeMorphView as a fullScreenCover (fades in, no slide)
-    //   4. Globe plays its sequence, then fires onFinish
-    //   5. Set selectedBraider → dismiss cover → push profile
-    //   6. Reset camera behind the scenes
+    // Sequence:
+    //   1. Collapse pin, disengage map interaction
+    //   2. Fade map out + globe in — OVERLAPPING (seamless crossfade)
+    //   3. Map camera also pulls back (behind the fade — visual depth)
+    //   4. Globe plays its full sequence
+    //   5. onFinish → push profile, fade globe out
     // ═══════════════════════════════════════════════════════════════
 
     private func openProfileWithGlobe(_ braider: Braider) {
-        guard !showGlobeMorph else { return }
+        guard !globeActive else { return }
 
         Haptic.heavy()
         haptics.play(.pinExpand)
 
-        // Collapse the capsule
+        // Collapse the pin
         withAnimation(Motion.collapse) {
             expandedBraiderId = nil
         }
 
-        pendingProfileBraider = braider
+        globeBraider = braider
 
-        // Fly the map back to space
-        pullMapBackToSpace(from: braider.coordinate) { [braider] in
-            // Now swap to the globe morph view
-            hasPlayedCinematicOnce = true
-            pendingProfileBraider = braider
-            showGlobeMorph = true
-        }
-    }
-
-    /// Manual camera pull-back using stepped interpolation for custom easing.
-    /// No dependency on MapProxy — works purely off the `cameraPosition` binding.
-    private func pullMapBackToSpace(
-        from coordinate: CLLocationCoordinate2D,
-        completion: @escaping () -> Void
-    ) {
-        let steps = 70
-        let totalDuration: TimeInterval = 1.2
-        let stepInterval = totalDuration / Double(steps)
-
-        // Easing: fast at start, glacial at end
-        func easeOutQuint(_ t: Double) -> Double {
-            return 1.0 - pow(1.0 - t, 5.0)
-        }
-
-        let startDistance: Double = 1_200
-        let endDistance: Double = 40_000_000
-        let startPitch: Double = 28
-        let endPitch: Double = 0
-
-        // Soft haptic rumble
-        let haptics = UIImpactFeedbackGenerator(style: .soft)
-        haptics.prepare()
-
-        Task { @MainActor in
-            for step in 0...steps {
-                let linearT = Double(step) / Double(steps)
-                let easedT = easeOutQuint(linearT)
-
-                let currentDistance = startDistance + (endDistance - startDistance) * easedT
-                let currentPitch = startPitch + (endPitch - startPitch) * easedT
-
-                withAnimation(.linear(duration: stepInterval)) {
-                    cameraPosition = .camera(
-                        MapCamera(
-                            centerCoordinate: coordinate,
-                            distance: currentDistance,
-                            heading: 0,
-                            pitch: currentPitch
-                        )
-                    )
-                }
-
-                // Haptic pulses during the first 40% of the move
-                if step % 6 == 0 && step < steps * 4 / 10 {
-                    haptics.impactOccurred(intensity: 0.25)
-                    haptics.prepare()
-                }
-
-                // Keep our state in sync
-                cameraCenter = coordinate
-                cameraDistance = currentDistance
-                cameraPitch = currentPitch
-
-                try? await Task.sleep(nanoseconds: UInt64(stepInterval * 1_000_000_000))
-            }
-
-            // Snap to final
+        // Kick off the map camera pull-back (behind the fade) — SINGLE animation
+        withAnimation(.easeInOut(duration: 1.0)) {
             cameraPosition = .camera(
                 MapCamera(
-                    centerCoordinate: coordinate,
-                    distance: endDistance,
+                    centerCoordinate: braider.coordinate,
+                    distance: 40_000_000,
                     heading: 0,
-                    pitch: endPitch
+                    pitch: 0
                 )
             )
+        }
+        cameraCenter = braider.coordinate
+        cameraDistance = 40_000_000
+        cameraPitch = 0
 
-            completion()
+        // Crossfade: map fades out over 0.6s while globe fades in
+        withAnimation(.easeInOut(duration: 0.6)) {
+            mapFadeOpacity = 0.0
+        }
+
+        // Activate globe overlay after a tiny delay so the collapse animation
+        // doesn't fight the globe presentation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+            hasPlayedCinematicOnce = true
+            withAnimation(.easeIn(duration: 0.4)) {
+                globeActive = true
+            }
         }
     }
 
-    /// Called by GlobeMorphView when its animation finishes. Navigates to
-    /// the profile, dismisses the modal, then resets the map.
+    /// Called by GlobeMorphView when its sequence ends.
+    /// Navigates to profile, then fades the globe out and restores the map.
     private func finishGlobeTransition() {
-        guard let braider = pendingProfileBraider else {
-            showGlobeMorph = false
+        guard let braider = globeBraider else {
+            globeActive = false
             return
         }
 
-        // 1. Set the destination — the profile view is pushed behind the modal
+        // 1. Push the profile (behind the globe — still covered)
         selectedBraider = braider
 
-        // 2. Dismiss the globe modal on the next run loop
+        // 2. Fade the globe out on the next runloop
         DispatchQueue.main.async {
-            showGlobeMorph = false
+            withAnimation(.easeOut(duration: 0.35)) {
+                globeActive = false
+            }
         }
 
-        // 3. Reset the camera back to a normal city view behind the profile
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+        // 3. Restore the map behind the profile so when we come back it's ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             let resetDistance: Double = 5500
             let resetPitch: Double = 10
             cameraCenter = braider.coordinate
@@ -658,11 +607,14 @@ struct MainTabView: View {
                     pitch: resetPitch
                 )
             )
+            withAnimation(.easeInOut(duration: 0.5)) {
+                mapFadeOpacity = 1.0
+            }
         }
 
         // 4. Cleanup
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-            pendingProfileBraider = nil
+            globeBraider = nil
         }
     }
 
