@@ -8,8 +8,10 @@ import UIKit
 // =============================================================================
 // MainTabView — "The Spatial Canvas"
 //
-// Enhanced: triple shockwave, custom easing camera, ambient gold motes,
-// rating-reactive pins, gold burst capsule expand, spotlight curtain.
+// Chrome: account top-right, nearby top-left. No gear, no re-center.
+// Zoom: single continuous spring. Expanded state clears on map move.
+// Capsule: avatar + stars only, no price.
+// Transition: simple expand via GlobeMorphView.
 // =============================================================================
 
 struct MainTabView: View {
@@ -39,38 +41,30 @@ struct MainTabView: View {
     // ─── Selection ───
     @State private var selectedBraider: Braider?
     @State private var expandedBraiderId: String?
+    @State private var previewBraider: Braider?
     @Namespace private var orbNamespace
 
     // ─── Sheets ───
     @State private var showLocationSheet = false
     @State private var showProfileSheet = false
     @State private var showCitySearch = false
-    @State private var showSettings = false
 
     // ─── Data ───
     @State private var userInfo: UserProfile?
     @State private var braidersLoading = false
 
-    // ─── Shockwaves (multi-layer) ───
+    // ─── Shockwaves ───
     @State private var shockwaves: [Shockwave] = []
-
-    // ─── Capsule tap burst ───
-    @State private var capsuleBursts: [CapsuleBurst] = []
 
     // ─── Transition ───
     @State private var transitionActive = false
     @State private var transitionBraider: Braider?
-    @State private var hasPlayedCinematicOnce = false
 
-    // ─── Spot curtain (radial, not flat) ───
-    @State private var curtainOpacity: Double = 0
-    @State private var curtainCenter: CGPoint = .init(x: 0.5, y: 0.5)
-
-    // ─── Gyro gate ───
+    // ─── Gyro ───
     @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Models
+    // MARK: - Shockwave model
 
     struct Shockwave: Identifiable, Equatable {
         let id = UUID()
@@ -82,16 +76,6 @@ struct MainTabView: View {
         }
     }
 
-    struct CapsuleBurst: Identifiable, Equatable {
-        let id = UUID()
-        let coordinate: CLLocationCoordinate2D
-        let startTime: Date
-
-        static func == (lhs: CapsuleBurst, rhs: CapsuleBurst) -> Bool {
-            lhs.id == rhs.id
-        }
-    }
-
     // ═══════════════════════════════════════════════════════════════
     // MARK: - Body
 
@@ -99,14 +83,7 @@ struct MainTabView: View {
         NavigationStack {
             GeometryReader { geo in
                 ZStack {
-                    // ─── Map ───
                     mapCanvas(size: geo.size)
-
-                    // ─── Ambient gold motes drifting across the map ───
-                    AmbientGoldMotes(seed: 777, count: 60)
-                        .blendMode(.plusLighter)
-                        .allowsHitTesting(false)
-                        .opacity(mapAppeared ? 0.7 : 0)
 
                     NoiseTexture(opacity: 0.035, seed: 937)
                         .blendMode(.overlay)
@@ -115,7 +92,7 @@ struct MainTabView: View {
 
                     vignetteLayer
 
-                    // ─── Top chrome ───
+                    // Top chrome
                     VStack(spacing: 0) {
                         topChrome
                             .padding(.horizontal, Space.md)
@@ -126,7 +103,7 @@ struct MainTabView: View {
                     .opacity(transitionActive ? 0 : 1)
                     .animation(.easeInOut(duration: 0.3), value: transitionActive)
 
-                    // ─── Bottom chrome ───
+                    // Bottom chrome
                     VStack(spacing: 0) {
                         Spacer()
                         bottomChrome
@@ -134,15 +111,9 @@ struct MainTabView: View {
                     .opacity(transitionActive ? 0 : 1)
                     .animation(.easeInOut(duration: 0.3), value: transitionActive)
 
-                    // ─── Spotlight curtain (radial blackout) ───
-                    spotlightCurtain(in: geo.size)
-
-                    // ─── Star vortex transition overlay ───
+                    // Simple transition overlay
                     if transitionActive, let braider = transitionBraider {
-                        GlobeMorphView(
-                            braider: braider,
-                            isFastMode: hasPlayedCinematicOnce
-                        ) {
+                        GlobeMorphView(braider: braider) {
                             finishTransition()
                         }
                         .transition(.opacity)
@@ -157,9 +128,6 @@ struct MainTabView: View {
             .sheet(isPresented: $showProfileSheet) {
                 UserInfoSheet()
             }
-            .sheet(isPresented: $showSettings) {
-                SettingsSheet(gyroTiltEnabled: $gyroTiltEnabled)
-            }
             .sheet(isPresented: $showCitySearch) {
                 LocationSearchView(initialCity: currentCity) { newCity in
                     flyTo(city: newCity)
@@ -171,6 +139,15 @@ struct MainTabView: View {
             }
             .onAppear(perform: onAppear)
             .onDisappear { motion.stop() }
+            .onChange(of: cameraPosition) { _, _ in
+                // When camera moves via gesture, clear expanded state
+                if expandedBraiderId != nil {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+                        expandedBraiderId = nil
+                        previewBraider = nil
+                    }
+                }
+            }
             .sheet(isPresented: $showLocationSheet, onDismiss: onLocationDismiss) {
                 LocationPermissionSheet { allowed in
                     handleLocationDecision(allowed)
@@ -181,27 +158,6 @@ struct MainTabView: View {
                 .presentationCornerRadius(Radius.modal)
             }
         }
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Spotlight curtain
-
-    private func spotlightCurtain(in size: CGSize) -> some View {
-        let radius = max(size.width, size.height) * 0.9
-        return RadialGradient(
-            stops: [
-                .init(color: .black.opacity(0.0), location: 0.35),
-                .init(color: .black.opacity(0.7), location: 0.65),
-                .init(color: .black.opacity(1.0), location: 1.0)
-            ],
-            center: UnitPoint(x: curtainCenter.x, y: curtainCenter.y),
-            startRadius: 0,
-            endRadius: radius
-        )
-        .ignoresSafeArea()
-        .opacity(curtainOpacity)
-        .allowsHitTesting(curtainOpacity > 0.3)
-        .zIndex(500)
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -249,18 +205,7 @@ struct MainTabView: View {
                     coordinate: wave.coordinate,
                     anchor: .center
                 ) {
-                    MultiLayerShockwave(startTime: wave.startTime)
-                        .allowsHitTesting(false)
-                }
-            }
-
-            ForEach(capsuleBursts) { burst in
-                Annotation(
-                    "",
-                    coordinate: burst.coordinate,
-                    anchor: .center
-                ) {
-                    CapsuleGoldBurst(startTime: burst.startTime)
+                    ShockwaveView(startTime: wave.startTime)
                         .allowsHitTesting(false)
                 }
             }
@@ -314,85 +259,64 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Top chrome
+    // MARK: - Top chrome — nearby top-left, account top-right
 
     private var topChrome: some View {
         HStack(spacing: Space.sm) {
-            settingsOrb
+            nearbyChip
             Spacer(minLength: 0)
-            reCenterOrb
-            nearbyTicker
+            accountOrb
         }
         .opacity(mapAppeared ? 1 : 0)
         .offset(y: mapAppeared ? 0 : -24)
         .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.2), value: mapAppeared)
     }
 
-    private var settingsOrb: some View {
-        Button {
-            Haptic.press()
-            haptics.play(.select)
-            showSettings = true
-        } label: {
+    private var nearbyChip: some View {
+        HStack(spacing: 8) {
+            // Live indicator
             ZStack {
                 Circle()
-                    .fill(Color.glassTintStrong)
-                    .frame(width: 52, height: 52)
-                    .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
-                    .overlay(gyroBorder(size: 52))
-                    .shadow(color: Color.black.opacity(0.15), radius: 20, y: 10)
+                    .fill(Color.appSignal.opacity(0.2))
+                    .frame(width: 10, height: 10)
+                Circle()
+                    .fill(Color.appSignal)
+                    .frame(width: 6, height: 6)
+            }
 
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 17, weight: .semibold))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("NEARBY")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1.4)
+                    .foregroundStyle(Color.appSmoke)
+                Text("\(fb.braiders.count) braider\(fb.braiders.count == 1 ? "" : "s")")
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.appInk)
+                    .contentTransition(.numericText())
             }
         }
-        .buttonStyle(BMSquirclePressStyle())
-    }
-
-    private var reCenterOrb: some View {
-        Button {
-            Haptic.medium()
-            haptics.play(.select)
-            reCenter()
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(Color.glassTintStrong)
-                    .frame(width: 52, height: 52)
-                    .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
-                    .overlay(gyroBorder(size: 52))
-                    .shadow(color: Color.black.opacity(0.15), radius: 20, y: 10)
-
-                Image(systemName: "location.north.line.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.gold)
-            }
-        }
-        .buttonStyle(BMSquirclePressStyle())
-    }
-
-    private var nearbyTicker: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(Color.appSignal)
-                .frame(width: 6, height: 6)
-            Text("\(fb.braiders.count)")
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                .foregroundStyle(Color.appInk)
-                .contentTransition(.numericText())
-            Text("nearby")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.appAsh)
-        }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
         .frame(height: 52)
         .background(Color.glassTintStrong, in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+        .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+        .overlay(
+            Capsule().stroke(
+                LinearGradient(
+                    colors: [
+                        Color.goldLight.opacity(0.35),
+                        Color.gold.opacity(0.10),
+                        Color.goldDeep.opacity(0.25)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 0.8
+            )
+        )
         .shadow(color: Color.black.opacity(0.15), radius: 20, y: 10)
     }
 
-    private var avatarOrb: some View {
+    private var accountOrb: some View {
         Button {
             Haptic.press()
             haptics.play(.select)
@@ -484,18 +408,10 @@ struct MainTabView: View {
                         .lineLimit(1)
                 }
 
-                Rectangle()
-                    .fill(Color.appDivider)
-                    .frame(width: 0.5, height: 18)
-
-                Text("\(fb.braiders.count)")
-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Color.appInk)
-                    .contentTransition(.numericText())
-
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(Color.appSmoke)
+                    .padding(.leading, 4)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -569,54 +485,40 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Pin tap
+    // MARK: - Pin tap — single spring, rotating + zooming together
 
     private func handlePinTap(_ braider: Braider) {
         Haptic.medium()
         haptics.play(.pinTap)
 
-        // Triple-layer shockwave
+        // Shockwave
         let wave = Shockwave(coordinate: braider.coordinate, startTime: Date())
         shockwaves.append(wave)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [wave] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [wave] in
             shockwaves.removeAll { $0.id == wave.id }
-        }
-
-        // Custom-easing camera fly: rapid approach, gentle arrival
-        let targetHeading: Double = braider.longitude > currentCity.longitude ? 12 : -12
-
-        // Phase 1: fast approach (0.35s) — overshoot the target distance
-        withAnimation(.easeIn(duration: 0.35)) {
-            cameraPosition = .camera(
-                MapCamera(
-                    centerCoordinate: braider.coordinate,
-                    distance: 900,
-                    heading: targetHeading,
-                    pitch: 32
-                )
-            )
-        }
-
-        // Phase 2: settle (0.5s) — snap to final distance
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.82)) {
-                cameraPosition = .camera(
-                    MapCamera(
-                        centerCoordinate: braider.coordinate,
-                        distance: 1200,
-                        heading: targetHeading,
-                        pitch: 28
-                    )
-                )
-            }
         }
 
         cameraCenter = braider.coordinate
         cameraDistance = 1200
-        cameraPitch = 28
+        cameraPitch = 26
+
+        let targetHeading: Double = braider.longitude > currentCity.longitude ? 10 : -10
+
+        // Single continuous spring — rotation and zoom together, one pace
+        withAnimation(.spring(response: 0.95, dampingFraction: 0.78)) {
+            cameraPosition = .camera(
+                MapCamera(
+                    centerCoordinate: braider.coordinate,
+                    distance: 1200,
+                    heading: targetHeading,
+                    pitch: 26
+                )
+            )
+        }
 
         withAnimation(Motion.morph) {
             expandedBraiderId = braider.id
+            previewBraider = braider
         }
 
         haptics.play(.pinExpand)
@@ -625,13 +527,14 @@ struct MainTabView: View {
     private func collapseExpanded() {
         Haptic.light()
         haptics.play(.dismiss)
-        withAnimation(Motion.collapse) {
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
             expandedBraiderId = nil
+            previewBraider = nil
         }
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Star vortex transition
+    // MARK: - Simple transition
 
     private func startTransition(_ braider: Braider) {
         guard !transitionActive else { return }
@@ -639,21 +542,13 @@ struct MainTabView: View {
         Haptic.heavy()
         haptics.play(.pinExpand)
 
-        // Emit a gold capsule burst at the pin
-        let burst = CapsuleBurst(coordinate: braider.coordinate, startTime: Date())
-        capsuleBursts.append(burst)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [burst] in
-            capsuleBursts.removeAll { $0.id == burst.id }
-        }
-
-        withAnimation(Motion.collapse) {
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
             expandedBraiderId = nil
         }
 
         transitionBraider = braider
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
-            hasPlayedCinematicOnce = true
             withAnimation(.easeIn(duration: 0.20)) {
                 transitionActive = true
             }
@@ -669,18 +564,18 @@ struct MainTabView: View {
         selectedBraider = braider
 
         DispatchQueue.main.async {
-            withAnimation(.easeOut(duration: 0.35)) {
+            withAnimation(.easeOut(duration: 0.30)) {
                 transitionActive = false
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             transitionBraider = nil
         }
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Zoom + fly + re-center
+    // MARK: - Zoom
 
     private func adjustZoom(in closer: Bool) {
         let factor: Double = closer ? 0.55 : 1.8
@@ -723,22 +618,6 @@ struct MainTabView: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
             currentCity = city
-        }
-    }
-
-    private func reCenter() {
-        withAnimation(.spring(response: 0.75, dampingFraction: 0.82)) {
-            cameraPosition = .camera(
-                MapCamera(
-                    centerCoordinate: currentCity.coordinate,
-                    distance: 5500,
-                    heading: 0,
-                    pitch: 12
-                )
-            )
-            cameraCenter = currentCity.coordinate
-            cameraDistance = 5500
-            cameraPitch = 12
         }
     }
 
@@ -854,9 +733,6 @@ struct MainTabView: View {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Safe area
-
     private func safeAreaTop() -> CGFloat {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -875,157 +751,7 @@ struct MainTabView: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Ambient Gold Motes
-// ═══════════════════════════════════════════════════════════════════
-
-struct AmbientGoldMotes: View {
-    var seed: UInt64 = 777
-    var count: Int = 60
-
-    @State private var drift: CGFloat = 0
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                ForEach(0..<count, id: \.self) { i in
-                    mote(index: i, size: geo.size)
-                }
-            }
-            .onAppear {
-                withAnimation(.linear(duration: 40).repeatForever(autoreverses: false)) {
-                    drift = 1
-                }
-            }
-        }
-        .allowsHitTesting(false)
-    }
-
-    private func mote(index: Int, size: CGSize) -> some View {
-        var rng = SeededRNG(seed: seed &+ UInt64(index))
-        let startX = CGFloat.random(in: 0...size.width, using: &rng)
-        let startY = CGFloat.random(in: 0...size.height, using: &rng)
-        let radius = CGFloat.random(in: 1.2...2.8, using: &rng)
-        let opacity = Double.random(in: 0.15...0.5, using: &rng)
-        let duration = Double.random(in: 25...55, using: &rng)
-        let offsetX = CGFloat.random(in: -60...60, using: &rng)
-        let offsetY = CGFloat.random(in: -80...80, using: &rng)
-
-        return Circle()
-            .fill(
-                RadialGradient(
-                    colors: [
-                        Color.goldLight.opacity(opacity),
-                        Color.gold.opacity(opacity * 0.4),
-                        .clear
-                    ],
-                    center: .center,
-                    startRadius: 0,
-                    endRadius: radius * 3
-                )
-            )
-            .frame(width: radius * 3, height: radius * 3)
-            .position(x: startX, y: startY)
-            .offset(x: offsetX * drift, y: offsetY * drift)
-            .blur(radius: 0.4)
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Multi-Layer Shockwave
-// ═══════════════════════════════════════════════════════════════════
-
-struct MultiLayerShockwave: View {
-    let startTime: Date
-    @State private var progress: CGFloat = 0
-    @State private var opacity: Double = 1.0
-
-    var body: some View {
-        ZStack {
-            // Layer 1: gold
-            Circle()
-                .stroke(Color.gold.opacity(opacity), lineWidth: 2.5)
-                .frame(width: 40 + progress * 220, height: 40 + progress * 220)
-                .blur(radius: progress * 8)
-
-            // Layer 2: white hot core
-            Circle()
-                .stroke(Color.white.opacity(opacity * 0.7), lineWidth: 1.2)
-                .frame(width: 20 + progress * 140, height: 20 + progress * 140)
-                .blur(radius: progress * 4)
-
-            // Layer 3: chromatic aberration ghost
-            Circle()
-                .stroke(Color.goldLight.opacity(opacity * 0.35), lineWidth: 1)
-                .frame(width: 30 + progress * 180, height: 30 + progress * 180)
-                .blur(radius: progress * 12)
-                .offset(x: progress * 4, y: 0)
-        }
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.85)) {
-                progress = 1
-                opacity = 0
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Capsule Gold Burst
-// ═══════════════════════════════════════════════════════════════════
-
-struct CapsuleGoldBurst: View {
-    let startTime: Date
-    @State private var progress: CGFloat = 0
-    @State private var opacity: Double = 0.95
-
-    var body: some View {
-        ZStack {
-            // Radial flash
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            Color.goldLight.opacity(opacity),
-                            Color.gold.opacity(opacity * 0.4),
-                            .clear
-                        ],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 80 * progress
-                    )
-                )
-                .frame(width: 180 * progress, height: 180 * progress)
-                .blur(radius: progress * 6)
-
-            // 8 sparkle rays
-            ForEach(0..<8, id: \.self) { i in
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.goldLight.opacity(opacity),
-                                .clear
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 1.5, height: 60 * progress)
-                    .offset(y: -60 * progress / 2)
-                    .rotationEffect(.degrees(Double(i) * 45))
-            }
-        }
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.85)) {
-                progress = 1
-                opacity = 0
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Star Orb Pin (rating-reactive halo)
+// MARK: - StarOrbPin
 // ═══════════════════════════════════════════════════════════════════
 
 struct StarOrbPin: View {
@@ -1035,7 +761,6 @@ struct StarOrbPin: View {
     @State private var breathe = false
     @State private var appear = false
 
-    /// Rating tier drives the halo brightness and color.
     private var ratingTier: (color: Color, brightness: Double) {
         let r = braider.rating
         if r >= 4.8 { return (Color(hex: "#34D399"), 0.55) }
@@ -1047,7 +772,6 @@ struct StarOrbPin: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 4) {
-                // Rating badge
                 HStack(spacing: 3) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 8, weight: .bold))
@@ -1081,7 +805,6 @@ struct StarOrbPin: View {
                 .opacity(appear ? 1 : 0)
 
                 ZStack {
-                    // Breathing halo — brighter for higher ratings
                     Circle()
                         .stroke(ratingTier.color.opacity(ratingTier.brightness), lineWidth: 1.4)
                         .frame(width: 32, height: 32)
@@ -1152,7 +875,7 @@ struct OrbPinPressStyle: ButtonStyle {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Orb Capsule
+// MARK: - OrbCapsule — avatar + stars only, no price
 // ═══════════════════════════════════════════════════════════════════
 
 struct OrbCapsule: View {
@@ -1194,7 +917,7 @@ struct OrbCapsule: View {
                         .frame(width: 48, height: 48)
                 }
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 5) {
                         Text(braider.name)
                             .font(.system(size: 15, weight: .semibold))
@@ -1207,22 +930,17 @@ struct OrbCapsule: View {
                         }
                     }
 
-                    HStack(spacing: 6) {
-                        HStack(spacing: 2) {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 8))
+                    // Stars only — no price
+                    HStack(spacing: 3) {
+                        ForEach(0..<5, id: \.self) { i in
+                            Image(systemName: Double(i) < braider.rating.rounded() ? "star.fill" : "star")
+                                .font(.system(size: 9))
                                 .foregroundStyle(Color.gold)
-                            Text(braider.ratingText)
-                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(Color.appInk)
                         }
-
-                        Text("·")
-                            .foregroundStyle(Color.appSmoke)
-
-                        Text("£\(braider.priceFrom)")
+                        Text(braider.ratingText)
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Color.goldDeep)
+                            .foregroundStyle(Color.appAsh)
+                            .padding(.leading, 2)
                     }
                 }
 
@@ -1258,7 +976,6 @@ struct OrbCapsule: View {
                                 )
                         )
                         .shadow(color: Color.black.opacity(0.18), radius: 24, y: 10)
-                        .shadow(color: Color.gold.opacity(0.15), radius: 30, y: 4)
 
                     GeometryReader { geo in
                         LinearGradient(
@@ -1290,6 +1007,36 @@ struct OrbCapsule: View {
                 .delay(0.8)
             ) {
                 shimmerOffset = 1.2
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Shockwave
+// ═══════════════════════════════════════════════════════════════════
+
+struct ShockwaveView: View {
+    let startTime: Date
+    @State private var progress: CGFloat = 0
+    @State private var opacity: Double = 0.9
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.gold.opacity(opacity), lineWidth: 2)
+                .frame(width: 40 + progress * 160, height: 40 + progress * 160)
+                .blur(radius: progress * 6)
+
+            Circle()
+                .stroke(Color.goldLight.opacity(opacity * 0.6), lineWidth: 1)
+                .frame(width: 20 + progress * 120, height: 20 + progress * 120)
+                .blur(radius: progress * 3)
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.55)) {
+                progress = 1
+                opacity = 0
             }
         }
     }
@@ -1375,109 +1122,58 @@ final class HapticEngine: ObservableObject {
     private func eventsFor(_ pattern: Pattern) -> [CHHapticEvent] {
         switch pattern {
         case .select:
-            return [
-                CHHapticEvent(
-                    eventType: .hapticTransient,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.4),
-                        .init(parameterID: .hapticSharpness, value: 0.5)
-                    ],
-                    relativeTime: 0
-                )
-            ]
+            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
+                .init(parameterID: .hapticIntensity, value: 0.4),
+                .init(parameterID: .hapticSharpness, value: 0.5)
+            ], relativeTime: 0)]
         case .tap:
-            return [
-                CHHapticEvent(
-                    eventType: .hapticTransient,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.5),
-                        .init(parameterID: .hapticSharpness, value: 0.7)
-                    ],
-                    relativeTime: 0
-                )
-            ]
+            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
+                .init(parameterID: .hapticIntensity, value: 0.5),
+                .init(parameterID: .hapticSharpness, value: 0.7)
+            ], relativeTime: 0)]
         case .pinTap:
             return [
-                CHHapticEvent(
-                    eventType: .hapticTransient,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.75),
-                        .init(parameterID: .hapticSharpness, value: 0.9)
-                    ],
-                    relativeTime: 0
-                ),
-                CHHapticEvent(
-                    eventType: .hapticContinuous,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.3),
-                        .init(parameterID: .hapticSharpness, value: 0.15)
-                    ],
-                    relativeTime: 0.02,
-                    duration: 0.12
-                )
+                CHHapticEvent(eventType: .hapticTransient, parameters: [
+                    .init(parameterID: .hapticIntensity, value: 0.75),
+                    .init(parameterID: .hapticSharpness, value: 0.9)
+                ], relativeTime: 0),
+                CHHapticEvent(eventType: .hapticContinuous, parameters: [
+                    .init(parameterID: .hapticIntensity, value: 0.3),
+                    .init(parameterID: .hapticSharpness, value: 0.15)
+                ], relativeTime: 0.02, duration: 0.12)
             ]
         case .pinExpand:
             return [
-                CHHapticEvent(
-                    eventType: .hapticContinuous,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.4),
-                        .init(parameterID: .hapticSharpness, value: 0.25)
-                    ],
-                    relativeTime: 0,
-                    duration: 0.25
-                ),
-                CHHapticEvent(
-                    eventType: .hapticTransient,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.6),
-                        .init(parameterID: .hapticSharpness, value: 0.4)
-                    ],
-                    relativeTime: 0.24
-                )
+                CHHapticEvent(eventType: .hapticContinuous, parameters: [
+                    .init(parameterID: .hapticIntensity, value: 0.4),
+                    .init(parameterID: .hapticSharpness, value: 0.25)
+                ], relativeTime: 0, duration: 0.25),
+                CHHapticEvent(eventType: .hapticTransient, parameters: [
+                    .init(parameterID: .hapticIntensity, value: 0.6),
+                    .init(parameterID: .hapticSharpness, value: 0.4)
+                ], relativeTime: 0.24)
             ]
         case .dismiss:
-            return [
-                CHHapticEvent(
-                    eventType: .hapticTransient,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.35),
-                        .init(parameterID: .hapticSharpness, value: 0.2)
-                    ],
-                    relativeTime: 0
-                )
-            ]
+            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
+                .init(parameterID: .hapticIntensity, value: 0.35),
+                .init(parameterID: .hapticSharpness, value: 0.2)
+            ], relativeTime: 0)]
         case .cityTap:
             return [
-                CHHapticEvent(
-                    eventType: .hapticTransient,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.5),
-                        .init(parameterID: .hapticSharpness, value: 0.4)
-                    ],
-                    relativeTime: 0
-                ),
-                CHHapticEvent(
-                    eventType: .hapticContinuous,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.25),
-                        .init(parameterID: .hapticSharpness, value: 0.1)
-                    ],
-                    relativeTime: 0.04,
-                    duration: 0.14
-                )
+                CHHapticEvent(eventType: .hapticTransient, parameters: [
+                    .init(parameterID: .hapticIntensity, value: 0.5),
+                    .init(parameterID: .hapticSharpness, value: 0.4)
+                ], relativeTime: 0),
+                CHHapticEvent(eventType: .hapticContinuous, parameters: [
+                    .init(parameterID: .hapticIntensity, value: 0.25),
+                    .init(parameterID: .hapticSharpness, value: 0.1)
+                ], relativeTime: 0.04, duration: 0.14)
             ]
         case .zoom:
-            return [
-                CHHapticEvent(
-                    eventType: .hapticTransient,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.55),
-                        .init(parameterID: .hapticSharpness, value: 0.85)
-                    ],
-                    relativeTime: 0
-                )
-            ]
+            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
+                .init(parameterID: .hapticIntensity, value: 0.55),
+                .init(parameterID: .hapticSharpness, value: 0.85)
+            ], relativeTime: 0)]
         }
     }
 
@@ -1488,97 +1184,6 @@ final class HapticEngine: ObservableObject {
         case .pinTap, .pinExpand:   Haptic.medium()
         case .zoom:                 Haptic.rigid()
         }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Settings Sheet
-// ═══════════════════════════════════════════════════════════════════
-
-struct SettingsSheet: View {
-    @Binding var gyroTiltEnabled: Bool
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.appBackground.ignoresSafeArea()
-
-                ScrollView {
-                    VStack(spacing: Space.md) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 8) {
-                                Rectangle()
-                                    .fill(Color.gold)
-                                    .frame(width: 20, height: 2)
-                                Text("PREFERENCES")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .tracking(2)
-                                    .foregroundStyle(Color.gold)
-                            }
-                            Text("Settings")
-                                .font(.system(size: 34, weight: .bold, design: .serif))
-                                .tracking(-1)
-                                .foregroundStyle(Color.appInk)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, Space.sm)
-                        .padding(.bottom, Space.md)
-
-                        settingRow(
-                            icon: "gyroscope",
-                            title: "Gyro-tilted elements",
-                            subtitle: "Orbs subtly tilt as you move your device",
-                            isOn: $gyroTiltEnabled
-                        )
-                    }
-                    .padding(.horizontal, Space.lg)
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Done") { dismiss() }
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Color.appInk)
-                }
-            }
-        }
-    }
-
-    private func settingRow(icon: String, title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
-        HStack(spacing: Space.md) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.gold.opacity(isOn.wrappedValue ? 0.18 : 0.06))
-                    .frame(width: 44, height: 44)
-                Image(systemName: icon)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(isOn.wrappedValue ? Color.gold : Color.appSmoke)
-            }
-            .animation(.easeOut(duration: 0.2), value: isOn.wrappedValue)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.appInk)
-                Text(subtitle)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.appAsh)
-                    .lineLimit(2)
-            }
-
-            Spacer()
-
-            Toggle("", isOn: isOn)
-                .labelsHidden()
-                .tint(Color.gold)
-                .onChange(of: isOn.wrappedValue) { _, _ in Haptic.select() }
-        }
-        .padding(Space.md)
-        .background(Color.appSurface)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        .dualLayerGlassStroke(cornerRadius: Radius.card, lineWidth: 0.6)
     }
 }
 

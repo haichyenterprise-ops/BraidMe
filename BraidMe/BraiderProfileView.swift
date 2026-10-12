@@ -4,7 +4,11 @@ import CoreHaptics
 import UIKit
 
 // =============================================================================
-// BraiderProfileView — Editorial profile, zero-lag, magazine-quality
+// BraiderProfileView — Editorial profile, rebuilt
+//
+// Zero gestures on portfolio cards — ScrollView owns all drags.
+// No shadows in scroll content. No noise. No ambient motes.
+// Single LazyVStack. GPU-accelerated scroll.
 // =============================================================================
 
 struct BraiderProfileView: View {
@@ -25,6 +29,7 @@ struct BraiderProfileView: View {
     @State private var showBooking = false
     @State private var showBookingForService: BraidService?
     @State private var selectedPortfolioItem: PortfolioItem?
+    @State private var selectedPortfolioIndex: Int = 0
 
     @State private var heroAppeared = false
     @State private var contentAppeared = false
@@ -46,18 +51,21 @@ struct BraiderProfileView: View {
         reviews.isEmpty ? braider.reviewCount : reviews.count
     }
 
+    private var breakdown: RatingBreakdown {
+        RatingBreakdown.from(reviews)
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // MARK: - Body
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 hero
                 contentSections
-                    .background(Color.appBackground)
             }
+            .background(Color.appBackground)
         }
-        .coordinateSpace(name: "profile-scroll")
         .background(Color.appBackground)
         .ignoresSafeArea(edges: .top)
         .toolbar(.hidden, for: .navigationBar)
@@ -76,7 +84,7 @@ struct BraiderProfileView: View {
             AllReviewsSheet(
                 braider: braider,
                 reviews: reviews,
-                breakdown: RatingBreakdown.from(reviews),
+                breakdown: breakdown,
                 onWriteReview: {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                         showWriteReview = true
@@ -98,8 +106,8 @@ struct BraiderProfileView: View {
             await loadReviews()
             haptics.prepare()
             if gyroTiltEnabled { motion.start() }
-            withAnimation(.spring(response: 0.9, dampingFraction: 0.82)) { heroAppeared = true }
-            withAnimation(.spring(response: 0.9, dampingFraction: 0.85).delay(0.15)) { contentAppeared = true }
+            withAnimation(.spring(response: 0.85, dampingFraction: 0.82)) { heroAppeared = true }
+            withAnimation(.spring(response: 0.85, dampingFraction: 0.85).delay(0.15)) { contentAppeared = true }
         }
         .onDisappear {
             motion.stop()
@@ -110,53 +118,36 @@ struct BraiderProfileView: View {
     // MARK: - Hero
 
     private var hero: some View {
-        GeometryReader { geo in
-            let minY = geo.frame(in: .named("profile-scroll")).minY
-            let stretch = max(0, minY)
-            let scrolled = -minY
-            let heroScale: CGFloat = {
-                guard minY < 0 else { return 1.0 }
-                let progress = min(scrolled / 400, 1)
-                return 1.0 + progress * 0.18
-            }()
-            let parallax = minY * 0.4
-
-            ZStack(alignment: .bottom) {
-                Group {
-                    if !braider.coverUrl.isEmpty {
-                        RemoteImage(url: braider.coverUrl, onPaletteReady: { color in
-                            ambientPalette = Color(uiColor: color)
-                        })
-                        .frame(width: geo.size.width, height: geo.size.height + 120)
-                        .clipped()
-                    } else if let first = braider.portfolio.first {
-                        RemoteImage(url: first.imageUrl, onPaletteReady: { color in
-                            ambientPalette = Color(uiColor: color)
-                        })
-                        .frame(width: geo.size.width, height: geo.size.height + 120)
-                        .clipped()
-                    } else {
-                        LinearGradient(
-                            colors: [Color.appSurfaceInverse, Color.appInk],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                        .frame(width: geo.size.width, height: geo.size.height + 120)
-                    }
+        ZStack(alignment: .bottom) {
+            Group {
+                if !braider.coverUrl.isEmpty {
+                    RemoteImage(url: braider.coverUrl, onPaletteReady: { color in
+                        ambientPalette = Color(uiColor: color)
+                    })
+                    .frame(height: 620)
+                    .clipped()
+                } else if let first = braider.portfolio.first {
+                    RemoteImage(url: first.imageUrl, onPaletteReady: { color in
+                        ambientPalette = Color(uiColor: color)
+                    })
+                    .frame(height: 620)
+                    .clipped()
+                } else {
+                    LinearGradient(
+                        colors: [Color.appSurfaceInverse, Color.appInk],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .frame(height: 620)
                 }
-                .scaleEffect(heroScale, anchor: .bottom)
-                .offset(y: -parallax)
-                .frame(width: geo.size.width, height: geo.size.height + stretch)
-                .clipped()
-
-                Color.heroVeil
-
-                heroContent
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 40)
             }
+            .overlay(Color.heroVeil)
+
+            heroContent
+                .padding(.horizontal, 24)
+                .padding(.bottom, 44)
         }
-        .frame(height: 560)
+        .frame(height: 620)
     }
 
     private var heroContent: some View {
@@ -308,10 +299,10 @@ struct BraiderProfileView: View {
             reviewsSection
             footerSection
         }
-        .padding(.bottom, 110)
+        .padding(.bottom, 120)
     }
 
-    // ─── Metrics ───
+    // ─── Metrics card ───
 
     private var metricsCard: some View {
         HStack(spacing: 0) {
@@ -342,8 +333,6 @@ struct BraiderProfileView: View {
                             lineWidth: 0.8
                         )
                 )
-                .shadow(color: Color.black.opacity(0.10), radius: 28, y: 14)
-                .shadow(color: (ambientPalette ?? Color.black).opacity(0.08), radius: 40, y: 8)
         }
         .padding(.horizontal, 24)
         .offset(y: -70)
@@ -363,7 +352,6 @@ struct BraiderProfileView: View {
                 Text(value)
                     .font(.system(size: 22, weight: .medium, design: .serif))
                     .foregroundStyle(Color.appInk)
-                    .contentTransition(.numericText(countsDown: false))
             }
             Text(label.uppercased())
                 .font(.system(size: 8, weight: .bold))
@@ -394,14 +382,30 @@ struct BraiderProfileView: View {
     private var bioSection: some View {
         Group {
             if !braider.bio.isEmpty {
-                VStack(alignment: .leading, spacing: 16) {
-                    sectionEyebrow("THE ARTIST")
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(spacing: 12) {
+                        Text("01")
+                            .font(.system(size: 42, weight: .regular, design: .serif))
+                            .foregroundStyle(Color.gold.opacity(0.35))
+                            .tracking(-2)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Rectangle()
+                                .fill(Color.gold)
+                                .frame(width: 24, height: 1.5)
+                            Text("THE ARTIST")
+                                .font(.system(size: 10, weight: .bold))
+                                .tracking(3)
+                                .foregroundStyle(Color.appAsh)
+                        }
+                        Spacer()
+                    }
 
                     HStack(alignment: .top, spacing: 16) {
                         Rectangle()
                             .fill(
                                 LinearGradient(
-                                    colors: [Color.gold, Color.gold.opacity(0.2)],
+                                    colors: [Color.gold, Color.gold.opacity(0.15)],
                                     startPoint: .top,
                                     endPoint: .bottom
                                 )
@@ -410,15 +414,15 @@ struct BraiderProfileView: View {
                             .frame(maxHeight: .infinity)
 
                         Text(braider.bio)
-                            .font(.system(size: 17, weight: .regular, design: .serif))
-                            .foregroundStyle(Color.appInk.opacity(0.9))
+                            .font(.system(size: 18, weight: .regular, design: .serif))
+                            .foregroundStyle(Color.appInk.opacity(0.92))
                             .lineSpacing(9)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 24)
-                .padding(.top, 34)
+                .padding(.top, 36)
             }
         }
     }
@@ -429,22 +433,38 @@ struct BraiderProfileView: View {
         Group {
             if !braider.specialties.isEmpty {
                 VStack(alignment: .leading, spacing: 14) {
-                    sectionEyebrow("SIGNATURES")
-                        .padding(.horizontal, 24)
+                    HStack(spacing: 10) {
+                        Rectangle()
+                            .fill(Color.gold)
+                            .frame(width: 24, height: 1.5)
+                        Text("SIGNATURES")
+                            .font(.system(size: 10, weight: .bold))
+                            .tracking(3)
+                            .foregroundStyle(Color.appAsh)
+                    }
+                    .padding(.horizontal, 24)
 
                     MarqueeView(items: braider.specialties, spacing: 10)
                 }
-                .padding(.top, 30)
+                .padding(.top, 34)
             }
         }
     }
 
-    // ─── Portfolio ───
+    // ─── Portfolio (redesigned, scroll works) ───
 
     private var portfolioSection: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 10) {
-                sectionEyebrow("SELECTED WORK")
+                HStack(spacing: 10) {
+                    Rectangle()
+                        .fill(Color.gold)
+                        .frame(width: 24, height: 1.5)
+                    Text("SELECTED WORK")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(3)
+                        .foregroundStyle(Color.appAsh)
+                }
                 Text("The portfolio")
                     .font(.system(size: 34, weight: .regular, design: .serif))
                     .tracking(-0.8)
@@ -453,46 +473,77 @@ struct BraiderProfileView: View {
             .padding(.horizontal, 24)
 
             if braider.portfolio.isEmpty {
-                emptyCard(
-                    icon: "camera",
-                    title: "Portfolio coming soon",
-                    message: "New styles from \(braider.firstName) will appear here."
-                )
-                .padding(.horizontal, 24)
+                portfolioEmpty
+                    .padding(.horizontal, 24)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 16) {
-                        ForEach(Array(braider.portfolio.enumerated()), id: \.element.id) { index, item in
-                            PortfolioCardView(
-                                item: item,
-                                index: index,
-                                onTap: {
-                                    Haptic.select()
-                                    haptics.play(.select)
-                                    selectedPortfolioItem = item
-                                }
-                            )
-                            .scrollTransition(.interactive, axis: .horizontal) { content, phase in
-                                content
-                                    .scaleEffect(phase.isIdentity ? 1.0 : 0.92)
-                                    .rotation3DEffect(
-                                        .degrees(phase.value * -12),
-                                        axis: (x: 0, y: 1, z: 0),
-                                        perspective: 0.6
-                                    )
-                                    .opacity(phase.isIdentity ? 1.0 : 0.72)
-                            }
-                        }
-                    }
-                    .scrollTargetLayout()
-                    .padding(.horizontal, 40)
-                }
-                .scrollTargetBehavior(.viewAligned)
+                portfolioCarousel
             }
         }
-        .padding(.top, 40)
+        .padding(.top, 44)
         .fullScreenCover(item: $selectedPortfolioItem) { item in
             PortfolioLightbox(item: item, name: braider.name)
+        }
+    }
+
+    private var portfolioEmpty: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.gold.opacity(0.12))
+                    .frame(width: 48, height: 48)
+                Image(systemName: "camera")
+                    .font(.system(size: 20, weight: .light))
+                    .foregroundStyle(Color.gold)
+            }
+            Text("Portfolio coming soon")
+                .font(.system(size: 20, weight: .regular, design: .serif))
+                .foregroundStyle(Color.appInk)
+            Text("New styles from \(braider.firstName) will appear here.")
+                .font(.system(size: 14))
+                .foregroundStyle(Color.appAsh)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(24)
+        .background(Color.appSurface)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous)
+                .stroke(Color.appDivider, lineWidth: 0.5)
+        )
+    }
+
+    private var portfolioCarousel: some View {
+        VStack(spacing: 14) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 16) {
+                    ForEach(Array(braider.portfolio.enumerated()), id: \.element.id) { index, item in
+                        PortfolioCardClean(
+                            item: item,
+                            index: index,
+                            onTap: {
+                                Haptic.select()
+                                haptics.play(.select)
+                                selectedPortfolioItem = item
+                            }
+                        )
+                    }
+                }
+                .scrollTargetLayout()
+                .padding(.horizontal, 40)
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .frame(height: 420)
+
+            // Page dots
+            HStack(spacing: 6) {
+                ForEach(0..<braider.portfolio.count, id: \.self) { i in
+                    Circle()
+                        .fill(i == selectedPortfolioIndex ? Color.gold : Color.appDivider)
+                        .frame(width: i == selectedPortfolioIndex ? 7 : 5,
+                               height: i == selectedPortfolioIndex ? 7 : 5)
+                        .animation(.spring(response: 0.35, dampingFraction: 0.65), value: selectedPortfolioIndex)
+                }
+            }
         }
     }
 
@@ -501,7 +552,15 @@ struct BraiderProfileView: View {
     private var servicesSection: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 10) {
-                sectionEyebrow("CRAFTED SESSIONS")
+                HStack(spacing: 10) {
+                    Rectangle()
+                        .fill(Color.gold)
+                        .frame(width: 24, height: 1.5)
+                    Text("CRAFTED SESSIONS")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(3)
+                        .foregroundStyle(Color.appAsh)
+                }
                 Text("Services")
                     .font(.system(size: 34, weight: .regular, design: .serif))
                     .tracking(-0.8)
@@ -510,25 +569,24 @@ struct BraiderProfileView: View {
             .padding(.horizontal, 24)
 
             if braider.services.isEmpty {
-                emptyCard(
-                    icon: "calendar",
-                    title: "Services coming soon",
-                    message: "Check back soon for available styles and appointments."
-                )
-                .padding(.horizontal, 24)
+                servicesEmpty
+                    .padding(.horizontal, 24)
             } else {
                 VStack(spacing: 14) {
                     ForEach(Array(braider.services.enumerated()), id: \.element.id) { index, service in
-                        ServiceRowCard(service: service) {
-                            Haptic.press()
-                            haptics.play(.select)
-                            showBookingForService = service
-                        }
+                        ServiceCardFull(
+                            service: service,
+                            onTap: {
+                                Haptic.press()
+                                haptics.play(.select)
+                                showBookingForService = service
+                            }
+                        )
                         .opacity(contentAppeared ? 1 : 0)
                         .offset(y: contentAppeared ? 0 : 20)
                         .animation(
-                            .spring(response: 0.6, dampingFraction: 0.82)
-                                .delay(Double(index) * 0.06),
+                            .spring(response: 0.55, dampingFraction: 0.82)
+                                .delay(Double(index) * 0.05),
                             value: contentAppeared
                         )
                     }
@@ -539,13 +597,49 @@ struct BraiderProfileView: View {
         .padding(.top, 44)
     }
 
+    private var servicesEmpty: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.gold.opacity(0.12))
+                    .frame(width: 48, height: 48)
+                Image(systemName: "calendar")
+                    .font(.system(size: 20, weight: .light))
+                    .foregroundStyle(Color.gold)
+            }
+            Text("Services coming soon")
+                .font(.system(size: 20, weight: .regular, design: .serif))
+                .foregroundStyle(Color.appInk)
+            Text("Check back soon for available styles and appointments.")
+                .font(.system(size: 14))
+                .foregroundStyle(Color.appAsh)
+                .lineSpacing(4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(24)
+        .background(Color.appSurface)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous)
+                .stroke(Color.appDivider, lineWidth: 0.5)
+        )
+    }
+
     // ─── Reviews ───
 
     private var reviewsSection: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 10) {
-                    sectionEyebrow("THE RECORD")
+                    HStack(spacing: 10) {
+                        Rectangle()
+                            .fill(Color.gold)
+                            .frame(width: 24, height: 1.5)
+                        Text("THE RECORD")
+                            .font(.system(size: 10, weight: .bold))
+                            .tracking(3)
+                            .foregroundStyle(Color.appAsh)
+                    }
                     Text("Kind words")
                         .font(.system(size: 34, weight: .regular, design: .serif))
                         .tracking(-0.8)
@@ -576,17 +670,13 @@ struct BraiderProfileView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 40)
             } else if reviews.isEmpty {
-                emptyCard(
-                    icon: "quote.opening",
-                    title: "The first word is yours",
-                    message: "There are no reviews yet. Book an appointment and share your experience."
-                )
-                .padding(.horizontal, 24)
+                reviewsEmpty
+                    .padding(.horizontal, 24)
             } else {
                 RatingSummaryBlock(
                     ratingText: ratingText,
                     reviewCount: reviews.count,
-                    breakdown: RatingBreakdown.from(reviews)
+                    breakdown: breakdown
                 )
                 .padding(.horizontal, 24)
 
@@ -652,6 +742,34 @@ struct BraiderProfileView: View {
         .padding(.top, 44)
     }
 
+    private var reviewsEmpty: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.gold.opacity(0.12))
+                    .frame(width: 48, height: 48)
+                Image(systemName: "quote.opening")
+                    .font(.system(size: 20, weight: .light))
+                    .foregroundStyle(Color.gold)
+            }
+            Text("The first word is yours")
+                .font(.system(size: 20, weight: .regular, design: .serif))
+                .foregroundStyle(Color.appInk)
+            Text("There are no reviews yet. Book an appointment and share your experience.")
+                .font(.system(size: 14))
+                .foregroundStyle(Color.appAsh)
+                .lineSpacing(4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(24)
+        .background(Color.appSurface)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous)
+                .stroke(Color.appDivider, lineWidth: 0.5)
+        )
+    }
+
     private var footerSection: some View {
         VStack(spacing: 8) {
             Text("BRAIDME")
@@ -666,46 +784,6 @@ struct BraiderProfileView: View {
         .frame(maxWidth: .infinity)
         .padding(.top, 60)
         .padding(.bottom, 30)
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Helpers
-
-    private func sectionEyebrow(_ text: String) -> some View {
-        HStack(spacing: 10) {
-            Rectangle()
-                .fill(Color.gold)
-                .frame(width: 24, height: 1.5)
-            Text(text)
-                .font(.system(size: 10, weight: .bold))
-                .tracking(3)
-                .foregroundStyle(Color.appAsh)
-        }
-    }
-
-    private func emptyCard(icon: String, title: String, message: String) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.gold.opacity(0.12))
-                    .frame(width: 48, height: 48)
-                Image(systemName: icon)
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(Color.gold)
-            }
-            Text(title)
-                .font(.system(size: 20, weight: .regular, design: .serif))
-                .foregroundStyle(Color.appInk)
-            Text(message)
-                .font(.system(size: 14))
-                .foregroundStyle(Color.appAsh)
-                .lineSpacing(4)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(24)
-        .background(Color.appSurface)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
-        .dualLayerGlassStroke(cornerRadius: Radius.squircle)
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -756,8 +834,6 @@ struct BraiderProfileView: View {
                             lineWidth: 1
                         )
                 )
-                .shadow(color: Color.appInk.opacity(0.25), radius: 16, y: 8)
-                .shadow(color: (ambientPalette ?? Color.gold).opacity(0.2), radius: 20, y: 6)
             }
             .buttonStyle(BMSquirclePressStyle())
         }
@@ -802,166 +878,90 @@ struct BraiderProfileView: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Portfolio Card — scroll-friendly + long-press-only magnifier
+// MARK: - Portfolio Card — zero gestures, scroll works
 // ═══════════════════════════════════════════════════════════════════
 
-struct PortfolioCardView: View {
+struct PortfolioCardClean: View {
     let item: PortfolioItem
     let index: Int
     let onTap: () -> Void
 
-    @State private var magnifierActive = false
-    @State private var magnifierLocation: CGPoint = CGPoint(x: 130, y: 170)
-
-    private let cardWidth: CGFloat = 260
-    private let cardHeight: CGFloat = 340
+    private let cardWidth: CGFloat = 300
+    private let cardHeight: CGFloat = 400
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            // ─── Image ───
-            RemoteImage(url: item.imageUrl)
-                .frame(width: cardWidth, height: cardHeight)
-                .clipped()
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        VStack(alignment: .leading, spacing: 14) {
+            ZStack(alignment: .topLeading) {
+                // Image
+                RemoteImage(url: item.imageUrl)
+                    .frame(width: cardWidth, height: cardHeight)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-            // ─── Gradient overlay ───
-            LinearGradient(
-                colors: [.clear, .clear, .black.opacity(0.6)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .allowsHitTesting(false)
-
-            // ─── Index ───
-            Text(String(format: "%02d", index + 1))
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.6), radius: 4, y: 1)
-                .padding(16)
-                .allowsHitTesting(false)
-
-            // ─── Gold border ───
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Color.goldLight.opacity(0.7),
-                            Color.gold.opacity(0.2),
-                            Color.goldDeep.opacity(0.55)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
+                // Gradient
+                LinearGradient(
+                    colors: [.clear, .clear, .black.opacity(0.55)],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .allowsHitTesting(false)
 
-            // ─── Magnifier lens ───
-            if magnifierActive {
-                MagnifierLens(
-                    imageUrl: item.imageUrl,
-                    location: magnifierLocation,
-                    cardSize: CGSize(width: cardWidth, height: cardHeight),
-                    size: 140
-                )
-                .allowsHitTesting(false)
+                // Number
+                Text(String(format: "%02d", index + 1))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .padding(16)
+                    .allowsHitTesting(false)
+
+                // Gold border
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color.goldLight.opacity(0.55),
+                                Color.gold.opacity(0.15),
+                                Color.goldDeep.opacity(0.4)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+                    .allowsHitTesting(false)
             }
-        }
-        .frame(width: cardWidth, height: cardHeight)
-        // ─── Tap → lightbox ───
-        .onTapGesture {
-            onTap()
-        }
-        // ─── Long-press + drag → magnifier (scroll passes through otherwise) ───
-        .gesture(
-            LongPressGesture(minimumDuration: 0.28)
-                .sequenced(before: DragGesture(minimumDistance: 0))
-                .onChanged { value in
-                    switch value {
-                    case .first(true):
-                        // Long press recognized — activate magnifier
-                        if !magnifierActive {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                magnifierActive = true
-                            }
-                            Haptic.medium()
-                        }
-                    case .second(true, let drag):
-                        if let drag = drag {
-                            magnifierLocation = drag.location
-                        }
-                    default:
-                        break
-                    }
+            .frame(width: cardWidth, height: cardHeight)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onTap()
+            }
+
+            // Caption below
+            VStack(alignment: .leading, spacing: 5) {
+                if !item.tag.isEmpty {
+                    Text(item.tag.uppercased())
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(1.5)
+                        .foregroundStyle(Color.gold)
                 }
-                .onEnded { _ in
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        magnifierActive = false
-                    }
+                if !item.caption.isEmpty {
+                    Text(item.caption)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color.appInk)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
                 }
-        )
-        .shadow(color: Color.black.opacity(0.15), radius: 20, y: 10)
+            }
+            .frame(width: cardWidth, alignment: .leading)
+        }
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Magnifier Lens
+// MARK: - Service Card — full bleed
 // ═══════════════════════════════════════════════════════════════════
 
-struct MagnifierLens: View {
-    let imageUrl: String
-    let location: CGPoint
-    let cardSize: CGSize
-    let size: CGFloat
-    var zoomFactor: CGFloat = 2.2
-
-    var body: some View {
-        ZStack {
-            GeometryReader { _ in
-                ZStack {
-                    RemoteImage(url: imageUrl)
-                        .frame(
-                            width: cardSize.width * zoomFactor,
-                            height: cardSize.height * zoomFactor
-                        )
-                        .offset(
-                            x: -(location.x * zoomFactor) + size / 2,
-                            y: -(location.y * zoomFactor) + size / 2
-                        )
-                }
-                .frame(width: size, height: size)
-                .clipped()
-            }
-            .frame(width: size, height: size)
-            .clipShape(Circle())
-
-            Circle()
-                .stroke(
-                    LinearGradient(
-                        colors: [Color.goldLight, Color.gold, Color.goldDeep],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 2.5
-                )
-
-            Circle()
-                .stroke(.white.opacity(0.4), lineWidth: 0.8)
-                .padding(2)
-        }
-        .frame(width: size, height: size)
-        .shadow(color: Color.gold.opacity(0.5), radius: 20, y: 6)
-        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
-        .position(x: location.x, y: location.y)
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Service Row Card
-// ═══════════════════════════════════════════════════════════════════
-
-struct ServiceRowCard: View {
+struct ServiceCardFull: View {
     let service: BraidService
     let onTap: () -> Void
 
@@ -972,7 +972,7 @@ struct ServiceRowCard: View {
                     Group {
                         if !service.imageUrl.isEmpty {
                             RemoteImage(url: service.imageUrl)
-                                .frame(height: 160)
+                                .frame(height: 200)
                                 .frame(maxWidth: .infinity)
                                 .clipped()
                         } else {
@@ -984,7 +984,7 @@ struct ServiceRowCard: View {
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
-                            .frame(height: 160)
+                            .frame(height: 200)
                         }
                     }
                     .overlay(
@@ -1017,7 +1017,7 @@ struct ServiceRowCard: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Spacer()
                         Text(service.name)
-                            .font(.system(size: 22, weight: .medium, design: .serif))
+                            .font(.system(size: 24, weight: .medium, design: .serif))
                             .foregroundStyle(.white)
                         HStack(spacing: 12) {
                             HStack(spacing: 4) {
@@ -1040,10 +1040,10 @@ struct ServiceRowCard: View {
                 }
                 .clipShape(
                     .rect(
-                        topLeadingRadius: 14,
+                        topLeadingRadius: 16,
                         bottomLeadingRadius: 0,
                         bottomTrailingRadius: 0,
-                        topTrailingRadius: 14
+                        topTrailingRadius: 16
                     )
                 )
 
@@ -1066,14 +1066,14 @@ struct ServiceRowCard: View {
                             .foregroundStyle(Color.appInk)
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 14)
                     .background(Color.appSurface)
                 }
             }
             .background(Color.appSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(
                         LinearGradient(
                             colors: [
@@ -1087,7 +1087,6 @@ struct ServiceRowCard: View {
                         lineWidth: 0.8
                     )
             )
-            .shadow(color: Color.black.opacity(0.08), radius: 18, y: 8)
         }
         .buttonStyle(BMSquirclePressStyle())
     }
@@ -1180,8 +1179,10 @@ struct RatingSummaryBlock: View {
         .padding(24)
         .background(Color.appSurface)
         .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
-        .dualLayerGlassStroke(cornerRadius: Radius.squircle)
-        .shadow(color: Color.black.opacity(0.06), radius: 24, y: 12)
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous)
+                .stroke(Color.appDivider, lineWidth: 0.5)
+        )
         .onAppear {
             withAnimation(.spring(response: 0.9, dampingFraction: 0.85).delay(0.2)) {
                 barAppeared = true
@@ -1348,20 +1349,11 @@ struct PortfolioLightbox: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var appeared = false
-    @State private var imageScale: CGFloat = 1.05
     @State private var dragOffset: CGSize = .zero
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-
-            RadialGradient(
-                colors: [Color.gold.opacity(0.10), .clear],
-                center: .center,
-                startRadius: 0,
-                endRadius: 500
-            )
-            .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 HStack {
@@ -1395,7 +1387,6 @@ struct PortfolioLightbox: View {
                     .frame(maxWidth: .infinity)
                     .frame(maxHeight: 620)
                     .clipped()
-                    .scaleEffect(imageScale)
                     .offset(y: dragOffset.height)
                     .opacity(appeared ? 1 : 0)
                     .gesture(
@@ -1429,24 +1420,16 @@ struct PortfolioLightbox: View {
                             .foregroundStyle(.white)
                             .multilineTextAlignment(.center)
                     }
-                    if item.likes > 0 {
-                        Label("\(item.likes)", systemImage: "heart.fill")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.7))
-                            .padding(.top, 4)
-                    }
                 }
                 .padding(.horizontal, 28)
                 .padding(.bottom, 38)
                 .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 20)
             }
         }
         .statusBarHidden()
         .onAppear {
             withAnimation(.spring(response: 0.6, dampingFraction: 0.82)) {
                 appeared = true
-                imageScale = 1
             }
         }
     }
@@ -1590,58 +1573,31 @@ final class ProfileHaptics: ObservableObject {
     private func eventsFor(_ pattern: Pattern) -> [CHHapticEvent] {
         switch pattern {
         case .select:
-            return [
-                CHHapticEvent(
-                    eventType: .hapticTransient,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.4),
-                        .init(parameterID: .hapticSharpness, value: 0.5)
-                    ],
-                    relativeTime: 0
-                )
-            ]
+            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
+                .init(parameterID: .hapticIntensity, value: 0.4),
+                .init(parameterID: .hapticSharpness, value: 0.5)
+            ], relativeTime: 0)]
         case .tap:
-            return [
-                CHHapticEvent(
-                    eventType: .hapticTransient,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.5),
-                        .init(parameterID: .hapticSharpness, value: 0.65)
-                    ],
-                    relativeTime: 0
-                )
-            ]
+            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
+                .init(parameterID: .hapticIntensity, value: 0.5),
+                .init(parameterID: .hapticSharpness, value: 0.65)
+            ], relativeTime: 0)]
         case .pinExpand:
             return [
-                CHHapticEvent(
-                    eventType: .hapticContinuous,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.4),
-                        .init(parameterID: .hapticSharpness, value: 0.25)
-                    ],
-                    relativeTime: 0,
-                    duration: 0.22
-                ),
-                CHHapticEvent(
-                    eventType: .hapticTransient,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.55),
-                        .init(parameterID: .hapticSharpness, value: 0.5)
-                    ],
-                    relativeTime: 0.22
-                )
+                CHHapticEvent(eventType: .hapticContinuous, parameters: [
+                    .init(parameterID: .hapticIntensity, value: 0.4),
+                    .init(parameterID: .hapticSharpness, value: 0.25)
+                ], relativeTime: 0, duration: 0.22),
+                CHHapticEvent(eventType: .hapticTransient, parameters: [
+                    .init(parameterID: .hapticIntensity, value: 0.55),
+                    .init(parameterID: .hapticSharpness, value: 0.5)
+                ], relativeTime: 0.22)
             ]
         case .dismiss:
-            return [
-                CHHapticEvent(
-                    eventType: .hapticTransient,
-                    parameters: [
-                        .init(parameterID: .hapticIntensity, value: 0.35),
-                        .init(parameterID: .hapticSharpness, value: 0.2)
-                    ],
-                    relativeTime: 0
-                )
-            ]
+            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
+                .init(parameterID: .hapticIntensity, value: 0.35),
+                .init(parameterID: .hapticSharpness, value: 0.2)
+            ], relativeTime: 0)]
         }
     }
 
