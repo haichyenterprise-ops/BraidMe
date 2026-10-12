@@ -52,8 +52,8 @@ struct MainTabView: View {
     // ─── Shockwaves ───
     @State private var shockwaves: [Shockwave] = []
 
-    // ─── Globe transition ───
-    @State private var globeActive = false
+    // ─── Globe transition (presented as fullScreenCover) ───
+    @State private var showGlobeTransition = false
 
     // ─── Gyro gate ───
     @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
@@ -103,26 +103,30 @@ struct MainTabView: View {
                     }
                 }
                 .ignoresSafeArea(edges: .bottom)
-                // ─── Globe overlay sits at the ROOT of the ZStack so it
-                //     covers everything during transition.
-                .overlay {
-                    if globeActive, let braider = pendingProfileBraider {
-                        GlobeTransitionOverlay(
-                            isActive: globeActive,
-                            targetName: braider.name,
-                            targetInitials: braider.initials,
-                            targetRating: braider.ratingText,
-                            targetAvatarUrl: braider.avatarUrl
-                        ) {
-                            finishGlobeTransition()
-                        }
-                        .transition(.opacity)
-                        .zIndex(9999)
-                    }
-                }
             }
             .navigationDestination(item: $selectedBraider) { braider in
                 BraiderProfileView(braider: braider)
+            }
+            // ─── The globe transition — presented as a modal ───
+            .fullScreenCover(isPresented: $showGlobeTransition) {
+                if let braider = pendingProfileBraider {
+                    GlobeTransitionView(braider: braider) {
+                        // Overlay finished — set destination and dismiss
+                        selectedBraider = braider
+                        showGlobeTransition = false
+                        // Clear pending after a tiny delay so cover fully dismisses
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            pendingProfileBraider = nil
+                        }
+                    }
+                } else {
+                    // Safety: nothing pending — dismiss
+                    Color.black
+                        .ignoresSafeArea()
+                        .onAppear {
+                            showGlobeTransition = false
+                        }
+                }
             }
             .sheet(isPresented: $showProfileSheet) {
                 UserInfoSheet()
@@ -513,42 +517,26 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Globe Transition
+    // MARK: - Globe Transition (fullScreenCover)
 
-    /// Kicks off the globe transition. Retains `pendingProfileBraider`
-    /// so the overlay keeps its target info while it plays.
     private func openProfileWithGlobe(_ braider: Braider) {
-        guard !globeActive else { return }              // prevent double-tap
+        // Prevent double-tap during an in-flight transition
+        guard !showGlobeTransition else { return }
+
         Haptic.heavy()
         haptics.play(.pinExpand)
 
+        // Collapse the capsule so the pin returns to its idle state
+        withAnimation(Motion.collapse) {
+            expandedBraiderId = nil
+        }
+
         pendingProfileBraider = braider
-        expandedBraiderId = nil                          // collapse capsule
 
-        // Small delay so the heavy haptic registers before the flash
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            withAnimation(.easeIn(duration: 0.2)) {
-                globeActive = true
-            }
-        }
-    }
-
-    /// Called by the overlay's `onComplete`. Navigation happens FIRST,
-    /// then the overlay is cleared on the next run loop so there's no
-    /// black flash between them.
-    private func finishGlobeTransition() {
-        guard let braider = pendingProfileBraider else {
-            globeActive = false
-            return
-        }
-
-        // 1. Push the destination
-        selectedBraider = braider
-
-        // 2. Clear the overlay AFTER navigation commits
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            globeActive = false
-            pendingProfileBraider = nil
+        // Present the modal on the next run loop so the collapse animation
+        // doesn't fight the modal presentation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            showGlobeTransition = true
         }
     }
 
