@@ -2,47 +2,80 @@ import SwiftUI
 import MapKit
 import CoreLocation
 
+// =============================================================================
+// MainTabView — Immersive Map Canvas
+//
+// A living, breathing map experience. The map breathes behind a floating
+// search orb. Braider pins form a soft constellation. The bottom sheet morphs
+// fluidly between three states: orb → list preview → full discovery panel.
+// =============================================================================
+
 struct MainTabView: View {
     @EnvironmentObject private var session: SessionManager
     @StateObject private var fb = FirebaseManager.shared
     @StateObject private var locationService = LocationService()
 
-    @State private var region = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 52.4862, longitude: -1.8904),
-        span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
+    // Map state
+    @State private var cameraPosition: MapCameraPosition = .region(
+        MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 52.4862, longitude: -1.8904),
+            span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+        )
     )
     @State private var currentCity: City = CityCatalog.all[0]
+    @State private var mapAppeared = false
+
+    // Selection
     @State private var selectedBraider: Braider?
     @State private var previewBraider: Braider?
     @State private var highlightedBraiderId: String?
+
+    // Sheets
     @State private var showLocationSheet = false
     @State private var showProfileSheet = false
     @State private var showCitySearch = false
     @State private var showBookings = false
     @State private var showSaved = false
-    @State private var sheetDetent: SheetDetent = .collapsed
-    @State private var mapAppeared = false
+
+    // Sheet morphing
+    @State private var sheetState: SheetState = .peek
+    @GestureState private var dragOffset: CGFloat = 0
+    @State private var sheetProgress: CGFloat = 0
+
+    // Data
     @State private var userInfo: UserProfile?
     @State private var braidersLoading = false
-    @State private var headerCollapsed = false
 
-    enum SheetDetent: CaseIterable {
-        case collapsed, medium, expanded
+    enum SheetState: CaseIterable {
+        case peek, list, explore
+
+        var heightRatio: CGFloat {
+            switch self {
+            case .peek: return 0.20
+            case .list: return 0.52
+            case .explore: return 0.94
+            }
+        }
     }
 
     var body: some View {
         NavigationStack {
             GeometryReader { geo in
-                ZStack(alignment: .top) {
-                    mapLayer
-                    topChrome
+                ZStack(alignment: .bottom) {
+                    // ─── LAYER 1: Living map ───
+                    mapCanvas(size: geo.size)
 
-                    VStack(spacing: 0) {
-                        Spacer()
-                        bottomSheet(height: geo.size.height)
-                    }
-                    .ignoresSafeArea(edges: .bottom)
+                    // ─── LAYER 2: Floating chrome (top) ───
+                    topOrbLayer(size: geo.size)
+
+                    // ─── LAYER 3: Morphing bottom sheet ───
+                    morphingSheet(geo: geo)
+
+                    // ─── LAYER 4: Ambient vignette ───
+                    ambientOverlay
+                        .allowsHitTesting(false)
                 }
+                .ignoresSafeArea(edges: .bottom)
             }
             .navigationDestination(item: $selectedBraider) { braider in
                 BraiderProfileView(braider: braider)
@@ -58,24 +91,27 @@ struct MainTabView: View {
             }
             .sheet(isPresented: $showCitySearch) {
                 LocationSearchView(initialCity: currentCity) { newCity in
-                    withAnimation(Motion.sheet) {
+                    withAnimation(.smooth(duration: 0.8)) {
                         currentCity = newCity
-                        region = MKCoordinateRegion(
-                            center: newCity.coordinate,
-                            span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
+                        cameraPosition = .region(
+                            MKCoordinateRegion(
+                                center: newCity.coordinate,
+                                span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                            )
                         )
                     }
                     Haptic.success()
                 }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(Radius.modal)
             }
             .onAppear(perform: onAppear)
             .sheet(isPresented: $showLocationSheet, onDismiss: onLocationDismiss) {
                 LocationPermissionSheet { allowed in
                     handleLocationDecision(allowed)
                 }
-                .presentationDetents([.height(520)])
+                .presentationDetents([.height(560)])
                 .presentationDragIndicator(.hidden)
                 .interactiveDismissDisabled()
                 .presentationCornerRadius(Radius.modal)
@@ -83,306 +119,411 @@ struct MainTabView: View {
         }
     }
 
-    // MARK: - Map
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Layer 1: Living Map Canvas
+    // ═══════════════════════════════════════════════════════════════
 
-    private var mapLayer: some View {
+    private func mapCanvas(size: CGSize) -> some View {
         ZStack {
-            Map(coordinateRegion: $region, annotationItems: fb.braiders) { braider in
-                MapAnnotation(coordinate: braider.coordinate) {
-                    BraiderPin(
-                        braider: braider,
-                        isSelected: previewBraider?.id == braider.id || highlightedBraiderId == braider.id
-                    ) {
-                        Haptic.select()
-                        withAnimation(Motion.bouncy) {
-                            previewBraider = braider
-                            highlightedBraiderId = braider.id
-                            if sheetDetent == .expanded { sheetDetent = .medium }
+            // Base map
+            Map(position: $cameraPosition, interactionModes: [.pan, .zoom]) {
+                ForEach(fb.braiders) { braider in
+                    Annotation("", coordinate: braider.coordinate, anchor: .center) {
+                        ConstellationPin(
+                            braider: braider,
+                            isHighlighted: highlightedBraiderId == braider.id,
+                            isPreviewed: previewBraider?.id == braider.id,
+                            scale: mapScale(for: size)
+                        ) {
+                            selectBraider(braider)
                         }
                     }
                 }
             }
+            .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll))
+            .mapControlVisibility(.hidden)
             .ignoresSafeArea()
 
-            // Map vignette overlay
-            VStack {
-                LinearGradient(
-                    colors: [Color.appBackground.opacity(0.7), .clear],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 140)
-                .allowsHitTesting(false)
-
-                Spacer()
-
-                LinearGradient(
-                    colors: [.clear, Color.appBackground.opacity(0.5)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 100)
-                .allowsHitTesting(false)
-            }
+            // Radial focus vignette — pulls focus to braider region
+            RadialGradient(
+                colors: [
+                    .clear,
+                    Color.appBackground.opacity(0.06)
+                ],
+                center: .center,
+                startRadius: size.width * 0.3,
+                endRadius: size.width * 0.9
+            )
             .ignoresSafeArea()
+            .allowsHitTesting(false)
+
+            // Top scrim
+            LinearGradient(
+                colors: [
+                    Color.appBackground.opacity(0.85),
+                    Color.appBackground.opacity(0.4),
+                    .clear
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 220)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
         }
         .opacity(mapAppeared ? 1 : 0)
-        .scaleEffect(mapAppeared ? 1 : 1.05)
-        .animate(Motion.navigation, value: mapAppeared)
+        .scaleEffect(mapAppeared ? 1 : 1.08)
+        .animation(.smooth(duration: 1.2).delay(0.05), value: mapAppeared)
     }
 
-    // MARK: - Top Chrome
+    /// Slight scale adjustment — pins look larger when zoomed out
+    private func mapScale(for size: CGSize) -> CGFloat {
+        1.0
+    }
 
-    private var topChrome: some View {
-        HStack(spacing: Space.xs) {
-            searchBar
-            savedButton
-            profileButton
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Layer 2: Top Orb (Search)
+    // ═══════════════════════════════════════════════════════════════
+
+    private func topOrbLayer(size: CGSize) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: Space.sm) {
+                searchOrb
+                Spacer(minLength: 0)
+                actionOrbs
+            }
+            .padding(.horizontal, Space.md)
+            .padding(.top, safeAreaTop() + Space.xs)
+            Spacer()
         }
-        .padding(.horizontal, Space.md)
-        .padding(.top, Space.xs)
-        .offset(y: headerCollapsed ? -100 : 0)
-        .opacity(headerCollapsed ? 0 : 1)
-        .animate(Motion.sheet, value: sheetDetent)
+        .opacity(mapAppeared ? 1 : 0)
+        .offset(y: mapAppeared ? 0 : -30)
+        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.15), value: mapAppeared)
     }
 
-    private var searchBar: some View {
+    private var searchOrb: some View {
         Button {
             Haptic.press()
             showCitySearch = true
         } label: {
             HStack(spacing: Space.sm) {
+                // Animated location beacon
                 ZStack {
                     Circle()
+                        .fill(Color.appAccent.opacity(0.2))
+                        .frame(width: 32, height: 32)
+                        .scaleEffect(beaconPulse ? 1.4 : 1)
+                        .opacity(beaconPulse ? 0 : 0.8)
+
+                    Circle()
                         .fill(Color.appAccentTint)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 32, height: 32)
+
                     Image(systemName: "location.fill")
-                        .font(.bmUI(14, weight: .semibold))
+                        .font(.bmUI(13, weight: .semibold))
                         .foregroundStyle(Color.appAccent)
                 }
+                .frame(width: 32, height: 32)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("EXPLORING")
                         .font(.bmUI(9, weight: .bold))
-                        .tracking(1.2)
+                        .tracking(1.5)
                         .foregroundStyle(Color.appSmoke)
-                    Text(currentCity.fullName)
-                        .font(.bmUI(14, weight: .semibold))
+                    Text(currentCity.name)
+                        .font(.bmUI(15, weight: .semibold))
                         .foregroundStyle(Color.appInk)
                         .lineLimit(1)
                 }
 
-                Spacer()
-
-                HStack(spacing: 4) {
+                if fb.braiders.count > 0 {
                     Text("\(fb.braiders.count)")
-                        .font(.bmMono(13, weight: .bold))
+                        .font(.bmMono(11, weight: .bold))
                         .foregroundStyle(Color.appInkInverse)
+                        .frame(minWidth: 22, minHeight: 22)
+                        .padding(.horizontal, 6)
+                        .background(Color.appInk, in: Capsule())
                         .contentTransition(.numericText())
-                    Image(systemName: "chevron.down")
-                        .font(.bmUI(9, weight: .bold))
-                        .foregroundStyle(Color.appInkInverse.opacity(0.7))
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.appInk, in: Capsule())
+
+                Image(systemName: "chevron.down")
+                    .font(.bmUI(10, weight: .bold))
+                    .foregroundStyle(Color.appSmoke)
+                    .rotationEffect(.degrees(showCitySearch ? 180 : 0))
+                    .animation(.smooth(duration: 0.4), value: showCitySearch)
             }
-            .padding(.horizontal, Space.sm)
-            .frame(minHeight: 60)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, 10)
             .background {
-                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                    .fill(Color.appSurface)
+                Capsule()
+                    .fill(.regularMaterial)
                     .overlay(
-                        RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                            .stroke(
-                                LinearGradient(
-                                    colors: [Color.appDivider, Color.appDivider.opacity(0.3)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                ),
-                                lineWidth: 0.5
-                            )
-                    )
-                    .shadow(color: Color.appInk.opacity(0.08), radius: 20, y: 8)
-            }
-        }
-        .buttonStyle(BMPressStyle(scale: 0.99))
-    }
-
-    private var savedButton: some View {
-        Button {
-            Haptic.press()
-            showSaved = true
-        } label: {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "heart.fill")
-                    .font(.bmUI(16, weight: .medium))
-                    .foregroundStyle(fb.savedBraiderIds.isEmpty ? Color.appInk : Color.appAlert)
-                    .frame(width: 56, height: 56)
-                    .background(Color.appSurface, in: Circle())
-                    .overlay(Circle().stroke(Color.appDivider, lineWidth: 0.5))
-                    .shadow(color: Color.appInk.opacity(0.08), radius: 20, y: 8)
-
-                if !fb.savedBraiderIds.isEmpty {
-                    Text("\(fb.savedBraiderIds.count)")
-                        .font(.bmMono(10, weight: .bold))
-                        .foregroundStyle(Color.appInkInverse)
-                        .frame(minWidth: 20, minHeight: 20)
-                        .padding(.horizontal, 5)
-                        .background(Color.appAccent, in: Capsule())
-                        .overlay(Capsule().stroke(Color.appSurface, lineWidth: 2))
-                        .offset(x: 2, y: -2)
-                        .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .animate(Motion.bouncy, value: fb.savedBraiderIds.count)
-        }
-        .buttonStyle(BMIconPressStyle())
-    }
-
-    private var profileButton: some View {
-        Button {
-            Haptic.press()
-            showProfileSheet = true
-        } label: {
-            ZStack {
-                if let avatarUrl = userInfo?.avatarUrl, !avatarUrl.isEmpty {
-                    RemoteImage(url: avatarUrl)
-                        .frame(width: 56, height: 56)
-                        .clipShape(Circle())
-                        .overlay(
-                            Circle().stroke(
-                                LinearGradient(
-                                    colors: [Color.appAccent, Color.appAccentSoft],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 2
-                            )
+                        Capsule().stroke(
+                            LinearGradient(
+                                colors: [.white.opacity(0.6), .white.opacity(0.1)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 0.6
                         )
-                } else if let name = userInfo?.displayName ?? session.displayName, !name.isEmpty {
-                    Circle()
-                        .fill(Color.appInk)
-                        .frame(width: 56, height: 56)
-                    Text(initials(from: name))
-                        .font(.bmUI(16, weight: .bold))
-                        .foregroundStyle(Color.appInkInverse)
-                } else {
-                    Image(systemName: "person.fill")
-                        .font(.bmUI(16, weight: .medium))
-                        .foregroundStyle(Color.appInkInverse)
-                        .frame(width: 56, height: 56)
-                        .background(Color.appInk, in: Circle())
-                }
+                    )
+                    .shadow(color: Color.appInk.opacity(0.12), radius: 24, y: 10)
             }
-            .shadow(color: Color.appInk.opacity(0.12), radius: 20, y: 8)
         }
-        .buttonStyle(BMIconPressStyle())
+        .buttonStyle(OrbPressStyle())
+        .onAppear { beaconPulse = true }
     }
 
-    private func initials(from name: String) -> String {
+    @State private var beaconPulse = false
+
+    private var actionOrbs: some View {
+        HStack(spacing: Space.xs) {
+            // Saved orb
+            Button {
+                Haptic.press()
+                showSaved = true
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    orbIcon(systemName: "heart.fill", filled: !fb.savedBraiderIds.isEmpty)
+
+                    if !fb.savedBraiderIds.isEmpty {
+                        Circle()
+                            .fill(Color.appAlert)
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(Color.appSurface, lineWidth: 1.5))
+                            .offset(x: 2, y: -2)
+                    }
+                }
+            }
+            .buttonStyle(OrbPressStyle())
+
+            // Profile orb
+            Button {
+                Haptic.press()
+                showProfileSheet = true
+            } label: {
+                profileOrb
+            }
+            .buttonStyle(OrbPressStyle())
+        }
+    }
+
+    private func orbIcon(systemName: String, filled: Bool) -> some View {
+        ZStack {
+            Circle()
+                .fill(.regularMaterial)
+                .frame(width: 52, height: 52)
+                .overlay(
+                    Circle().stroke(
+                        LinearGradient(
+                            colors: [.white.opacity(0.6), .white.opacity(0.1)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.6
+                    )
+                )
+                .shadow(color: Color.appInk.opacity(0.12), radius: 20, y: 8)
+
+            Image(systemName: systemName)
+                .font(.bmUI(16, weight: .semibold))
+                .foregroundStyle(filled ? Color.appAlert : Color.appInk)
+        }
+    }
+
+    private var profileOrb: some View {
+        ZStack {
+            Circle()
+                .fill(Color.appInk)
+                .frame(width: 52, height: 52)
+                .overlay(
+                    Circle().stroke(
+                        LinearGradient(
+                            colors: [Color.appAccentSoft.opacity(0.6), Color.appAccent.opacity(0.2)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 2
+                    )
+                )
+                .shadow(color: Color.appInk.opacity(0.25), radius: 20, y: 8)
+
+            if let avatarUrl = userInfo?.avatarUrl, !avatarUrl.isEmpty {
+                RemoteImage(url: avatarUrl)
+                    .frame(width: 44, height: 44)
+                    .clipShape(Circle())
+            } else {
+                Text(userInitials)
+                    .font(.bmUI(15, weight: .bold))
+                    .foregroundStyle(Color.appInkInverse)
+            }
+        }
+    }
+
+    private var userInitials: String {
+        let name = userInfo?.displayName ?? session.displayName ?? ""
         let parts = name.split(separator: " ")
         let r = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
         return r.isEmpty ? "·" : r.uppercased()
     }
 
-    // MARK: - Bottom Sheet
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Layer 3: Morphing Sheet
+    // ═══════════════════════════════════════════════════════════════
 
-    private func bottomSheet(height: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            grabber
+    private func morphingSheet(geo: GeometryProxy) -> some View {
+        let baseHeight = geo.size.height * sheetState.heightRatio
+        let maxHeight = geo.size.height * SheetState.explore.heightRatio
+        let minHeight = geo.size.height * SheetState.peek.heightRatio
+        let currentHeight = min(max(baseHeight - dragOffset, minHeight), maxHeight)
 
-            switch sheetDetent {
-            case .collapsed: collapsedContent
-            case .medium:    mediumContent
-            case .expanded:  expandedContent
+        return VStack(spacing: 0) {
+            sheetHandle
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+
+            Group {
+                switch sheetState {
+                case .peek: peekContent
+                case .list: listContent
+                case .explore: exploreContent
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: sheetHeight(for: height), alignment: .top)
+        .frame(height: currentHeight)
         .background {
-            RoundedRectangle(cornerRadius: Radius.modal, style: .continuous)
-                .fill(Color.appSurface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.modal, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [Color.appDivider, Color.clear],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ),
-                            lineWidth: 0.5
-                        )
+            ZStack {
+                // Base surface
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 36,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 36,
+                    style: .continuous
                 )
-                .shadow(color: Color.appInk.opacity(0.15), radius: 32, y: -12)
+                .fill(.regularMaterial)
+
+                // Fine gradient overlay
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 36,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 36,
+                    style: .continuous
+                )
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.appSurface.opacity(0.4),
+                            Color.appSurface.opacity(0.85)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+
+                // Top highlight edge
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 36,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 36,
+                    style: .continuous
+                )
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.7),
+                            Color.white.opacity(0.05)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.8
+                )
+            }
+            .shadow(color: Color.appInk.opacity(0.18), radius: 40, y: -12)
         }
         .clipShape(
-            .rect(
-                topLeadingRadius: Radius.modal,
+            UnevenRoundedRectangle(
+                topLeadingRadius: 36,
                 bottomLeadingRadius: 0,
                 bottomTrailingRadius: 0,
-                topTrailingRadius: Radius.modal
+                topTrailingRadius: 36,
+                style: .continuous
             )
         )
-        .gesture(dragGesture(for: height))
-        .animate(Motion.sheet, value: sheetDetent)
+        .gesture(sheetDragGesture(geo: geo))
+        .animation(.interactiveSpring(response: 0.5, dampingFraction: 0.82), value: sheetState)
+        .animation(.interactiveSpring(response: 0.5, dampingFraction: 0.82), value: dragOffset)
     }
 
-    private func sheetHeight(for height: CGFloat) -> CGFloat {
-        switch sheetDetent {
-        case .collapsed: return 220
-        case .medium:    return height * 0.55
-        case .expanded:  return height * 0.92
-        }
+    private var sheetHandle: some View {
+        Capsule()
+            .fill(
+                LinearGradient(
+                    colors: [Color.appSmoke.opacity(0.6), Color.appSmoke.opacity(0.3)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .frame(width: 44, height: 5)
     }
 
-    private func dragGesture(for height: CGFloat) -> some Gesture {
+    private func sheetDragGesture(geo: GeometryProxy) -> some Gesture {
         DragGesture()
+            .updating($dragOffset) { value, state, _ in
+                state = value.translation.height
+            }
             .onEnded { value in
-                let threshold: CGFloat = 60
-                withAnimation(Motion.sheet) {
-                    if value.translation.height < -threshold {
-                        switch sheetDetent {
-                        case .collapsed: Haptic.medium(); sheetDetent = .medium
-                        case .medium:    Haptic.medium(); sheetDetent = .expanded
-                        case .expanded:  break
-                        }
-                    } else if value.translation.height > threshold {
-                        switch sheetDetent {
-                        case .collapsed: break
-                        case .medium:    Haptic.medium(); sheetDetent = .collapsed
-                        case .expanded:  Haptic.medium(); sheetDetent = .medium
-                        }
+                let velocity = value.predictedEndTranslation.height
+                let translation = value.translation.height
+
+                withAnimation(.interactiveSpring(response: 0.5, dampingFraction: 0.82)) {
+                    if translation < -50 || velocity < -300 {
+                        advanceSheet()
+                    } else if translation > 50 || velocity > 300 {
+                        retreatSheet()
                     }
                 }
             }
     }
 
-    private var grabber: some View {
-        VStack(spacing: 4) {
-            Capsule()
-                .fill(Color.appDivider)
-                .frame(width: 40, height: 5)
+    private func advanceSheet() {
+        Haptic.medium()
+        switch sheetState {
+        case .peek: sheetState = .list
+        case .list: sheetState = .explore
+        case .explore: break
         }
-        .padding(.top, Space.sm)
-        .padding(.bottom, Space.md)
     }
 
-    // MARK: - Sheet Content
+    private func retreatSheet() {
+        Haptic.medium()
+        switch sheetState {
+        case .peek: break
+        case .list: sheetState = .peek
+        case .explore: sheetState = .list
+        }
+    }
 
-    private var collapsedContent: some View {
+    // ─── Peek Content ───
+
+    private var peekContent: some View {
         VStack(alignment: .leading, spacing: Space.md) {
             HStack(alignment: .firstTextBaseline) {
-                if braidersLoading {
-                    BMSkeleton(height: 26, cornerRadius: 8).frame(width: 160)
-                } else {
-                    VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
+                    if braidersLoading {
+                        BMSkeleton(height: 22, cornerRadius: 8).frame(width: 140)
+                    } else {
                         Text("Nearby")
-                            .font(.bmUI(11, weight: .bold))
-                            .tracking(1.5)
+                            .font(.bmUI(10, weight: .bold))
+                            .tracking(2)
                             .foregroundStyle(Color.appAccent)
-                        Text("\(fb.braiders.count) braiders")
-                            .font(.bmDisplay(24, weight: .semibold))
+                        Text("\(fb.braiders.count) braider\(fb.braiders.count == 1 ? "" : "s")")
+                            .font(.bmDisplay(26, weight: .semibold))
                             .foregroundStyle(Color.appInk)
                             .contentTransition(.numericText())
                     }
@@ -391,7 +532,7 @@ struct MainTabView: View {
                 if !fb.braiders.isEmpty {
                     Button {
                         Haptic.press()
-                        withAnimation(Motion.sheet) { sheetDetent = .medium }
+                        advanceSheet()
                     } label: {
                         HStack(spacing: 4) {
                             Text("See all")
@@ -404,36 +545,35 @@ struct MainTabView: View {
                         .padding(.vertical, 8)
                         .background(Color.appBackground, in: Capsule())
                     }
-                    .buttonStyle(BMPressStyle(scale: 0.96))
+                    .buttonStyle(OrbPressStyle())
                 }
             }
 
             if braidersLoading {
-                loadingCarousel
+                loadingPeek
             } else if fb.braiders.isEmpty {
-                emptyState
+                emptyPeek
             } else {
-                braiderCarousel
+                peekCarousel
             }
-
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, Space.lg)
+        .padding(.top, Space.xs)
     }
 
-    private var loadingCarousel: some View {
+    private var loadingPeek: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Space.sm) {
                 ForEach(0..<3, id: \.self) { _ in
                     HStack(spacing: Space.sm) {
-                        BMSkeleton(height: 48, cornerRadius: 24).frame(width: 48)
-                        VStack(alignment: .leading, spacing: 6) {
-                            BMSkeleton(height: 14, cornerRadius: 4).frame(width: 90)
-                            BMSkeleton(height: 10, cornerRadius: 4).frame(width: 60)
+                        BMSkeleton(height: 44, cornerRadius: 22).frame(width: 44)
+                        VStack(alignment: .leading, spacing: 4) {
+                            BMSkeleton(height: 12, cornerRadius: 4).frame(width: 80)
+                            BMSkeleton(height: 9, cornerRadius: 4).frame(width: 55)
                         }
                     }
                     .padding(Space.sm)
-                    .frame(width: 190, alignment: .leading)
+                    .frame(width: 175, alignment: .leading)
                     .background(Color.appBackground)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.card))
                 }
@@ -443,39 +583,35 @@ struct MainTabView: View {
         .padding(.horizontal, -Space.lg)
     }
 
-    private var emptyState: some View {
+    private var emptyPeek: some View {
         HStack(spacing: Space.md) {
             ZStack {
-                Circle()
-                    .fill(Color.appAccentTint)
-                    .frame(width: 48, height: 48)
+                Circle().fill(Color.appAccentTint).frame(width: 40, height: 40)
                 Image(systemName: "mappin.slash")
-                    .font(.bmUI(18, weight: .medium))
+                    .font(.bmUI(15, weight: .medium))
                     .foregroundStyle(Color.appAccent)
             }
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("No braiders here")
-                    .font(.bmUI(14, weight: .semibold))
+                    .font(.bmUI(13, weight: .semibold))
                     .foregroundStyle(Color.appInk)
-                Text("Try another city")
-                    .font(.bmUI(12))
+                Text("Try a different city")
+                    .font(.bmUI(11))
                     .foregroundStyle(Color.appAsh)
             }
             Spacer()
         }
-        .padding(Space.md)
+        .padding(Space.sm)
         .background(Color.appBackground)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.button))
     }
 
-    private var braiderCarousel: some View {
+    private var peekCarousel: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Space.sm) {
-                ForEach(fb.braiders.prefix(6)) { braider in
-                    CompactBraiderCard(braider: braider) {
-                        Haptic.select()
-                        previewBraider = braider
-                        selectedBraider = braider
+                ForEach(fb.braiders.prefix(8)) { braider in
+                    PeekCard(braider: braider) {
+                        selectBraider(braider)
                     }
                 }
             }
@@ -484,88 +620,73 @@ struct MainTabView: View {
         .padding(.horizontal, -Space.lg)
     }
 
-    private var mediumContent: some View {
+    // ─── List Content ───
+
+    private var listContent: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            sheetHeader
+            sheetSectionHeader
+                .padding(.horizontal, Space.lg)
 
             if braidersLoading {
-                VStack(spacing: Space.md) {
-                    ForEach(0..<4, id: \.self) { _ in
-                        HStack(spacing: Space.sm) {
-                            BMSkeleton(height: 64, cornerRadius: 32).frame(width: 64)
-                            VStack(alignment: .leading, spacing: 8) {
-                                BMSkeleton(height: 14, cornerRadius: 4).frame(width: 130)
-                                BMSkeleton(height: 10, cornerRadius: 4).frame(width: 100)
-                                BMSkeleton(height: 10, cornerRadius: 4).frame(width: 70)
-                            }
-                            Spacer()
-                        }
-                    }
-                }
-                .padding(.top, Space.xs)
+                listLoadingView
             } else if fb.braiders.isEmpty {
-                miniEmpty
+                emptyExploreView
             } else {
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(fb.braiders.enumerated()), id: \.element.id) { index, braider in
-                            BraiderCard(
-                                braider: braider,
-                                isHighlighted: highlightedBraiderId == braider.id
-                            ) {
-                                Haptic.select()
-                                previewBraider = braider
-                                highlightedBraiderId = braider.id
-                                selectedBraider = braider
-                            }
-                            .opacity(mapAppeared ? 1 : 0)
-                            .offset(y: mapAppeared ? 0 : 16)
-                            .animate(Motion.reveal.delay(Motion.stagger(index)), value: mapAppeared)
+                listScrollView
+            }
+        }
+    }
 
-                            if index < fb.braiders.count - 1 {
-                                BMDivider(inset: 80)
-                            }
-                        }
-                        Color.clear.frame(height: Space.lg)
+    private var sheetSectionHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("DISCOVER")
+                    .font(.bmUI(10, weight: .bold))
+                    .tracking(2)
+                    .foregroundStyle(Color.appAccent)
+                Text("Top picks nearby")
+                    .font(.bmDisplay(26, weight: .semibold))
+                    .foregroundStyle(Color.appInk)
+            }
+            Spacer()
+            Button {
+                Haptic.press()
+                withAnimation(.interactiveSpring(response: 0.5, dampingFraction: 0.82)) {
+                    sheetState = (sheetState == .explore) ? .list : .explore
+                }
+            } label: {
+                Image(systemName: sheetState == .explore ? "chevron.down" : "chevron.up")
+                    .font(.bmUI(13, weight: .bold))
+                    .foregroundStyle(Color.appInk)
+                    .frame(width: 36, height: 36)
+                    .background(Color.appBackground, in: Circle())
+            }
+            .buttonStyle(OrbPressStyle())
+        }
+    }
+
+    private var listLoadingView: some View {
+        VStack(spacing: Space.md) {
+            ForEach(0..<4, id: \.self) { _ in
+                HStack(spacing: Space.sm) {
+                    BMSkeleton(height: 60, cornerRadius: 30).frame(width: 60)
+                    VStack(alignment: .leading, spacing: 8) {
+                        BMSkeleton(height: 14, cornerRadius: 4).frame(width: 130)
+                        BMSkeleton(height: 10, cornerRadius: 4).frame(width: 100)
+                        BMSkeleton(height: 10, cornerRadius: 4).frame(width: 70)
                     }
+                    Spacer()
                 }
             }
         }
         .padding(.horizontal, Space.lg)
+        .padding(.top, Space.xs)
     }
 
-    private var expandedContent: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
-            sheetHeader
-
-            if fb.braiders.isEmpty {
-                miniEmpty
-            } else {
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(spacing: Space.sm) {
-                        ForEach(Array(fb.braiders.enumerated()), id: \.element.id) { index, braider in
-                            BigBraiderRow(braider: braider) {
-                                Haptic.select()
-                                selectedBraider = braider
-                            }
-                            .opacity(mapAppeared ? 1 : 0)
-                            .offset(y: mapAppeared ? 0 : 16)
-                            .animate(Motion.reveal.delay(Motion.stagger(index)), value: mapAppeared)
-                        }
-                        Color.clear.frame(height: Space.lg)
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, Space.lg)
-    }
-
-    private var miniEmpty: some View {
+    private var emptyExploreView: some View {
         VStack(spacing: Space.sm) {
             ZStack {
-                Circle()
-                    .fill(Color.appAccentTint)
-                    .frame(width: 64, height: 64)
+                Circle().fill(Color.appAccentTint).frame(width: 64, height: 64)
                 Image(systemName: "mappin.slash")
                     .font(.bmUI(24, weight: .light))
                     .foregroundStyle(Color.appAccent)
@@ -573,7 +694,7 @@ struct MainTabView: View {
             Text("No braiders here yet")
                 .font(.bmUI(15, weight: .semibold))
                 .foregroundStyle(Color.appInk)
-            Text("Try another city from the search bar.")
+            Text("Try another city from the search orb.")
                 .font(.bmUI(13))
                 .foregroundStyle(Color.appAsh)
         }
@@ -581,35 +702,97 @@ struct MainTabView: View {
         .padding(.vertical, Space.xl)
     }
 
-    private var sheetHeader: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("DISCOVER")
-                    .font(.bmUI(10, weight: .bold))
-                    .tracking(1.5)
-                    .foregroundStyle(Color.appAccent)
-                Text("Braiders near you")
-                    .font(.bmDisplay(26, weight: .semibold))
-                    .foregroundStyle(Color.appInk)
-            }
-            Spacer()
-            Button {
-                Haptic.press()
-                withAnimation(Motion.sheet) {
-                    sheetDetent = (sheetDetent == .expanded) ? .medium : .collapsed
+    private var listScrollView: some View {
+        ScrollView(showsIndicators: false) {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(fb.braiders.enumerated()), id: \.element.id) { index, braider in
+                    DiscoveryRow(
+                        braider: braider,
+                        isHighlighted: highlightedBraiderId == braider.id,
+                        onTap: { selectBraider(braider) }
+                    )
+                    .opacity(mapAppeared ? 1 : 0)
+                    .offset(y: mapAppeared ? 0 : 20)
+                    .animation(
+                        .spring(response: 0.5, dampingFraction: 0.85).delay(Double(index) * 0.05),
+                        value: mapAppeared
+                    )
+
+                    if index < fb.braiders.count - 1 {
+                        Rectangle()
+                            .fill(Color.appDivider)
+                            .frame(height: 0.5)
+                            .padding(.leading, 92)
+                    }
                 }
-            } label: {
-                Image(systemName: sheetDetent == .expanded ? "chevron.down" : "chevron.up")
-                    .font(.bmUI(13, weight: .bold))
-                    .foregroundStyle(Color.appInk)
-                    .frame(width: 36, height: 36)
-                    .background(Color.appBackground, in: Circle())
+                Color.clear.frame(height: 120)
             }
-            .buttonStyle(BMIconPressStyle())
+            .padding(.horizontal, Space.lg)
         }
     }
 
+    // ─── Explore Content ───
+
+    private var exploreContent: some View {
+        VStack(alignment: .leading, spacing: Space.md) {
+            sheetSectionHeader
+                .padding(.horizontal, Space.lg)
+
+            if fb.braiders.isEmpty {
+                emptyExploreView
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: Space.md) {
+                        ForEach(Array(fb.braiders.enumerated()), id: \.element.id) { index, braider in
+                            ExploreCard(braider: braider) {
+                                selectBraider(braider)
+                            }
+                            .opacity(mapAppeared ? 1 : 0)
+                            .offset(y: mapAppeared ? 0 : 24)
+                            .animation(
+                                .spring(response: 0.55, dampingFraction: 0.85).delay(Double(index) * 0.04),
+                                value: mapAppeared
+                            )
+                        }
+                        Color.clear.frame(height: 100)
+                    }
+                    .padding(.horizontal, Space.lg)
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Layer 4: Ambient Overlay
+    // ═══════════════════════════════════════════════════════════════
+
+    private var ambientOverlay: some View {
+        // Delicate noise to give the map a tactile quality
+        NoiseTexture(opacity: 0.02)
+            .ignoresSafeArea()
+            .blendMode(.overlay)
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Actions
+    // ═══════════════════════════════════════════════════════════════
+
+    private func selectBraider(_ braider: Braider) {
+        Haptic.select()
+        withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) {
+            previewBraider = braider
+            highlightedBraiderId = braider.id
+            if sheetState == .explore { sheetState = .list }
+        }
+        // Small delay so the highlight animates, then navigate
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            selectedBraider = braider
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // MARK: - Lifecycle
+    // ═══════════════════════════════════════════════════════════════
 
     private func onAppear() {
         let uid = session.uid
@@ -626,9 +809,11 @@ struct MainTabView: View {
                    let stored = CityCatalog.all.first(where: { $0.name == cityName }) {
                     await MainActor.run {
                         currentCity = stored
-                        region = MKCoordinateRegion(
-                            center: stored.coordinate,
-                            span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
+                        cameraPosition = .region(
+                            MKCoordinateRegion(
+                                center: stored.coordinate,
+                                span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                            )
                         )
                     }
                 }
@@ -637,7 +822,7 @@ struct MainTabView: View {
             await MainActor.run { braidersLoading = false }
         }
 
-        withAnimation(Motion.heroReveal.delay(0.1)) { mapAppeared = true }
+        withAnimation { mapAppeared = true }
 
         if !fb.hasAskedForLocation {
             showLocationSheet = true
@@ -660,11 +845,13 @@ struct MainTabView: View {
             locationService.start()
             if let loc = locationService.lastLocation,
                let closest = CityCatalog.closest(to: loc) {
-                withAnimation(Motion.sheet) {
+                withAnimation(.smooth(duration: 0.8)) {
                     currentCity = closest
-                    region = MKCoordinateRegion(
-                        center: closest.coordinate,
-                        span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
+                    cameraPosition = .region(
+                        MKCoordinateRegion(
+                            center: closest.coordinate,
+                            span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                        )
                     )
                 }
             }
@@ -689,122 +876,218 @@ struct MainTabView: View {
             }
         }
     }
+
+    private func safeAreaTop() -> CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }?
+            .safeAreaInsets.top ?? 44
+    }
 }
 
-// MARK: - Braider Pin
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Constellation Pin
+// ═══════════════════════════════════════════════════════════════════
 
-struct BraiderPin: View {
+struct ConstellationPin: View {
     let braider: Braider
-    let isSelected: Bool
+    let isHighlighted: Bool
+    let isPreviewed: Bool
+    let scale: CGFloat
     let onTap: () -> Void
 
-    @State private var pulse = false
+    @State private var breathe = false
+    @State private var haloRotation: Double = 0
+
+    private var isActive: Bool { isHighlighted || isPreviewed }
 
     var body: some View {
         Button(action: onTap) {
             ZStack {
-                // Pulse ring when selected
-                if isSelected {
+                // Outer halo — only shown when active
+                if isActive {
                     Circle()
-                        .stroke(Color.appAccent.opacity(0.4), lineWidth: 2)
-                        .frame(width: 80, height: 80)
-                        .scaleEffect(pulse ? 1.3 : 1)
-                        .opacity(pulse ? 0 : 0.7)
-                        .onAppear {
-                            withAnimation(.easeOut(duration: 1.5).repeatForever(autoreverses: false)) {
-                                pulse = true
-                            }
-                        }
+                        .stroke(
+                            AngularGradient(
+                                colors: [
+                                    Color.appAccent.opacity(0),
+                                    Color.appAccent.opacity(0.9),
+                                    Color.appAccent.opacity(0),
+                                    Color.appAccentSoft.opacity(0.6),
+                                    Color.appAccent.opacity(0)
+                                ],
+                                center: .center,
+                                angle: .degrees(haloRotation)
+                            ),
+                            lineWidth: 1.5
+                        )
+                        .frame(width: 88, height: 88)
+                        .transition(.scale.combined(with: .opacity))
                 }
 
-                // Outer ring
-                Circle()
-                    .fill(Color.appSurface)
-                    .frame(width: isSelected ? 72 : 54, height: isSelected ? 72 : 54)
-                    .shadow(color: Color.appInk.opacity(0.25), radius: 14, y: 6)
+                // Breathing pulse
+                if isActive {
+                    Circle()
+                        .fill(Color.appAccent.opacity(0.12))
+                        .frame(width: 78, height: 78)
+                        .scaleEffect(breathe ? 1.15 : 1)
+                        .opacity(breathe ? 0.4 : 0.9)
+                }
 
-                // Avatar / placeholder
-                Group {
+                // Platform shadow
+                Circle()
+                    .fill(Color.black.opacity(0.18))
+                    .frame(width: isActive ? 62 : 46, height: 12)
+                    .blur(radius: 6)
+                    .offset(y: 28)
+
+                // Main pin container
+                ZStack {
+                    // Backdrop
+                    Circle()
+                        .fill(Color.appSurface)
+                        .frame(width: isActive ? 68 : 50, height: isActive ? 68 : 50)
+                        .shadow(color: Color.black.opacity(0.22), radius: 14, y: 6)
+
+                    // Image
                     if braider.avatarUrl.isEmpty {
-                        Image(systemName: "person.fill")
-                            .font(.bmUI(isSelected ? 26 : 20, weight: .medium))
-                            .foregroundStyle(Color.appAsh)
-                            .frame(width: isSelected ? 62 : 46, height: isSelected ? 62 : 46)
-                            .background(Color.appBackground, in: Circle())
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.appAccentTint, Color.appAccent.opacity(0.2)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: isActive ? 60 : 42, height: isActive ? 60 : 42)
+                            .overlay(
+                                Text(braider.initials)
+                                    .font(.bmUI(isActive ? 20 : 14, weight: .bold))
+                                    .foregroundStyle(Color.appAccent)
+                            )
                     } else {
                         RemoteImage(url: braider.avatarUrl)
-                            .frame(width: isSelected ? 62 : 46, height: isSelected ? 62 : 46)
+                            .frame(width: isActive ? 60 : 42, height: isActive ? 60 : 42)
                             .clipShape(Circle())
                     }
+
+                    // Ring
+                    Circle()
+                        .stroke(
+                            isActive ? Color.appAccent : Color.appSurface,
+                            lineWidth: isActive ? 3 : 2.5
+                        )
+                        .frame(width: isActive ? 66 : 48, height: isActive ? 66 : 48)
                 }
+                .scaleEffect(isActive ? 1.0 : 1.0)
 
-                // Accent ring
-                Circle()
-                    .stroke(
-                        isSelected ? Color.appAccent : Color.appSurface,
-                        lineWidth: isSelected ? 3 : 2.5
-                    )
-                    .frame(width: isSelected ? 68 : 50, height: isSelected ? 68 : 50)
-
-                // Rating badge
-                if isSelected {
+                // Rating pill — floats above
+                if isActive {
                     HStack(spacing: 3) {
                         Image(systemName: "star.fill")
                             .font(.bmUI(8))
                             .foregroundStyle(Color.appAccent)
-                        Text(String(format: "%.1f", braider.rating))
+                        Text(braider.ratingText)
                             .font(.bmMono(10, weight: .bold))
                             .foregroundStyle(Color.appInkInverse)
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(Color.appInk, in: Capsule())
-                    .overlay(Capsule().stroke(Color.appAccent.opacity(0.5), lineWidth: 1))
-                    .offset(y: -46)
+                    .overlay(Capsule().stroke(Color.appAccent.opacity(0.6), lineWidth: 1))
+                    .offset(y: -48)
                     .transition(.scale.combined(with: .opacity))
                 }
             }
         }
-        .buttonStyle(BMIconPressStyle())
-        .animate(Motion.bouncy, value: isSelected)
+        .buttonStyle(PinTapStyle())
+        .animation(.spring(response: 0.5, dampingFraction: 0.7), value: isActive)
+        .onAppear {
+            if isActive {
+                withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
+                    breathe = true
+                }
+                withAnimation(.linear(duration: 6).repeatForever(autoreverses: false)) {
+                    haloRotation = 360
+                }
+            }
+        }
+        .onChange(of: isActive) { _, newValue in
+            if newValue {
+                withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
+                    breathe = true
+                }
+                withAnimation(.linear(duration: 6).repeatForever(autoreverses: false)) {
+                    haloRotation = 360
+                }
+            } else {
+                breathe = false
+                haloRotation = 0
+            }
+        }
     }
 }
 
-// MARK: - Compact Card
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Peek Card (carousel)
+// ═══════════════════════════════════════════════════════════════════
 
-struct CompactBraiderCard: View {
+struct PeekCard: View {
     let braider: Braider
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: Space.sm) {
-                BMAvatar(url: braider.avatarUrl, size: 48, initials: initials, ringed: braider.verified)
+                // Mini pin visual
+                ZStack {
+                    Circle()
+                        .fill(Color.appAccentTint)
+                        .frame(width: 44, height: 44)
+                    if braider.avatarUrl.isEmpty {
+                        Text(braider.initials)
+                            .font(.bmUI(14, weight: .bold))
+                            .foregroundStyle(Color.appAccent)
+                    } else {
+                        RemoteImage(url: braider.avatarUrl)
+                            .frame(width: 44, height: 44)
+                            .clipShape(Circle())
+                    }
+                    Circle()
+                        .stroke(Color.appAccent.opacity(0.4), lineWidth: 1.5)
+                        .frame(width: 44, height: 44)
+                }
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(braider.name)
-                        .font(.bmUI(14, weight: .semibold))
-                        .foregroundStyle(Color.appInk)
-                        .lineLimit(1)
-
+                    HStack(spacing: 4) {
+                        Text(braider.name)
+                            .font(.bmUI(13, weight: .semibold))
+                            .foregroundStyle(Color.appInk)
+                            .lineLimit(1)
+                        if braider.verified {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.bmUI(9))
+                                .foregroundStyle(Color.appAccent)
+                        }
+                    }
                     HStack(spacing: 4) {
                         Image(systemName: "star.fill")
-                            .font(.bmUI(9))
+                            .font(.bmUI(8))
                             .foregroundStyle(Color.appAccent)
-                        Text(String(format: "%.1f", braider.rating))
-                            .font(.bmMono(11, weight: .semibold))
+                        Text(braider.ratingText)
+                            .font(.bmMono(10, weight: .semibold))
                             .foregroundStyle(Color.appInk)
-                        Text("·")
-                            .foregroundStyle(Color.appSmoke)
+                        Text("·").foregroundStyle(Color.appSmoke)
                         Text("£\(braider.priceFrom)")
-                            .font(.bmMono(11, weight: .semibold))
+                            .font(.bmMono(10, weight: .semibold))
                             .foregroundStyle(Color.appAccent)
                     }
                 }
             }
             .padding(.horizontal, Space.sm)
             .padding(.vertical, Space.sm)
-            .frame(width: 200, alignment: .leading)
+            .frame(width: 185, alignment: .leading)
             .background(Color.appBackground)
             .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             .overlay(
@@ -812,23 +1095,275 @@ struct CompactBraiderCard: View {
                     .stroke(Color.appDivider, lineWidth: 0.5)
             )
         }
-        .buttonStyle(BMPressStyle(scale: 0.98))
-    }
-
-    private var initials: String {
-        let parts = braider.name.split(separator: " ")
-        let r = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
-        return r.isEmpty ? "·" : r.uppercased()
+        .buttonStyle(OrbPressStyle())
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Discovery Row (list)
+// ═══════════════════════════════════════════════════════════════════
+
+struct DiscoveryRow: View {
+    let braider: Braider
+    let isHighlighted: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: Space.md) {
+                // Avatar with subtle ring
+                ZStack {
+                    if braider.verified {
+                        Circle()
+                            .stroke(
+                                LinearGradient(
+                                    colors: [Color.appAccent, Color.appAccentSoft],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 2
+                            )
+                            .frame(width: 66, height: 66)
+                    }
+                    if braider.avatarUrl.isEmpty {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.appAccentTint, Color.appAccent.opacity(0.18)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 60, height: 60)
+                            .overlay(
+                                Text(braider.initials)
+                                    .font(.bmUI(20, weight: .bold))
+                                    .foregroundStyle(Color.appAccent)
+                            )
+                    } else {
+                        RemoteImage(url: braider.avatarUrl)
+                            .frame(width: 60, height: 60)
+                            .clipShape(Circle())
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: Space.xs) {
+                        Text(braider.name)
+                            .font(.bmUI(16, weight: .semibold))
+                            .foregroundStyle(Color.appInk)
+                            .lineLimit(1)
+                        if braider.verified {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.bmUI(11))
+                                .foregroundStyle(Color.appAccent)
+                        }
+                    }
+
+                    HStack(spacing: Space.xs) {
+                        HStack(spacing: 2) {
+                            ForEach(0..<5, id: \.self) { i in
+                                Image(systemName: Double(i) < braider.rating.rounded() ? "star.fill" : "star")
+                                    .font(.bmUI(9))
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+                        Text(braider.ratingText)
+                            .font(.bmMono(12, weight: .semibold))
+                            .foregroundStyle(Color.appInk)
+                        Text("·")
+                            .foregroundStyle(Color.appSmoke)
+                        Text(braider.reviewCountText)
+                            .font(.bmUI(11))
+                            .foregroundStyle(Color.appAsh)
+                    }
+
+                    HStack(spacing: Space.xs) {
+                        Text("from")
+                            .font(.bmUI(10))
+                            .foregroundStyle(Color.appSmoke)
+                        Text("£\(braider.priceFrom)")
+                            .font(.bmMono(13, weight: .semibold))
+                            .foregroundStyle(Color.appAccent)
+                        if !braider.city.isEmpty {
+                            Text("·").foregroundStyle(Color.appSmoke)
+                            Text(braider.city)
+                                .font(.bmUI(11))
+                                .foregroundStyle(Color.appAsh)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "arrow.up.right")
+                    .font(.bmUI(12, weight: .bold))
+                    .foregroundStyle(Color.appInk)
+                    .frame(width: 32, height: 32)
+                    .background(Color.appBackground, in: Circle())
+            }
+            .padding(.vertical, Space.sm)
+            .padding(.horizontal, isHighlighted ? Space.sm : 0)
+            .background(
+                Group {
+                    if isHighlighted {
+                        RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                            .fill(Color.appAccentTint)
+                    }
+                }
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(OrbPressStyle())
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isHighlighted)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Explore Card (full expanded)
+// ═══════════════════════════════════════════════════════════════════
+
+struct ExploreCard: View {
+    let braider: Braider
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Cover image
+                if !braider.coverUrl.isEmpty {
+                    ZStack(alignment: .topTrailing) {
+                        RemoteImage(url: braider.coverUrl)
+                            .frame(height: 200)
+                            .frame(maxWidth: .infinity)
+                            .clipped()
+                            .overlay(
+                                LinearGradient(
+                                    colors: [.clear, .black.opacity(0.4)],
+                                    startPoint: .center,
+                                    endPoint: .bottom
+                                )
+                            )
+
+                        // Rating badge
+                        HStack(spacing: 4) {
+                            Image(systemName: "star.fill")
+                                .font(.bmUI(10))
+                                .foregroundStyle(Color.appAccent)
+                            Text(braider.ratingText)
+                                .font(.bmMono(12, weight: .bold))
+                                .foregroundStyle(Color.appInk)
+                        }
+                        .padding(.horizontal, Space.sm)
+                        .padding(.vertical, 6)
+                        .background(.regularMaterial, in: Capsule())
+                        .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 0.5))
+                        .padding(Space.sm)
+                    }
+                    .clipShape(
+                        .rect(
+                            topLeadingRadius: Radius.card,
+                            bottomLeadingRadius: 0,
+                            bottomTrailingRadius: 0,
+                            topTrailingRadius: Radius.card
+                        )
+                    )
+                }
+
+                // Info
+                HStack(alignment: .top, spacing: Space.md) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: Space.xs) {
+                            Text(braider.name)
+                                .font(.bmDisplay(20, weight: .semibold))
+                                .foregroundStyle(Color.appInk)
+                                .lineLimit(1)
+                            if braider.verified {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .font(.bmUI(13))
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        if !braider.tagline.isEmpty {
+                            Text(braider.tagline)
+                                .font(.bmUI(13))
+                                .foregroundStyle(Color.appAsh)
+                                .lineLimit(2)
+                        }
+
+                        HStack(spacing: Space.md) {
+                            BMPriceTag(price: braider.priceFrom)
+
+                            if !braider.responseTime.isEmpty {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "clock")
+                                        .font(.bmUI(10))
+                                    Text(braider.responseTime)
+                                        .font(.bmMono(11, weight: .medium))
+                                }
+                                .foregroundStyle(Color.appAsh)
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    ZStack {
+                        Circle()
+                            .fill(Color.appInk)
+                            .frame(width: 40, height: 40)
+                            .shadow(color: Color.appInk.opacity(0.2), radius: 8, y: 4)
+                        Image(systemName: "arrow.up.right")
+                            .font(.bmUI(14, weight: .bold))
+                            .foregroundStyle(Color.appInkInverse)
+                    }
+                }
+                .padding(Space.md)
+            }
+            .background(Color.appSurface)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                    .stroke(Color.appDivider, lineWidth: 0.5)
+            )
+            .shadow(color: Color.appInk.opacity(0.08), radius: 20, y: 10)
+        }
+        .buttonStyle(OrbPressStyle())
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Press Styles
+// ═══════════════════════════════════════════════════════════════════
+
+struct OrbPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
+struct PinTapStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .animation(.spring(response: 0.35, dampingFraction: 0.65), value: configuration.isPressed)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Location Permission Sheet
+// ═══════════════════════════════════════════════════════════════════
 
 struct LocationPermissionSheet: View {
     let onDecision: (Bool) -> Void
 
     @State private var appeared = false
-    @State private var ringPulse = false
+    @State private var rings: [CGFloat] = [1, 1, 1]
+    @State private var opacities: [Double] = [0.6, 0.4, 0.2]
 
     var body: some View {
         ZStack {
@@ -836,10 +1371,10 @@ struct LocationPermissionSheet: View {
 
             // Ambient gradient
             RadialGradient(
-                colors: [Color.appAccent.opacity(0.1), .clear],
+                colors: [Color.appAccent.opacity(0.14), .clear],
                 center: .top,
                 startRadius: 0,
-                endRadius: 300
+                endRadius: 400
             )
             .ignoresSafeArea()
 
@@ -847,29 +1382,39 @@ struct LocationPermissionSheet: View {
                 Spacer().frame(height: Space.xl)
 
                 ZStack {
-                    // Pulse rings
+                    // Concentric animated rings
+                    ForEach(0..<3, id: \.self) { i in
+                        Circle()
+                            .stroke(
+                                Color.appAccent.opacity(opacities[i]),
+                                lineWidth: 1.5
+                            )
+                            .frame(width: 120 + CGFloat(i) * 30, height: 120 + CGFloat(i) * 30)
+                            .scaleEffect(rings[i])
+                    }
+
+                    // Solid center
                     Circle()
-                        .stroke(Color.appAccent.opacity(0.2), lineWidth: 2)
+                        .fill(
+                            RadialGradient(
+                                colors: [Color.appAccentTint, Color.appAccent.opacity(0.2)],
+                                center: .center,
+                                startRadius: 0,
+                                endRadius: 70
+                            )
+                        )
                         .frame(width: 120, height: 120)
-                        .scaleEffect(ringPulse ? 1.4 : 1)
-                        .opacity(ringPulse ? 0 : 0.6)
 
                     Circle()
-                        .stroke(Color.appAccent.opacity(0.3), lineWidth: 2)
-                        .frame(width: 120, height: 120)
-                        .scaleEffect(ringPulse ? 1.2 : 1)
-                        .opacity(ringPulse ? 0 : 0.8)
-
-                    Circle()
-                        .fill(Color.appAccentTint)
+                        .stroke(Color.appAccent.opacity(0.5), lineWidth: 1)
                         .frame(width: 120, height: 120)
 
                     Image(systemName: "location.fill")
                         .font(.bmUI(44, weight: .medium))
                         .foregroundStyle(Color.appAccent)
+                        .scaleEffect(appeared ? 1 : 0.5)
+                        .opacity(appeared ? 1 : 0)
                 }
-                .scaleEffect(appeared ? 1 : 0.7)
-                .opacity(appeared ? 1 : 0)
 
                 Spacer().frame(height: Space.xl)
 
@@ -908,15 +1453,30 @@ struct LocationPermissionSheet: View {
             }
         }
         .onAppear {
-            withAnimation(Motion.heroReveal) { appeared = true }
-            withAnimation(.easeOut(duration: 2).repeatForever(autoreverses: false)) {
-                ringPulse = true
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.75)) {
+                appeared = true
+            }
+            animateRings()
+        }
+    }
+
+    private func animateRings() {
+        for i in 0..<3 {
+            withAnimation(
+                .easeOut(duration: 2.2)
+                .repeatForever(autoreverses: false)
+                .delay(Double(i) * 0.4)
+            ) {
+                rings[i] = 1.4
+                opacities[i] = 0
             }
         }
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Location Service
+// ═══════════════════════════════════════════════════════════════════
 
 final class LocationService: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
