@@ -240,7 +240,8 @@ func createBooking(
             let updated = Booking(
                 id: b.id, braiderName: b.braiderName, braiderId: b.braiderId,
                 date: b.date, time: b.time, style: b.style,
-                price: b.price, status: "cancellation_requested", createdAt: b.createdAt
+                price: b.price, status: "cancellation_requested", createdAt: b.createdAt,
+                customerName: b.customerName
             )
             bookings[idx] = updated
         }

@@ -5,6 +5,7 @@ final class ImageCache {
     static let shared = ImageCache()
 
     private let memory = NSCache<NSString, UIImage>()
+    private let failed = NSCache<NSString, NSNumber>()
     private let diskURL: URL
     private let ioQueue = DispatchQueue(label: "BraidMe.ImageCache.io", qos: .background)
 
@@ -13,6 +14,7 @@ final class ImageCache {
         diskURL = caches.appendingPathComponent("BraidMeImages", isDirectory: true)
         try? FileManager.default.createDirectory(at: diskURL, withIntermediateDirectories: true)
         memory.countLimit = 200
+        failed.countLimit = 100
     }
 
     func cachedImage(for key: String) -> UIImage? {
@@ -31,6 +33,14 @@ final class ImageCache {
                 try? data.write(to: file, options: .atomic)
             }
         }
+    }
+
+    func hasFailed(_ key: String) -> Bool {
+        failed.object(forKey: key as NSString) != nil
+    }
+
+    func markFailed(_ key: String) {
+        failed.setObject(NSNumber(value: true), forKey: key as NSString)
     }
 
     private func hashed(_ key: String) -> String {
@@ -52,7 +62,7 @@ struct RemoteImage: View {
 
     var body: some View {
         ZStack {
-            AppTheme.mist
+            Color.appDivider
             if let image {
                 Image(uiImage: image)
                     .resizable()
@@ -69,21 +79,27 @@ struct RemoteImage: View {
 
     private var shimmerBlock: some View {
         Rectangle()
-            .fill(AppTheme.mist)
+            .fill(Color.appDivider)
             .overlay(MovingShimmer())
     }
 
     private var failedPlaceholder: some View {
         ZStack {
-            AppTheme.mist
+            Color.appDivider
             Image(systemName: "photo")
-                .font(.system(size: 28, weight: .light))
-                .foregroundColor(AppTheme.ash)
+                .font(.bmUI(28, weight: .light))
+                .foregroundStyle(Color.appSmoke)
         }
     }
 
     private func load() async {
         guard !url.isEmpty else { phase = .failed; return }
+
+        if ImageCache.shared.hasFailed(url) {
+            phase = .failed
+            return
+        }
+
         if let cached = ImageCache.shared.cachedImage(for: url) {
             await MainActor.run {
                 withAnimation(.easeOut(duration: 0.28)) { self.image = cached }
@@ -91,11 +107,13 @@ struct RemoteImage: View {
             }
             return
         }
+
         await MainActor.run { self.phase = .loading }
         guard let u = URL(string: url) else {
             await MainActor.run { self.phase = .failed }
             return
         }
+
         do {
             var request = URLRequest(url: u)
             request.cachePolicy = .returnCacheDataElseLoad
@@ -103,6 +121,7 @@ struct RemoteImage: View {
             request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
             let (data, _) = try await URLSession.shared.data(for: request)
             guard let img = UIImage(data: data) else {
+                ImageCache.shared.markFailed(url)
                 await MainActor.run { self.phase = .failed }
                 return
             }
@@ -112,6 +131,7 @@ struct RemoteImage: View {
                 self.phase = .loaded
             }
         } catch {
+            ImageCache.shared.markFailed(url)
             await MainActor.run { self.phase = .failed }
         }
     }
@@ -119,17 +139,23 @@ struct RemoteImage: View {
 
 private struct MovingShimmer: View {
     @State private var x: CGFloat = -1.2
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         GeometryReader { geo in
             LinearGradient(
-                colors: [.clear, AppTheme.hairline.opacity(0.7), .clear],
+                colors: [.clear, Color.appSurface.opacity(0.6), .clear],
                 startPoint: .leading, endPoint: .trailing
             )
             .frame(width: geo.size.width * 0.7)
-            .offset(x: x * geo.size.width)
+            .offset(x: reduceMotion ? 0 : x * geo.size.width)
             .blendMode(.overlay)
             .onAppear {
-                withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { x = 1.4 }
+                if !reduceMotion {
+                    withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {
+                        x = 1.4
+                    }
+                }
             }
         }
     }
