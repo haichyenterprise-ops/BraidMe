@@ -5,8 +5,7 @@ import SwiftUI
 //
 // Every container has a defined width. Every text element is line-limited.
 // No nested horizontal scroll. No LazyVGrid. No preference keys. No custom
-// drag gesture (native iOS swipe-back works). No interactions that fight
-// each other. Nothing escapes the screen.
+// drag gesture. Nothing escapes the screen.
 // =============================================================================
 
 struct BraiderProfileView: View {
@@ -120,7 +119,6 @@ struct BraiderProfileView: View {
 
         return ZStack(alignment: .top) {
 
-            // ----- Background layer -----
             Group {
                 if !braider.coverUrl.isEmpty {
                     RemoteImage(url: braider.coverUrl)
@@ -132,7 +130,6 @@ struct BraiderProfileView: View {
                 }
             }
 
-            // ----- Gradient overlay -----
             LinearGradient(
                 stops: [
                     .init(color: .black.opacity(0.45), location: 0.0),
@@ -145,12 +142,10 @@ struct BraiderProfileView: View {
             )
             .frame(width: width, height: heroHeight)
 
-            // ----- Bottom content stack -----
             VStack(alignment: .leading, spacing: Space.sm) {
 
                 Spacer()
 
-                // Verified chip
                 if braider.verified {
                     HStack(spacing: 5) {
                         Image(systemName: "checkmark.seal.fill")
@@ -166,7 +161,6 @@ struct BraiderProfileView: View {
                     .overlay(Capsule().stroke(Color.white.opacity(0.20), lineWidth: 0.5))
                 }
 
-                // Name
                 Text(braider.name)
                     .font(.bmDisplay(36, weight: .semibold))
                     .foregroundStyle(Color.appInkInverse)
@@ -176,7 +170,6 @@ struct BraiderProfileView: View {
                     .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
                     .frame(width: width - gutter * 2, alignment: .leading)
 
-                // Tagline
                 if !braider.tagline.isEmpty {
                     Text(braider.tagline)
                         .font(.bmUI(15, weight: .medium))
@@ -186,7 +179,6 @@ struct BraiderProfileView: View {
                         .frame(width: width - gutter * 2, alignment: .leading)
                 }
 
-                // Rating · reviews · city row
                 HStack(spacing: 6) {
                     Image(systemName: "star.fill")
                         .font(.bmUI(11, weight: .semibold))
@@ -217,7 +209,6 @@ struct BraiderProfileView: View {
         }
         .frame(width: width, height: heroHeight)
         .overlay(alignment: .bottomLeading) {
-            // Avatar overlapping band below
             BMAvatar(url: braider.avatarUrl, size: 92, ringed: false, initials: initials)
                 .overlay(Circle().stroke(Color.appBackground, lineWidth: 5))
                 .shadow(color: .black.opacity(0.28), radius: 16, y: 6)
@@ -304,8 +295,6 @@ struct BraiderProfileView: View {
         .padding(.top, Space.xl)
     }
 
-    // MARK: - City strip
-
     private func cityStrip(width: CGFloat, inner: CGFloat) -> some View {
         HStack(spacing: Space.xs) {
             Image(systemName: "mappin.and.ellipse")
@@ -331,14 +320,13 @@ struct BraiderProfileView: View {
     }
 
     // =========================================================================
-    // MARK: - PORTFOLIO (dark strip)
+    // MARK: - PORTFOLIO
     // =========================================================================
 
     private func portfolioSection(width: CGFloat, inner: CGFloat) -> some View {
         Group {
             if !braider.portfolio.isEmpty {
                 VStack(alignment: .leading, spacing: Space.md) {
-                    // Header
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Portfolio")
@@ -359,7 +347,6 @@ struct BraiderProfileView: View {
                     .frame(width: inner, alignment: .leading)
                     .padding(.horizontal, Space.lg)
 
-                    // Grid
                     portfolioGrid(inner: inner)
                 }
                 .frame(width: width)
@@ -375,7 +362,6 @@ struct BraiderProfileView: View {
 
         return VStack(spacing: Space.xs) {
 
-            // Row 1 — Big image + stacked pair
             if items.count >= 3 {
                 HStack(alignment: .top, spacing: Space.xs) {
                     PortfolioTile(item: items[0], height: 320, index: 0, appeared: appeared)
@@ -406,7 +392,6 @@ struct BraiderProfileView: View {
                     .padding(.horizontal, Space.lg)
             }
 
-            // Remaining items in 2-column pairs
             let remaining = items.count > 3 ? Array(items.dropFirst(3)) : []
             if !remaining.isEmpty {
                 VStack(spacing: Space.xs) {
@@ -545,7 +530,6 @@ struct BraiderProfileView: View {
 
     private func reviewsSection(width: CGFloat, inner: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            // Header
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Reviews")
@@ -583,11 +567,9 @@ struct BraiderProfileView: View {
             } else if reviews.isEmpty {
                 emptyReviews(inner: inner)
             } else {
-                // Aggregate card
                 let breakdown = RatingBreakdown.from(reviews)
                 reviewAggregate(breakdown: breakdown, inner: inner)
 
-                // Reviews list
                 VStack(spacing: 0) {
                     ForEach(Array(reviews.prefix(2).enumerated()), id: \.element.id) { index, review in
                         ReviewRow(review: review, inner: inner)
@@ -1025,45 +1007,6 @@ struct AllReviewsSheet: View {
                 }
             }
             .onAppear { appeared = true }
-        }
-    }
-}
-
-// =============================================================================
-// MARK: - FLOW LAYOUT
-// =============================================================================
-
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-        return CGSize(width: maxWidth, height: y + rowHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x: CGFloat = bounds.minX, y: CGFloat = bounds.minY, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
         }
     }
 }

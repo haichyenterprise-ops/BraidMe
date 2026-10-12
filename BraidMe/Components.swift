@@ -89,8 +89,8 @@ struct BMIconButton: View {
     let icon: String
     var size: CGFloat = 40
     var iconSize: CGFloat = 15
-    var fg: Color = .appInk
-    var bg: Color = .appSurface
+    var fg: Color = Color.appInk
+    var bg: Color = Color.appSurface
     var action: () -> Void
 
     var body: some View {
@@ -147,8 +147,8 @@ struct BMChip: View {
 struct BMTag: View {
     let text: String
     var icon: String? = nil
-    var tint: Color = .appInk
-    var bg: Color = .appSurface
+    var tint: Color = Color.appInk
+    var bg: Color = Color.appSurface
 
     var body: some View {
         HStack(spacing: Space.xxs) {
