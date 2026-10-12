@@ -1,7 +1,7 @@
 import SwiftUI
 
 // =============================================================================
-// Components — Shared UI primitives, upgraded
+// Components — Shared UI primitives
 // =============================================================================
 
 // ═══════════════════════════════════════════════════════════════════
@@ -248,55 +248,113 @@ struct BMDivider: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Check Shape
+// MARK: - Avatar
 // ═══════════════════════════════════════════════════════════════════
 
-struct CheckShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.width * 0.15, y: rect.height * 0.55))
-        path.addLine(to: CGPoint(x: rect.width * 0.42, y: rect.height * 0.80))
-        path.addLine(to: CGPoint(x: rect.width * 0.88, y: rect.height * 0.20))
-        return path
+struct BMAvatar: View {
+    let url: String
+    var size: CGFloat = 44
+    var initials: String? = nil
+    var ringed: Bool = false
+    var glow: Bool = false
+
+    var body: some View {
+        ZStack {
+            if url.isEmpty {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.gold.opacity(0.18), Color.gold.opacity(0.08)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        Text(initials ?? "·")
+                            .font(.system(size: size * 0.4, weight: .bold, design: .serif))
+                            .foregroundStyle(Color.gold)
+                    )
+            } else {
+                RemoteImage(url: url)
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+            }
+
+            if ringed {
+                Circle()
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color.goldLight, Color.gold, Color.goldDeep],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 2.5
+                    )
+                    .frame(width: size + 6, height: size + 6)
+            }
+        }
+        .frame(width: size, height: size)
+        .shadow(
+            color: glow ? Color.gold.opacity(0.4) : .clear,
+            radius: glow ? 12 : 0,
+            y: glow ? 4 : 0
+        )
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - FlowLayout
+// MARK: - Section Label
 // ═══════════════════════════════════════════════════════════════════
 
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
+struct BMSectionLabel: View {
+    let text: String
+    var body: some View {
+        HStack(spacing: Space.xs) {
+            Rectangle()
+                .fill(Color.gold)
+                .frame(width: 16, height: 2)
+            Text(text.uppercased())
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.5)
+                .foregroundStyle(Color.appAsh)
         }
-        return CGSize(width: maxWidth, height: y + rowHeight)
     }
+}
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x: CGFloat = bounds.minX, y: CGFloat = bounds.minY, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += rowHeight + spacing
-                rowHeight = 0
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Chip
+// ═══════════════════════════════════════════════════════════════════
+
+struct BMChip: View {
+    let title: String
+    var icon: String? = nil
+    var isSelected: Bool = false
+    var onTap: (() -> Void)? = nil
+
+    var body: some View {
+        Button {
+            if onTap != nil { Haptic.select() }
+            onTap?()
+        } label: {
+            HStack(spacing: Space.xxs) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
             }
-            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
+            .foregroundStyle(isSelected ? Color.appInkInverse : Color.appInk)
+            .padding(.horizontal, Space.sm)
+            .frame(minHeight: 32)
+            .padding(.vertical, 6)
+            .background(isSelected ? Color.gold : Color.appSurface, in: Capsule())
+            .overlay(
+                Capsule().stroke(isSelected ? Color.clear : Color.appDivider, lineWidth: 0.5)
+            )
         }
+        .buttonStyle(BMPressStyle(scale: 0.96))
+        .disabled(onTap == nil)
     }
 }
 
@@ -405,6 +463,82 @@ struct BMLoadingView: View {
         }
         .onAppear {
             if !reduceMotion { animating = true }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Skeleton
+// ═══════════════════════════════════════════════════════════════════
+
+struct BMSkeleton: View {
+    var height: CGFloat = 16
+    var cornerRadius: CGFloat = 6
+    @State private var phase: CGFloat = -1.2
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(Color.appDivider)
+            .frame(height: height)
+            .overlay(
+                GeometryReader { geo in
+                    LinearGradient(
+                        colors: [.clear, Color.appSurface.opacity(0.6), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: geo.size.width * 0.6)
+                    .offset(x: reduceMotion ? 0 : phase * geo.size.width * 1.5)
+                    .blendMode(.overlay)
+                }
+            )
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .onAppear {
+                if !reduceMotion {
+                    withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
+                        phase = 1.5
+                    }
+                }
+            }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - FlowLayout
+// ═══════════════════════════════════════════════════════════════════
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: maxWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x: CGFloat = bounds.minX, y: CGFloat = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
         }
     }
 }

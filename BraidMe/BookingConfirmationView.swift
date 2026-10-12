@@ -1,7 +1,7 @@
 import SwiftUI
 
 // =============================================================================
-// BookingConfirmationView — Success screen, upgraded
+// BookingConfirmationView — Success screen
 // Animated checkmark with glow burst, celebratory gradient, staggered text reveal.
 // =============================================================================
 
@@ -272,4 +272,12 @@ struct BookingConfirmationView: View {
     private func finish() {
         NotificationCenter.default.post(name: .bookingFlowFinished, object: nil)
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Notification Names
+// ═══════════════════════════════════════════════════════════════════
+
+extension Notification.Name {
+    static let bookingFlowFinished = Notification.Name("bookingFlowFinished")
 }
