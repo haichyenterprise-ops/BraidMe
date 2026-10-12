@@ -14,17 +14,12 @@ final class FirebaseManager: ObservableObject {
     var db: Firestore { dbRef }
     var rtdbRoot: DatabaseReference { rtdb }
 
-    // ─── Published state ───
     @Published var braiders: [Braider] = []
     @Published var currentUser: UserProfile?
     @Published var bookings: [Booking] = []
     @Published var savedBraiderIds: Set<String> = []
     @Published var isLoadingBraiders = false
     @Published var braidersError: String?
-
-    // ─── Offline cache ───
-    private var cachedBraiders: [Braider] = []
-    private var lastFetchDate: Date?
 
     var locationPermissionDecision: String? {
         get { UserDefaults.standard.string(forKey: "locationPermissionDecision") }
@@ -40,10 +35,6 @@ final class FirebaseManager: ObservableObject {
     }
 
     private init() {}
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Users
-    // ═══════════════════════════════════════════════════════════════
 
     @discardableResult
     func upsertUser(
@@ -108,10 +99,6 @@ final class FirebaseManager: ObservableObject {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Saved braiders
-    // ═══════════════════════════════════════════════════════════════
-
     func loadSavedBraiders(uid: String) async {
         guard !uid.isEmpty else { return }
         do {
@@ -132,38 +119,18 @@ final class FirebaseManager: ObservableObject {
             .document(braiderId)
 
         let isSaved = savedBraiderIds.contains(braiderId)
-
-        // Optimistic local update
-        await MainActor.run {
-            if isSaved {
-                _ = self.savedBraiderIds.remove(braiderId)
-            } else {
-                _ = self.savedBraiderIds.insert(braiderId)
-            }
-        }
-
         do {
             if isSaved {
                 try await ref.delete()
+                await MainActor.run { _ = self.savedBraiderIds.remove(braiderId) }
             } else {
                 try await ref.setData(["savedAt": Date()])
+                await MainActor.run { _ = self.savedBraiderIds.insert(braiderId) }
             }
         } catch {
             print("[FirebaseManager] toggleSave failed:", error)
-            // Revert on failure
-            await MainActor.run {
-                if isSaved {
-                    _ = self.savedBraiderIds.insert(braiderId)
-                } else {
-                    _ = self.savedBraiderIds.remove(braiderId)
-                }
-            }
         }
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Braiders
-    // ═══════════════════════════════════════════════════════════════
 
     func fetchBraidersFromFirestore() async {
         isLoadingBraiders = true
@@ -173,26 +140,13 @@ final class FirebaseManager: ObservableObject {
             let all = snap.documents.compactMap { doc in
                 BraiderMapper.from(id: doc.documentID, data: doc.data())
             }
-            let published = all.filter { $0.published }
-            self.braiders = published
-            self.cachedBraiders = published
-            self.lastFetchDate = Date()
+            self.braiders = all.filter { $0.published }
         } catch {
-            // Fall back to cache if network fails
-            if !cachedBraiders.isEmpty {
-                self.braiders = cachedBraiders
-                print("[FirebaseManager] Using cached braiders (network failed)")
-            } else {
-                braidersError = error.localizedDescription
-                print("[FirebaseManager] fetchBraiders failed:", error)
-            }
+            braidersError = error.localizedDescription
+            print("[FirebaseManager] fetchBraiders failed:", error)
         }
         isLoadingBraiders = false
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Bookings
-    // ═══════════════════════════════════════════════════════════════
 
     func loadBookings(uid: String) async {
         guard !uid.isEmpty else { return }
@@ -236,79 +190,62 @@ final class FirebaseManager: ObservableObject {
         }
     }
 
-    func createBooking(
-        braider: Braider,
-        date: Date,
-        time: String,
-        service: BraidService,
-        price: Int,
-        uid: String,
-        customerName: String,
-        completion: @escaping (Bool) -> Void
-    ) {
-        let id = UUID().uuidString
-        let booking = Booking(
-            id: id,
-            braiderName: braider.name,
-            braiderId: braider.id,
-            date: date,
-            time: time,
-            style: service.name,
-            price: price,
-            status: "confirmed",
-            createdAt: Date(),
-            customerName: customerName
-        )
-        var payload = booking.dictionary
-        payload["uid"] = uid
-        payload["customerName"] = customerName
+func createBooking(
+    braider: Braider,
+    date: Date,
+    time: String,
+    service: BraidService,
+    price: Int,
+    uid: String,
+    customerName: String,
+    completion: @escaping (Bool) -> Void
+) {
+    let id = UUID().uuidString
+    let booking = Booking(
+        id: id,
+        braiderName: braider.name,
+        braiderId: braider.id,
+        date: date,
+        time: time,
+        style: service.name,
+        price: price,
+        status: "confirmed",
+        createdAt: Date(),
+        customerName: customerName
+    )
+    var payload = booking.dictionary
+    payload["uid"] = uid
+    payload["customerName"] = customerName
 
-        dbRef.collection("bookings").document(id).setData(payload) { error in
-            DispatchQueue.main.async {
-                if error == nil {
-                    self.bookings.insert(booking, at: 0)
-                }
-                completion(error == nil)
+    dbRef.collection("bookings").document(id).setData(payload) { error in
+        DispatchQueue.main.async {
+            if error == nil {
+                self.bookings.insert(booking, at: 0)
             }
+            completion(error == nil)
         }
     }
+}
 
-    /// Optimistic cancellation — updates UI first, reverts on failure.
     func requestCancellation(bookingId: String, reason: String) async throws {
-        // Find original booking to revert if needed
-        let originalIndex = bookings.firstIndex(where: { $0.id == bookingId })
-        let original = originalIndex.flatMap { bookings[$0] }
+        try await dbRef.collection("bookings").document(bookingId).setData([
+            "status": "cancellation_requested",
+            "cancellationRequestedAt": Date(),
+            "cancellationReason": reason,
+            "cancellationRequestedBy": "customer"
+        ], merge: true)
 
-        // Optimistic update
-        if let idx = originalIndex, let b = original {
-            let optimistic = Booking(
+        if let idx = bookings.firstIndex(where: { $0.id == bookingId }) {
+            let b = bookings[idx]
+            let updated = Booking(
                 id: b.id, braiderName: b.braiderName, braiderId: b.braiderId,
                 date: b.date, time: b.time, style: b.style,
-                price: b.price, status: "cancellation_requested",
-                createdAt: b.createdAt, customerName: b.customerName
+                price: b.price, status: "cancellation_requested", createdAt: b.createdAt,
+                customerName: b.customerName
             )
-            await MainActor.run { self.bookings[idx] = optimistic }
-        }
-
-        do {
-            try await dbRef.collection("bookings").document(bookingId).setData([
-                "status": "cancellation_requested",
-                "cancellationRequestedAt": Date(),
-                "cancellationReason": reason,
-                "cancellationRequestedBy": "customer"
-            ], merge: true)
-        } catch {
-            // Revert on failure
-            if let idx = originalIndex, let b = original {
-                await MainActor.run { self.bookings[idx] = b }
-            }
-            throw error
+            bookings[idx] = updated
         }
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Reviews
-    // ═══════════════════════════════════════════════════════════════
 
     func fetchReviews(braiderId: String) async -> [Review] {
         guard !braiderId.isEmpty else { return [] }
@@ -393,16 +330,37 @@ final class FirebaseManager: ObservableObject {
             ], merge: true)
 
         if let idx = braiders.firstIndex(where: { $0.id == braiderId }) {
-            braiders[idx] = braiders[idx].updated(rating: avg, reviewCount: count)
+            let b = braiders[idx]
+            let updated = Braider(
+                id: b.id,
+                name: b.name,
+                tagline: b.tagline,
+                avatarUrl: b.avatarUrl,
+                coverUrl: b.coverUrl,
+                latitude: b.latitude,
+                longitude: b.longitude,
+                rating: avg,
+                reviewCount: count,
+                priceFrom: b.priceFrom,
+                bio: b.bio,
+                story: b.story,
+                city: b.city,
+                specialties: b.specialties,
+                yearsExperience: b.yearsExperience,
+                responseTime: b.responseTime,
+                verified: b.verified,
+                published: b.published,
+                portfolio: b.portfolio,
+                services: b.services,
+                availableSlots: b.availableSlots,
+                availableDates: b.availableDates
+            )
+            braiders[idx] = updated
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Chat (Realtime DB)
-    // ═══════════════════════════════════════════════════════════════
-
     static func chatId(for bookingId: String) -> String {
-        "chat_\(bookingId)"
+        return "chat_\(bookingId)"
     }
 
     func sendMessage(
@@ -459,10 +417,6 @@ final class FirebaseManager: ObservableObject {
         rtdb.child("chats").child(chatId).child("messages").removeObserver(withHandle: handle)
     }
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Braider Mapper
-// ═══════════════════════════════════════════════════════════════════
 
 enum BraiderMapper {
     static func from(id: String, data: [String: Any]) -> Braider? {

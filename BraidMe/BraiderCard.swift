@@ -1,56 +1,56 @@
 import SwiftUI
 
-// =============================================================================
-// BraiderCard — Cards for the map sheet, upgraded
-// Parallax tilt on touch, breathing verified seal, parallax cover backgrounds.
-// =============================================================================
+// MARK: - Verified seal
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Standard Row (medium detent)
-// ═══════════════════════════════════════════════════════════════════
+struct VerifiedSeal: View {
+    var size: CGFloat = 13
+    var body: some View {
+        Image(systemName: "checkmark.seal.fill")
+            .font(.bmUI(size, weight: .bold))
+            .foregroundStyle(LinearGradient.bmGiltGradient)
+            .accessibilityLabel("Verified")
+    }
+}
+
+// MARK: - Standard row (medium detent)
 
 struct BraiderCard: View {
     let braider: Braider
     var isHighlighted: Bool = false
     let onTap: () -> Void
 
-    @State private var tilt: CGSize = .zero
-
     var body: some View {
-        Button(action: {
-            Haptic.select()
-            onTap()
-        }) {
-            HStack(spacing: Space.sm) {
-                avatarWithRing
+        Button(action: onTap) {
+            HStack(spacing: Space.md) {
+                BMAvatar(
+                    url: braider.avatarUrl,
+                    size: 62,
+                    ringed: isHighlighted,
+                    initials: bmInitials(braider.name)
+                )
 
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: Space.xxs) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
                         Text(braider.name)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color.appInk)
+                            .font(.bmUI(16, weight: .bold))
+                            .foregroundStyle(Color.bmText)
                             .lineLimit(1)
-                        if braider.verified {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Color.gold)
-                        }
+                        if braider.verified { VerifiedSeal() }
                     }
 
-                    BMRatingLine(rating: braider.rating, count: braider.reviewCount, size: 11)
+                    BMRatingLine(rating: braider.rating, count: braider.reviewCount, size: 12)
 
-                    HStack(spacing: Space.xxs) {
-                        Text("from")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.appSmoke)
-                        Text("£\(braider.priceFrom)")
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Color.gold)
+                    HStack(spacing: 6) {
+                        Text("from £\(braider.priceFrom)")
+                            .font(.bmNum(13, weight: .bold))
+                            .foregroundStyle(Color.bmGilt)
                         if !braider.city.isEmpty {
-                            Text("·").foregroundStyle(Color.appSmoke)
+                            Circle()
+                                .fill(Color.bmTextFaint)
+                                .frame(width: 3, height: 3)
                             Text(braider.city)
-                                .font(.system(size: 11))
-                                .foregroundStyle(Color.appAsh)
+                                .font(.bmUI(12, weight: .medium))
+                                .foregroundStyle(Color.bmTextDim)
                                 .lineLimit(1)
                         }
                     }
@@ -58,177 +58,170 @@ struct BraiderCard: View {
 
                 Spacer(minLength: 0)
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.appSmoke)
-                    .offset(x: tilt.width * 0.5)
-            }
-            .padding(.vertical, Space.sm)
-            .padding(.horizontal, isHighlighted ? Space.sm : 0)
-            .background(isHighlighted ? Color.gold.opacity(0.08) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.button))
-            .contentShape(Rectangle())
-            .rotation3DEffect(
-                .degrees(Double(tilt.width) * 0.4),
-                axis: (x: 0, y: 1, z: 0),
-                perspective: 0.7
-            )
-        }
-        .buttonStyle(BMPressStyle(scale: 0.99))
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    let dx = min(max(value.translation.width / 12, -3), 3)
-                    let dy = min(max(value.translation.height / 12, -3), 3)
-                    withAnimation(.interactiveSpring(response: 0.25, dampingFraction: 0.7)) {
-                        tilt = CGSize(width: dx, height: dy)
-                    }
-                }
-                .onEnded { _ in
-                    withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.65)) {
-                        tilt = .zero
-                    }
-                }
-        )
-        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: isHighlighted)
-    }
-
-    private var avatarWithRing: some View {
-        ZStack {
-            if braider.verified {
-                Circle()
-                    .stroke(
-                        AngularGradient(
-                            colors: [
-                                Color.goldLight,
-                                Color.gold,
-                                Color.goldDeep,
-                                Color.gold,
-                                Color.goldLight
-                            ],
-                            center: .center,
-                            angle: .degrees(0)
-                        ),
-                        lineWidth: 2
+                Image(systemName: "arrow.up.right")
+                    .font(.bmUI(12, weight: .bold))
+                    .foregroundStyle(isHighlighted ? Color.bmOnGilt : Color.bmTextDim)
+                    .frame(width: 34, height: 34)
+                    .background(
+                        isHighlighted ? Color.bmGilt : Color.white.opacity(0.07),
+                        in: Circle()
                     )
-                    .frame(width: 66, height: 66)
-                    .shadow(color: Color.gold.opacity(0.35), radius: 8)
             }
-            BMAvatar(url: braider.avatarUrl, size: 60, initials: initials)
+            .padding(Space.sm)
+            .background(
+                isHighlighted ? Color.bmGilt.opacity(0.10) : Color.clear,
+                in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                    .strokeBorder(
+                        isHighlighted ? Color.bmGilt.opacity(0.45) : Color.clear,
+                        lineWidth: 1
+                    )
+            )
+            .contentShape(Rectangle())
         }
-        .frame(width: 66, height: 66)
-    }
-
-    private var initials: String {
-        let parts = braider.name.split(separator: " ")
-        let r = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
-        return r.isEmpty ? "·" : r.uppercased()
+        .buttonStyle(BMPressStyle(scale: 0.985, dim: 0.02))
+        .animation(Motion.press, value: isHighlighted)
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Big Row (expanded detent)
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Feature card (expanded detent, saved list)
 
 struct BigBraiderRow: View {
     let braider: Braider
+    var isSaved: Bool = false
     let onTap: () -> Void
 
-    @State private var appeared = false
-    @State private var imageParallax: CGFloat = 0
-
     var body: some View {
-        Button(action: {
-            Haptic.select()
-            onTap()
-        }) {
+        Button(action: onTap) {
             VStack(alignment: .leading, spacing: 0) {
-                if !braider.coverUrl.isEmpty {
-                    ZStack(alignment: .topTrailing) {
-                        GeometryReader { geo in
-                            RemoteImage(url: braider.coverUrl)
-                                .frame(width: geo.size.width, height: 200 + abs(imageParallax))
-                                .offset(y: imageParallax)
-                                .clipped()
-                        }
-                        .frame(height: 200)
-                        .clipped()
+                cover
+                details
+            }
+            .bmCard(radius: Radius.card)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        }
+        .buttonStyle(BMPressStyle(scale: 0.985, dim: 0.02))
+    }
 
-                        HStack(spacing: 4) {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(Color.gold)
-                            Text(String(format: "%.1f", braider.rating))
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundStyle(Color.appInk)
-                        }
-                        .padding(.horizontal, Space.xs)
-                        .padding(.vertical, 5)
-                        .background(Color.appSurface.opacity(0.92), in: Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.3), lineWidth: 0.5))
-                        .padding(Space.sm)
-                    }
-                    .clipShape(
-                        .rect(
-                            topLeadingRadius: Radius.card,
-                            bottomLeadingRadius: 0,
-                            bottomTrailingRadius: 0,
-                            topTrailingRadius: Radius.card
-                        )
-                    )
+    private var coverUrl: String {
+        if !braider.coverUrl.isEmpty { return braider.coverUrl }
+        return braider.portfolio.first?.imageUrl ?? ""
+    }
+
+    private var cover: some View {
+        ZStack(alignment: .bottomLeading) {
+            if coverUrl.isEmpty {
+                LinearGradient(
+                    colors: [Color.bmRaised, Color.bmSurface],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .frame(height: 190)
+                .overlay(
+                    BraidMark(length: 130, thickness: 44, strand: 9, animated: false, edge: Color.bmRaised)
+                        .opacity(0.35)
+                )
+            } else {
+                RemoteImage(url: coverUrl)
+                    .frame(height: 190)
+                    .frame(maxWidth: .infinity)
+                    .clipped()
+            }
+
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0.35),
+                    .init(color: Color.black.opacity(0.78), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(braider.name)
+                        .font(.bmDisplay(24, weight: .semibold))
+                        .foregroundStyle(Color.white)
+                        .lineLimit(1)
+                    if braider.verified { VerifiedSeal(size: 15) }
                 }
+                if !braider.tagline.isEmpty {
+                    Text(braider.tagline)
+                        .font(.bmUI(13, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.82))
+                        .lineLimit(1)
+                }
+            }
+            .padding(Space.md)
+        }
+        .frame(height: 190)
+        .overlay(alignment: .topTrailing) {
+            HStack(spacing: 4) {
+                Image(systemName: "star.fill")
+                    .font(.bmUI(10, weight: .bold))
+                    .foregroundStyle(Color.bmGilt)
+                Text(String(format: "%.1f", braider.rating))
+                    .font(.bmNum(12, weight: .bold))
+                    .foregroundStyle(Color.white)
+            }
+            .padding(.horizontal, Space.sm)
+            .frame(height: 30)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.2), lineWidth: 0.7))
+            .padding(Space.sm)
+        }
+        .overlay(alignment: .topLeading) {
+            if isSaved {
+                Image(systemName: "heart.fill")
+                    .font(.bmUI(12, weight: .bold))
+                    .foregroundStyle(Color.bmBad)
+                    .frame(width: 30, height: 30)
+                    .bmGlassCircle()
+                    .padding(Space.sm)
+                    .transition(.scale.combined(with: .opacity))
+            }
+        }
+    }
 
-                HStack(spacing: Space.sm) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack(spacing: Space.xxs) {
-                            Text(braider.name)
-                                .font(.system(size: 18, weight: .semibold, design: .serif))
-                                .foregroundStyle(Color.appInk)
-                            if braider.verified {
-                                Image(systemName: "checkmark.seal.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(Color.gold)
-                            }
+    private var details: some View {
+        HStack(spacing: Space.sm) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: Space.md) {
+                    BMPriceTag(price: braider.priceFrom)
+                    if !braider.responseTime.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "bolt.fill")
+                                .font(.bmUI(10, weight: .bold))
+                                .foregroundStyle(Color.bmOrchid)
+                            Text("Replies \(braider.responseTime)")
+                                .font(.bmUI(12, weight: .medium))
+                                .foregroundStyle(Color.bmTextDim)
                         }
-
-                        if !braider.tagline.isEmpty {
-                            Text(braider.tagline)
-                                .font(.system(size: 13))
-                                .foregroundStyle(Color.appAsh)
+                    }
+                }
+                if !braider.specialties.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(Array(braider.specialties.prefix(3)), id: \.self) { s in
+                            Text(s)
+                                .font(.bmUI(11, weight: .semibold))
+                                .foregroundStyle(Color.bmTextDim)
+                                .padding(.horizontal, 9)
+                                .frame(height: 24)
+                                .background(Color.white.opacity(0.07), in: Capsule())
                                 .lineLimit(1)
                         }
-
-                        HStack(spacing: Space.sm) {
-                            BMPriceTag(price: braider.priceFrom)
-                            if !braider.responseTime.isEmpty {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "clock")
-                                        .font(.system(size: 10))
-                                    Text(braider.responseTime)
-                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                }
-                                .foregroundStyle(Color.appAsh)
-                            }
-                        }
-                        .padding(.top, 2)
                     }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.appSmoke)
                 }
-                .padding(Space.md)
             }
-            .background(Color.appSurface)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                    .stroke(Color.appDivider, lineWidth: 0.5)
-            )
-            .shadow(color: Color.black.opacity(0.06), radius: 16, y: 8)
+            Spacer(minLength: 0)
+            Image(systemName: "arrow.up.right")
+                .font(.bmUI(13, weight: .bold))
+                .foregroundStyle(Color.bmOnGilt)
+                .frame(width: 40, height: 40)
+                .background(LinearGradient.bmGiltGradient, in: Circle())
         }
-        .buttonStyle(BMPressStyle(scale: 0.99))
+        .padding(Space.md)
     }
 }

@@ -1,9 +1,65 @@
 import SwiftUI
 
-// =============================================================================
-// BookingSelectionView — Step 1: choose a service, upgraded
-// Shimmer progress bars, expandable cards with spring, ambient gradient.
-// =============================================================================
+// MARK: - Shared booking chrome
+
+/// Back/close button plus a three-step braid-gradient progress bar.
+struct BookingTopBar: View {
+    let step: Int
+    var total: Int = 3
+    var icon: String = "chevron.left"
+    let onBack: () -> Void
+
+    private let labels = ["Service", "Time", "Confirm"]
+
+    private var stepLabel: String {
+        let i = step - 1
+        return labels.indices.contains(i) ? labels[i] : ""
+    }
+
+    var body: some View {
+        VStack(spacing: Space.sm) {
+            HStack(spacing: Space.md) {
+                BMIconButton(icon: icon, size: 42, iconSize: 14, action: onBack)
+                VStack(alignment: .leading, spacing: 6) {
+                    BookingProgressHeader(step: step, total: total)
+                    Text("Step \(step) of \(total): \(stepLabel)")
+                        .font(.bmUI(12, weight: .semibold))
+                        .foregroundStyle(Color.bmTextDim)
+                }
+            }
+        }
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.xs)
+    }
+}
+
+struct BookingProgressHeader: View {
+    let step: Int
+    var total: Int = 3
+    @State private var shown = 0
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<total, id: \.self) { i in
+                Capsule()
+                    .fill(Color.white.opacity(0.10))
+                    .frame(height: 5)
+                    .overlay(alignment: .leading) {
+                        GeometryReader { geo in
+                            Capsule()
+                                .fill(LinearGradient.bmBraidGradient)
+                                .frame(width: i < shown ? geo.size.width : 0)
+                                .animation(Motion.reveal.delay(Double(i) * 0.12), value: shown)
+                        }
+                    }
+            }
+        }
+        .onAppear { shown = step }
+        .onChange(of: step) { _, new in shown = new }
+    }
+}
+
+// MARK: - Service selection
 
 struct BookingSelectionView: View {
     let braider: Braider
@@ -24,48 +80,22 @@ struct BookingSelectionView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                Color.appBackground.ignoresSafeArea()
-
-                // Ambient gradient
-                RadialGradient(
-                    colors: [Color.gold.opacity(0.06), .clear],
-                    center: .top,
-                    startRadius: 0,
-                    endRadius: 400
-                )
-                .ignoresSafeArea()
+                AuroraBackground(intensity: 0.5)
 
                 VStack(spacing: 0) {
-                    BookingProgressHeader(step: 1)
+                    BookingTopBar(step: 1, icon: "xmark") { dismiss() }
                     header
                     list
                 }
 
                 if let service = selectedService {
                     continueBar(service: service)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .bottom).combined(with: .opacity),
-                            removal: .opacity
-                        ))
+                        .padding(.horizontal, Space.md)
+                        .padding(.bottom, Space.sm)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        Haptic.press()
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.appInk)
-                            .frame(width: 40, height: 40)
-                            .background(Color.appSurface, in: Circle())
-                            .overlay(Circle().stroke(Color.appDivider, lineWidth: 0.5))
-                    }
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: $showDateTime) {
                 if let service = selectedService {
                     BookingDateTimeView(braider: braider, service: service)
@@ -73,206 +103,99 @@ struct BookingSelectionView: View {
             }
         }
         .task {
-            withAnimation(.spring(response: 0.85, dampingFraction: 0.85).delay(0.1)) {
-                appeared = true
-            }
+            appeared = true
             if let preselect = preselectServiceId {
                 selectedId = preselect
             }
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Header
-
     private var header: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            HStack(spacing: Space.xs) {
-                Rectangle()
-                    .fill(Color.gold)
-                    .frame(width: 20, height: 2)
-                Text("STEP 1 OF 3")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(2)
-                    .foregroundStyle(Color.gold)
-            }
-
+        VStack(alignment: .leading, spacing: Space.xs) {
             Text("Choose a service")
-                .font(.system(size: 34, weight: .bold, design: .serif))
-                .lineSpacing(-4)
-                .foregroundStyle(Color.appInk)
-
+                .font(.bmDisplay(36, weight: .semibold))
+                .foregroundStyle(Color.bmText)
             HStack(spacing: Space.xs) {
-                if braider.avatarUrl.isEmpty {
-                    Circle()
-                        .fill(Color.gold.opacity(0.18))
-                        .frame(width: 24, height: 24)
-                        .overlay(
-                            Text(braider.initials)
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(Color.gold)
-                        )
-                } else {
-                    RemoteImage(url: braider.avatarUrl)
-                        .frame(width: 24, height: 24)
-                        .clipShape(Circle())
-                }
+                BMAvatar(url: braider.avatarUrl, size: 24, initials: bmInitials(braider.name))
                 Text("with \(braider.name)")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.appAsh)
+                    .font(.bmUI(14, weight: .medium))
+                    .foregroundStyle(Color.bmTextDim)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Space.lg)
-        .padding(.top, Space.md)
-        .padding(.bottom, Space.lg)
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
+        .padding(.top, Space.lg)
+        .padding(.bottom, Space.md)
+        .reveal(appeared, offset: 16)
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - List
-
     private var list: some View {
-        ScrollView(showsIndicators: true) {
+        ScrollView(showsIndicators: false) {
             VStack(spacing: Space.sm) {
+                if services.isEmpty {
+                    BMEmptyState(
+                        icon: "calendar.badge.exclamationmark",
+                        title: "No services yet",
+                        message: "This braider hasn't listed any services to book."
+                    )
+                }
                 ForEach(Array(services.enumerated()), id: \.element.id) { index, service in
                     ServiceSelectableCard(
                         service: service,
                         isSelected: selectedId == service.id,
                         onTap: {
                             Haptic.select()
-                            withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
+                            withAnimation(Motion.sheet) {
                                 selectedId = selectedId == service.id ? nil : service.id
                             }
                         }
                     )
-                    .opacity(appeared ? 1 : 0)
-                    .offset(y: appeared ? 0 : 20)
-                    .animation(
-                        .spring(response: 0.6, dampingFraction: 0.85)
-                            .delay(0.15 + Double(index) * 0.06),
-                        value: appeared
-                    )
+                    .reveal(appeared, delay: Motion.stagger(index) + 0.08, offset: 24, blur: 0)
                 }
             }
             .padding(.horizontal, Space.lg)
-            .padding(.bottom, 140)
+            .padding(.bottom, 130)
         }
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Continue bar
 
     private func continueBar(service: BraidService) -> some View {
-        VStack(spacing: 0) {
-            // Gold hairline
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [Color.clear, Color.gold.opacity(0.5), Color.clear],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(height: 0.8)
-
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(service.name)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color.appInk)
-                    Text("from £\(service.priceFrom)")
-                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color.gold)
-                }
-                Spacer()
-                Button {
-                    Haptic.press()
-                    showDateTime = true
-                } label: {
-                    HStack(spacing: Space.xs) {
-                        Text("Continue")
-                            .font(.system(size: 15, weight: .semibold))
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 12, weight: .bold))
-                    }
-                    .foregroundStyle(Color.appInkInverse)
-                    .padding(.horizontal, Space.lg)
-                    .frame(minHeight: 52)
-                    .background(Color.appInk, in: Capsule())
-                    .shadow(color: Color.appInk.opacity(0.2), radius: 12, y: 6)
-                }
-                .buttonStyle(BMPressStyle())
+        HStack(spacing: Space.md) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(service.name)
+                    .font(.bmUI(14, weight: .bold))
+                    .foregroundStyle(Color.bmText)
+                    .lineLimit(1)
+                Text("from £\(service.priceFrom)")
+                    .font(.bmNum(13, weight: .bold))
+                    .foregroundStyle(Color.bmGilt)
             }
-            .padding(.horizontal, Space.lg)
-            .padding(.vertical, Space.md)
-            .background(Color.glassTintStrong)
+            Spacer(minLength: 0)
+            Button {
+                Haptic.press()
+                showDateTime = true
+            } label: {
+                HStack(spacing: Space.xs) {
+                    Text("Continue")
+                        .font(.bmUI(15, weight: .bold))
+                    Image(systemName: "arrow.right")
+                        .font(.bmUI(13, weight: .bold))
+                }
+                .foregroundStyle(Color.bmOnGilt)
+                .padding(.horizontal, Space.lg)
+                .frame(height: 52)
+                .background(LinearGradient.bmGiltGradient, in: Capsule())
+            }
+            .buttonStyle(BMPressStyle())
         }
+        .padding(.leading, Space.lg)
+        .padding(.trailing, Space.xs)
+        .padding(.vertical, Space.xs)
+        .bmGlass(radius: 40, tint: Color.black.opacity(0.3))
+        .shadow(color: Color.black.opacity(0.4), radius: 24, y: 10)
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Progress Header
-// ═══════════════════════════════════════════════════════════════════
-
-struct BookingProgressHeader: View {
-    let step: Int
-    var total: Int = 3
-
-    @State private var shimmerPosition: CGFloat = -1
-
-    var body: some View {
-        HStack(spacing: Space.xs) {
-            ForEach(0..<total, id: \.self) { i in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Color.appDivider)
-                        .frame(height: 4)
-                    if i < step {
-                        Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.goldLight, Color.gold, Color.goldDeep],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .frame(height: 4)
-                            .overlay(
-                                GeometryReader { geo in
-                                    Capsule()
-                                        .fill(
-                                            LinearGradient(
-                                                colors: [.clear, .white.opacity(0.6), .clear],
-                                                startPoint: .leading,
-                                                endPoint: .trailing
-                                            )
-                                        )
-                                        .frame(width: geo.size.width * 0.4)
-                                        .offset(x: shimmerPosition * geo.size.width * 1.4)
-                                        .blendMode(.overlay)
-                                }
-                                .clipShape(Capsule())
-                            )
-                    }
-                }
-                .animation(.spring(response: 0.5, dampingFraction: 0.85), value: step)
-            }
-        }
-        .padding(.horizontal, Space.lg)
-        .padding(.top, Space.sm)
-        .onAppear {
-            withAnimation(.linear(duration: 2.2).repeatForever(autoreverses: false)) {
-                shimmerPosition = 1
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Service Selectable Card
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Service card
 
 struct ServiceSelectableCard: View {
     let service: BraidService
@@ -282,92 +205,65 @@ struct ServiceSelectableCard: View {
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: Space.md) {
-                    // Thumbnail
-                    ZStack {
-                        if service.imageUrl.isEmpty {
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Color.appSurfaceElevated)
-                                .frame(width: 80, height: 80)
-                            Image(systemName: "photo")
-                                .font(.system(size: 24))
-                                .foregroundStyle(Color.appSmoke)
-                        } else {
-                            RemoteImage(url: service.imageUrl)
-                                .frame(width: 80, height: 80)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        }
-                    }
+                HStack(alignment: .center, spacing: Space.md) {
+                    thumb
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: Space.xs) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
                             Text(service.name)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Color.appInk)
-                                .lineLimit(1)
+                                .font(.bmDisplay(19, weight: .semibold))
+                                .foregroundStyle(Color.bmText)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
                             if service.popular {
                                 Image(systemName: "flame.fill")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Color.gold)
+                                    .font(.bmUI(12, weight: .bold))
+                                    .foregroundStyle(Color.bmEmber)
                             }
                         }
-                        HStack(spacing: Space.xs) {
+                        HStack(spacing: Space.sm) {
                             Text("£\(service.priceFrom)")
-                                .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(Color.gold)
-                            Text("·")
-                                .foregroundStyle(Color.appSmoke)
-                            Text("\(service.durationMinutes / 60)h \(service.durationMinutes % 60)m")
-                                .font(.system(size: 13))
-                                .foregroundStyle(Color.appAsh)
+                                .font(.bmNum(15, weight: .bold))
+                                .foregroundStyle(Color.bmGilt)
+                            HStack(spacing: 4) {
+                                Image(systemName: "clock")
+                                    .font(.bmUI(11, weight: .semibold))
+                                Text("\(service.durationMinutes / 60)h \(service.durationMinutes % 60)m")
+                                    .font(.bmUI(12, weight: .medium))
+                            }
+                            .foregroundStyle(Color.bmTextDim)
                         }
                     }
 
                     Spacer(minLength: 0)
 
-                    // Selection circle
-                    ZStack {
-                        Circle()
-                            .stroke(isSelected ? Color.gold : Color.appDivider, lineWidth: 2)
-                            .frame(width: 26, height: 26)
-                        if isSelected {
-                            Circle()
-                                .fill(Color.gold)
-                                .frame(width: 26, height: 26)
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(Color.appInkInverse)
-                        }
-                    }
-                    .animation(.spring(response: 0.4, dampingFraction: 0.65), value: isSelected)
+                    indicator
                 }
 
-                // Expanded content
-                if isSelected && !service.description.isEmpty {
+                if isSelected && (!service.description.isEmpty || !service.includes.isEmpty) {
                     VStack(alignment: .leading, spacing: Space.sm) {
                         BMDivider().padding(.top, Space.md)
-
-                        Text(service.description)
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.appAsh)
-                            .lineSpacing(5)
-                            .fixedSize(horizontal: false, vertical: true)
-
+                        if !service.description.isEmpty {
+                            Text(service.description)
+                                .font(.bmUI(14))
+                                .foregroundStyle(Color.bmTextDim)
+                                .lineSpacing(4)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         if !service.includes.isEmpty {
                             FlowLayout(spacing: Space.xs) {
                                 ForEach(service.includes, id: \.self) { item in
                                     HStack(spacing: 4) {
                                         Image(systemName: "checkmark")
-                                            .font(.system(size: 9, weight: .bold))
-                                            .foregroundStyle(Color.gold)
+                                            .font(.bmUI(9, weight: .bold))
+                                            .foregroundStyle(Color.bmGilt)
                                         Text(item)
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundStyle(Color.appInk)
+                                            .font(.bmUI(12, weight: .semibold))
+                                            .foregroundStyle(Color.bmText)
                                     }
-                                    .padding(.horizontal, Space.xs)
-                                    .frame(minHeight: 26)
-                                    .padding(.vertical, 4)
-                                    .background(Color.gold.opacity(0.12), in: Capsule())
+                                    .padding(.horizontal, Space.sm)
+                                    .frame(height: 28)
+                                    .background(Color.bmGilt.opacity(0.12), in: Capsule())
                                 }
                             }
                         }
@@ -375,22 +271,56 @@ struct ServiceSelectableCard: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            .padding(Space.md)
-            .background(Color.appSurface)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .padding(Space.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .bmCard(radius: Radius.card, fill: isSelected ? Color.bmRaised : Color.bmSurface)
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                    .stroke(
-                        isSelected ? Color.gold : Color.appDivider,
-                        lineWidth: isSelected ? 1.5 : 0.5
+                    .strokeBorder(
+                        isSelected ? Color.bmGilt.opacity(0.8) : Color.clear,
+                        lineWidth: 1.5
                     )
             )
-            .shadow(
-                color: isSelected ? Color.gold.opacity(0.15) : Color.black.opacity(0.04),
-                radius: isSelected ? 16 : 8,
-                y: isSelected ? 6 : 2
-            )
+            .shadow(color: isSelected ? Color.bmGilt.opacity(0.22) : Color.clear, radius: 18, y: 6)
         }
-        .buttonStyle(BMPressStyle(scale: 0.99))
+        .buttonStyle(BMPressStyle(scale: 0.985, dim: 0.02))
+    }
+
+    private var thumb: some View {
+        ZStack {
+            if service.imageUrl.isEmpty {
+                LinearGradient(
+                    colors: [Color.bmRaised, Color.bmSurface],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Image(systemName: "sparkles")
+                    .font(.bmUI(22, weight: .light))
+                    .foregroundStyle(LinearGradient.bmGiltGradient)
+            } else {
+                RemoteImage(url: service.imageUrl)
+            }
+        }
+        .frame(width: 78, height: 78)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
+    }
+
+    private var indicator: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(isSelected ? Color.clear : Color.white.opacity(0.22), lineWidth: 1.5)
+                .frame(width: 28, height: 28)
+            if isSelected {
+                Circle()
+                    .fill(LinearGradient.bmGiltGradient)
+                    .frame(width: 28, height: 28)
+                    .transition(.scale)
+                Image(systemName: "checkmark")
+                    .font(.bmUI(12, weight: .heavy))
+                    .foregroundStyle(Color.bmOnGilt)
+                    .transition(.scale)
+            }
+        }
+        .animation(Motion.pop, value: isSelected)
     }
 }

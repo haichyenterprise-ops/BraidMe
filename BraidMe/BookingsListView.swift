@@ -1,14 +1,10 @@
 import SwiftUI
 
-// =============================================================================
-// BookingsListView — User's bookings, upgraded
-// Underline filter tabs, colored date badges, staggered reveal, cancel flow.
-// =============================================================================
-
 struct BookingsListView: View {
     @EnvironmentObject private var session: SessionManager
     @StateObject private var fb = FirebaseManager.shared
     @Environment(\.dismiss) private var dismiss
+    @Namespace private var segmentNS
 
     @State private var filter: Filter = .current
     @State private var activeChat: Booking?
@@ -18,59 +14,50 @@ struct BookingsListView: View {
 
     enum Filter: String, CaseIterable {
         case current = "Upcoming"
-        case past = "History"
+        case past = "Past"
     }
 
-    private var filtered: [Booking] {
+    private func bookings(for f: Filter) -> [Booking] {
         let now = Calendar.current.startOfDay(for: Date())
         return fb.bookings.filter { b in
             let isPast = b.date < now || b.status == "completed" || b.status == "cancelled"
-            return filter == .current ? !isPast : isPast
+            return f == .current ? !isPast : isPast
         }
-        .sorted { filter == .current ? $0.date < $1.date : $0.date > $1.date }
+        .sorted { f == .current ? $0.date < $1.date : $0.date > $1.date }
     }
+
+    private var filtered: [Booking] { bookings(for: filter) }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.appBackground.ignoresSafeArea()
-
-                RadialGradient(
-                    colors: [Color.gold.opacity(0.06), .clear],
-                    center: .top,
-                    startRadius: 0,
-                    endRadius: 350
-                )
-                .ignoresSafeArea()
+                AuroraBackground(intensity: 0.45)
 
                 VStack(spacing: 0) {
-                    header
-                    filterTabs
-                    content
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        Haptic.press()
+                    BMSheetBar(title: "Bookings", subtitle: "Your appointments") {
                         dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.appInk)
-                            .frame(width: 40, height: 40)
-                            .background(Color.appSurface, in: Circle())
-                            .overlay(Circle().stroke(Color.appDivider, lineWidth: 0.5))
+                    }
+                    segmentControl
+                    if loading && fb.bookings.isEmpty {
+                        BMLoadingView(message: "Loading bookings")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if filtered.isEmpty {
+                        emptyState
+                    } else {
+                        listView
                     }
                 }
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $activeChat) { booking in
                 ChatView(booking: booking, currentUserId: session.uid)
+                    .presentationBackground(Color.bmBase)
+                    .presentationCornerRadius(Radius.modal)
             }
             .sheet(item: $cancelBooking) { booking in
                 CancelBookingSheet(booking: booking) { cancelBooking = nil }
+                    .presentationBackground(Color.bmBase)
+                    .presentationCornerRadius(Radius.modal)
             }
             .task {
                 let uid = session.uid
@@ -78,127 +65,60 @@ struct BookingsListView: View {
                 loading = true
                 await fb.loadBookings(uid: uid)
                 loading = false
-                withAnimation(.spring(response: 0.85, dampingFraction: 0.85).delay(0.1)) {
-                    appeared = true
-                }
+                appeared = true
             }
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Header
+    // MARK: - Segmented control
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            HStack(spacing: Space.xs) {
-                Rectangle()
-                    .fill(Color.gold)
-                    .frame(width: 20, height: 2)
-                Text("YOUR APPOINTMENTS")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(2)
-                    .foregroundStyle(Color.gold)
-            }
-
-            Text("My bookings")
-                .font(.system(size: 34, weight: .bold, design: .serif))
-                .lineSpacing(-4)
-                .foregroundStyle(Color.appInk)
-
-            Text(verbatim: "\(fb.bookings.count) appointment\(fb.bookings.count == 1 ? "" : "s")")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.appAsh)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Space.lg)
-        .padding(.top, Space.sm)
-        .padding(.bottom, Space.md)
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Filter tabs
-
-    private var filterTabs: some View {
-        HStack(spacing: 0) {
+    private var segmentControl: some View {
+        HStack(spacing: 4) {
             ForEach(Filter.allCases, id: \.self) { f in
                 Button {
                     Haptic.select()
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
-                        filter = f
-                    }
+                    withAnimation(Motion.sheet) { filter = f }
                 } label: {
-                    VStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Text(f.rawValue)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(filter == f ? Color.appInk : Color.appAsh)
-                            .frame(maxWidth: .infinity)
-                        Rectangle()
-                            .fill(filter == f ? Color.gold : Color.clear)
-                            .frame(height: 2)
-                            .clipShape(Capsule())
+                            .font(.bmUI(14, weight: .bold))
+                        Text("\(bookings(for: f).count)")
+                            .font(.bmNum(12, weight: .bold))
+                            .padding(.horizontal, 7)
+                            .frame(minWidth: 22, minHeight: 20)
+                            .background(
+                                (filter == f ? Color.bmOnGilt.opacity(0.18) : Color.white.opacity(0.10)),
+                                in: Capsule()
+                            )
+                    }
+                    .foregroundStyle(filter == f ? Color.bmOnGilt : Color.bmTextDim)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 42)
+                    .background {
+                        if filter == f {
+                            Capsule()
+                                .fill(LinearGradient.bmGiltGradient)
+                                .matchedGeometryEffect(id: "segment", in: segmentNS)
+                        }
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(BMPressStyle(scale: 0.97, dim: 0))
             }
         }
+        .padding(4)
+        .bmGlass(radius: 26)
         .padding(.horizontal, Space.lg)
         .padding(.bottom, Space.md)
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Content
-
-    @ViewBuilder
-    private var content: some View {
-        if loading && fb.bookings.isEmpty {
-            VStack(spacing: Space.md) {
-                ProgressView()
-                    .tint(Color.gold)
-                    .scaleEffect(1.1)
-                Text("Loading your bookings")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.appAsh)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if filtered.isEmpty {
-            emptyState
-        } else {
-            listView
-        }
-    }
-
     private var emptyState: some View {
-        VStack(spacing: Space.lg) {
-            ZStack {
-                Circle()
-                    .fill(Color.gold.opacity(0.12))
-                    .frame(width: 100, height: 100)
-                Circle()
-                    .stroke(Color.gold.opacity(0.2), lineWidth: 1)
-                    .frame(width: 100, height: 100)
-                Image(systemName: filter == .current ? "calendar.badge.plus" : "clock.arrow.circlepath")
-                    .font(.system(size: 36, weight: .light))
-                    .foregroundStyle(Color.gold)
-            }
-
-            VStack(spacing: Space.xs) {
-                Text(filter == .current ? "No upcoming bookings" : "No history yet")
-                    .font(.system(size: 22, weight: .semibold, design: .serif))
-                    .foregroundStyle(Color.appInk)
-                    .multilineTextAlignment(.center)
-
-                Text(filter == .current
-                     ? "Book a braider from the map to get started."
-                     : "Your completed appointments will appear here.")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.appAsh)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-                    .padding(.horizontal, Space.xl)
-            }
-        }
+        BMEmptyState(
+            icon: filter == .current ? "calendar.badge.plus" : "clock.arrow.circlepath",
+            title: filter == .current ? "Nothing booked yet" : "No past bookings",
+            message: filter == .current
+                ? "Find a braider on the map and your next appointment will show up here."
+                : "Completed and cancelled bookings will show here."
+        )
         .frame(maxHeight: .infinity)
     }
 
@@ -218,13 +138,7 @@ struct BookingsListView: View {
                             cancelBooking = booking
                         }
                     )
-                    .opacity(appeared ? 1 : 0)
-                    .offset(y: appeared ? 0 : 20)
-                    .animation(
-                        .spring(response: 0.6, dampingFraction: 0.85)
-                            .delay(Double(index) * 0.06),
-                        value: appeared
-                    )
+                    .reveal(appeared, delay: Motion.stagger(index), offset: 24, blur: 0)
                 }
                 Color.clear.frame(height: Space.lg)
             }
@@ -236,9 +150,7 @@ struct BookingsListView: View {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Booking Card
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Booking card
 
 struct BookingCardView: View {
     let booking: Booking
@@ -253,57 +165,61 @@ struct BookingCardView: View {
         booking.status == "confirmed" && booking.date > Date()
     }
 
+    private var isDimmed: Bool {
+        booking.status == "cancelled" || booking.status == "cancellation_denied"
+            || booking.date < Calendar.current.startOfDay(for: Date())
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Space.md) {
             HStack(alignment: .top, spacing: Space.md) {
                 dateBadge
 
                 VStack(alignment: .leading, spacing: 6) {
+                    statusBadge
                     Text(booking.style)
-                        .font(.system(size: 19, weight: .semibold, design: .serif))
-                        .foregroundStyle(Color.appInk)
-                        .lineLimit(1)
-
+                        .font(.bmDisplay(20, weight: .semibold))
+                        .foregroundStyle(isDimmed ? Color.bmTextDim : Color.bmText)
+                        .lineLimit(2)
                     HStack(spacing: 5) {
                         Image(systemName: "scissors")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Color.appSmoke)
+                            .font(.bmUI(11, weight: .bold))
+                            .foregroundStyle(Color.bmTextFaint)
                         Text(booking.braiderName)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color.appAsh)
+                            .font(.bmUI(14, weight: .medium))
+                            .foregroundStyle(Color.bmTextDim)
                     }
-
-                    HStack(spacing: Space.xs) {
+                    HStack(spacing: Space.sm) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock")
+                                .font(.bmUI(11, weight: .semibold))
+                            Text(booking.time)
+                                .font(.bmNum(13, weight: .semibold))
+                        }
+                        .foregroundStyle(Color.bmTextDim)
                         Text("£\(booking.price)")
-                            .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Color.gold)
-                        Text("·")
-                            .foregroundStyle(Color.appSmoke)
-                        Text(booking.time)
-                            .font(.system(size: 13))
-                            .foregroundStyle(Color.appAsh)
+                            .font(.bmNum(14, weight: .bold))
+                            .foregroundStyle(Color.bmGilt)
                     }
                     .padding(.top, 2)
                 }
-                Spacer()
-                statusBadge
+                Spacer(minLength: 0)
             }
 
             if !isPast && (canMessage || canCancel) {
-                HStack(spacing: Space.sm) {
+                HStack(spacing: Space.xs) {
                     if canMessage {
                         Button(action: onMessage) {
                             HStack(spacing: 6) {
                                 Image(systemName: "message.fill")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.bmUI(12, weight: .bold))
                                 Text("Message")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(.bmUI(14, weight: .bold))
                             }
-                            .foregroundStyle(Color.appInkInverse)
+                            .foregroundStyle(Color.bmOnGilt)
                             .frame(maxWidth: .infinity)
-                            .frame(minHeight: 46)
-                            .background(Color.appInk, in: RoundedRectangle(cornerRadius: 12))
-                            .shadow(color: Color.appInk.opacity(0.15), radius: 8, y: 4)
+                            .frame(height: 46)
+                            .background(LinearGradient.bmGiltGradient, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
                         }
                         .buttonStyle(BMPressStyle())
                     }
@@ -311,17 +227,17 @@ struct BookingCardView: View {
                         Button(action: onCancel) {
                             HStack(spacing: 6) {
                                 Image(systemName: "xmark.circle")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.bmUI(12, weight: .bold))
                                 Text("Cancel")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(.bmUI(14, weight: .bold))
                             }
-                            .foregroundStyle(Color.appAlert)
+                            .foregroundStyle(Color.bmBad)
                             .frame(maxWidth: .infinity)
-                            .frame(minHeight: 46)
-                            .background(Color.appAlert.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                            .frame(height: 46)
+                            .background(Color.bmBad.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color.appAlert.opacity(0.25), lineWidth: 1)
+                                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                                    .strokeBorder(Color.bmBad.opacity(0.35), lineWidth: 1)
                             )
                         }
                         .buttonStyle(BMPressStyle())
@@ -330,66 +246,70 @@ struct BookingCardView: View {
             }
         }
         .padding(Space.md)
-        .background(Color.appSurface)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .stroke(Color.appDivider, lineWidth: 0.5)
-        )
-        .shadow(color: Color.black.opacity(0.06), radius: 16, y: 8)
+        .bmCard(radius: Radius.card)
     }
 
     private var dateBadge: some View {
         VStack(spacing: 0) {
-            Text(booking.date.formatted(.dateTime.month(.abbreviated)).uppercased())
-                .font(.system(size: 9, weight: .bold))
-                .tracking(1)
-                .foregroundStyle(Color.appInkInverse.opacity(0.75))
+            Text(booking.date.formatted(.dateTime.month(.abbreviated)))
+                .font(.bmUI(12, weight: .bold))
+                .foregroundStyle(badgeText.opacity(0.75))
             Text(booking.date.formatted(.dateTime.day()))
-                .font(.system(size: 22, weight: .bold, design: .serif))
-                .foregroundStyle(Color.appInkInverse)
+                .font(.bmDisplay(28, weight: .semibold))
+                .foregroundStyle(badgeText)
+            Text(booking.date.formatted(.dateTime.weekday(.abbreviated)))
+                .font(.bmUI(11, weight: .semibold))
+                .foregroundStyle(badgeText.opacity(0.75))
         }
-        .frame(width: 56, height: 64)
-        .background(monthColor)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: monthColor.opacity(0.3), radius: 8, y: 4)
+        .frame(width: 60, height: 74)
+        .background {
+            if isDimmed {
+                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+            } else if Calendar.current.isDateInToday(booking.date) {
+                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                    .fill(LinearGradient.bmGiltGradient)
+            } else {
+                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                    .fill(Color.bmRaised)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                            .strokeBorder(Color.bmGilt.opacity(0.4), lineWidth: 1)
+                    )
+            }
+        }
     }
 
-    private var monthColor: Color {
-        if booking.status == "cancelled" || booking.status == "cancellation_denied" { return Color.appSmoke }
-        if booking.date < Calendar.current.startOfDay(for: Date()) { return Color.appSmoke }
-        if Calendar.current.isDateInToday(booking.date) { return Color.gold }
-        return Color.appInk
+    private var badgeText: Color {
+        if isDimmed { return Color.bmTextDim }
+        if Calendar.current.isDateInToday(booking.date) { return Color.bmOnGilt }
+        return Color.bmText
     }
 
     private var statusBadge: some View {
-        let (label, color): (String, Color) = {
+        let info: (String, Color) = {
             switch booking.status {
-            case "confirmed": return ("Confirmed", Color.appSignal)
-            case "completed": return ("Completed", Color.appAsh)
-            case "cancelled": return ("Cancelled", Color.appAlert)
-            case "cancellation_requested": return ("Pending", Color.gold)
-            case "cancellation_denied": return ("Denied", Color.appAlert)
-            default: return (booking.status.capitalized, Color.appAsh)
+            case "confirmed": return ("Confirmed", Color.bmGood)
+            case "completed": return ("Completed", Color.bmTextDim)
+            case "cancelled": return ("Cancelled", Color.bmBad)
+            case "cancellation_requested": return ("Pending", Color.bmGilt)
+            case "cancellation_denied": return ("Denied", Color.bmBad)
+            default: return (booking.status.capitalized, Color.bmTextDim)
             }
         }()
         return HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(label)
-                .font(.system(size: 10, weight: .bold))
-                .tracking(0.5)
-                .foregroundStyle(color)
+            Circle().fill(info.1).frame(width: 6, height: 6)
+            Text(info.0)
+                .font(.bmUI(11, weight: .bold))
+                .foregroundStyle(info.1)
         }
-        .padding(.horizontal, Space.xs)
-        .padding(.vertical, 6)
-        .background(color.opacity(0.12), in: Capsule())
-        .overlay(Capsule().stroke(color.opacity(0.2), lineWidth: 0.5))
+        .padding(.horizontal, 9)
+        .frame(height: 26)
+        .background(info.1.opacity(0.14), in: Capsule())
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Cancel Booking Sheet
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Cancel sheet
 
 struct CancelBookingSheet: View {
     let booking: Booking
@@ -402,63 +322,43 @@ struct CancelBookingSheet: View {
     @State private var submitting = false
     @State private var errorMessage: String?
     @State private var showSuccess = false
-    @State private var appeared = false
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.appBackground.ignoresSafeArea()
+        ZStack {
+            AuroraBackground(intensity: 0.35)
 
-                RadialGradient(
-                    colors: [Color.appAlert.opacity(0.08), .clear],
-                    center: .top,
-                    startRadius: 0,
-                    endRadius: 350
-                )
-                .ignoresSafeArea()
-
-                ScrollView {
-                    VStack(spacing: Space.lg) {
-                        iconHeader
-                        reasonBlock
-                        submitButton
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: Space.lg) {
+                    HStack {
+                        Spacer()
+                        BMIconButton(icon: "xmark", size: 40, iconSize: 13) {
+                            dismiss()
+                            onDismiss()
+                        }
                     }
-                    .padding(Space.lg)
+                    iconHeader
+                    reasonBlock
+                    submitButton
                 }
+                .padding(Space.lg)
             }
-            .navigationTitle("Cancel booking")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Close") {
-                        dismiss()
-                        onDismiss()
-                    }
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Color.appAsh)
-                }
-            }
-            .alert("Request sent", isPresented: $showSuccess) {
-                Button("OK") {
-                    dismiss()
-                    onDismiss()
-                }
-            } message: {
-                Text("Your cancellation request has been sent to \(booking.braiderName). They'll respond shortly.")
-            }
-            .alert("Error", isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
-            )) {
-                Button("OK", role: .cancel) { errorMessage = nil }
-            } message: {
-                Text(errorMessage ?? "")
-            }
+            .scrollDismissesKeyboard(.interactively)
         }
-        .onAppear {
-            withAnimation(.spring(response: 0.75, dampingFraction: 0.85).delay(0.1)) {
-                appeared = true
+        .alert("Request sent", isPresented: $showSuccess) {
+            Button("OK") {
+                dismiss()
+                onDismiss()
             }
+        } message: {
+            Text("Your cancellation request has been sent to \(booking.braiderName). They'll respond shortly.")
+        }
+        .alert("Couldn't send request", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
         }
     }
 
@@ -466,106 +366,71 @@ struct CancelBookingSheet: View {
         VStack(spacing: Space.md) {
             ZStack {
                 Circle()
-                    .stroke(Color.appAlert.opacity(0.2), lineWidth: 2)
-                    .frame(width: 108, height: 108)
-                    .scaleEffect(appeared ? 1.15 : 1)
-                    .opacity(appeared ? 0 : 0.6)
-
+                    .fill(Color.bmBad.opacity(0.25))
+                    .frame(width: 90, height: 90)
+                    .blur(radius: 24)
                 Circle()
-                    .fill(Color.appAlert.opacity(0.12))
-                    .frame(width: 100, height: 100)
-
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 44))
-                    .foregroundStyle(Color.appAlert)
+                    .fill(Color.bmSurface)
+                    .frame(width: 84, height: 84)
+                    .overlay(Circle().strokeBorder(Color.bmBad.opacity(0.4), lineWidth: 1))
+                Image(systemName: "calendar.badge.minus")
+                    .font(.system(size: 32, weight: .light))
+                    .foregroundStyle(Color.bmBad)
             }
-            .scaleEffect(appeared ? 1 : 0.7)
-            .opacity(appeared ? 1 : 0)
-
-            VStack(spacing: Space.sm) {
-                Text("Cancel this\nappointment?")
-                    .font(.system(size: 26, weight: .bold, design: .serif))
-                    .foregroundStyle(Color.appInk)
+            VStack(spacing: Space.xs) {
+                Text("Cancel this booking?")
+                    .font(.bmDisplay(28, weight: .semibold))
+                    .foregroundStyle(Color.bmText)
+                Text("\(booking.style) with \(booking.braiderName) on \(booking.date.formatted(date: .abbreviated, time: .omitted)) at \(booking.time)")
+                    .font(.bmUI(14))
+                    .foregroundStyle(Color.bmTextDim)
                     .multilineTextAlignment(.center)
-                    .lineSpacing(-3)
-
-                Text("\(booking.style) with \(booking.braiderName)")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.appAsh)
-                    .multilineTextAlignment(.center)
-
-                HStack(spacing: Space.xs) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 11))
-                    Text(booking.date.formatted(date: .abbreviated, time: .omitted))
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("·")
-                    Image(systemName: "clock")
-                        .font(.system(size: 11))
-                    Text(booking.time)
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .font(.system(size: 12))
-                .foregroundStyle(Color.appInkSecondary)
-                .padding(.horizontal, Space.md)
-                .padding(.vertical, 8)
-                .background(Color.appSurfaceElevated, in: Capsule())
-                .padding(.top, Space.xs)
+                    .lineSpacing(3)
+                    .padding(.horizontal, Space.md)
             }
-            .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 16)
         }
     }
 
     private var reasonBlock: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            HStack(spacing: Space.xs) {
-                Rectangle()
-                    .fill(Color.gold)
-                    .frame(width: 20, height: 1.5)
-                Text("REASON (OPTIONAL)")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(2)
-                    .foregroundStyle(Color.appAsh)
-            }
+        VStack(alignment: .leading, spacing: Space.xs) {
+            BMSectionLabel(text: "Reason (optional)")
             ZStack(alignment: .topLeading) {
                 if reason.isEmpty {
                     Text("Let the braider know why…")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Color.appSmoke)
+                        .font(.bmUI(15))
+                        .foregroundStyle(Color.bmTextFaint)
                         .padding(.horizontal, Space.md)
                         .padding(.vertical, Space.md)
+                        .allowsHitTesting(false)
                 }
                 TextEditor(text: $reason)
-                    .font(.system(size: 15))
-                    .foregroundStyle(Color.appInk)
+                    .font(.bmUI(15))
+                    .foregroundStyle(Color.bmText)
+                    .tint(Color.bmGilt)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
                     .padding(.horizontal, Space.sm)
                     .padding(.vertical, Space.xs)
                     .frame(minHeight: 120)
             }
-            .background(Color.appSurface)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.button))
+            .background(Color.bmSurface, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: Radius.button)
-                    .stroke(Color.appDivider, lineWidth: 1)
+                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
             )
         }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
     }
 
     private var submitButton: some View {
         BMPrimaryButton(
             title: submitting ? "Sending…" : "Request cancellation",
-            icon: "paperplane.fill",
-            loading: submitting
+            icon: submitting ? nil : "paperplane.fill",
+            loading: submitting,
+            shine: false
         ) {
             submit()
         }
         .disabled(submitting)
-        .opacity(appeared ? 1 : 0)
     }
 
     private func submit() {

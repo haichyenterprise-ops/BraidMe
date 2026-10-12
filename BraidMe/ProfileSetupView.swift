@@ -1,10 +1,5 @@
 import SwiftUI
 
-// =============================================================================
-// ProfileSetupView — Onboarding step 2, rebuilt
-// Massive age numeral with numeric transitions, ambient gradient, staggered reveal.
-// =============================================================================
-
 struct ProfileSetupView: View {
     let uid: String
     let displayName: String
@@ -17,6 +12,7 @@ struct ProfileSetupView: View {
     @State private var appeared = false
     @State private var saving = false
     @State private var errorMessage: String?
+
     @FocusState private var nameFocused: Bool
 
     private let range = Array(13...90)
@@ -29,45 +25,35 @@ struct ProfileSetupView: View {
 
     var body: some View {
         ZStack {
-            Color.appBackground.ignoresSafeArea()
-
-            // Ambient gradient
-            RadialGradient(
-                colors: [Color.gold.opacity(0.10), .clear],
-                center: .top,
-                startRadius: 0,
-                endRadius: 500
-            )
-            .ignoresSafeArea()
+            AuroraBackground(intensity: 0.7)
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
-                    Spacer().frame(height: Space.xxl)
-
-                    header.padding(.horizontal, Space.lg)
-                    Spacer().frame(height: Space.xl)
+                    header
+                        .padding(.horizontal, Space.lg)
+                        .padding(.top, Space.xxl)
 
                     if needsName {
-                        nameField.padding(.horizontal, Space.lg)
-                        Spacer().frame(height: Space.lg)
+                        nameField
+                            .padding(.horizontal, Space.lg)
+                            .padding(.top, Space.xl)
                     }
 
-                    agePicker.padding(.horizontal, Space.lg)
-                    Spacer().frame(height: Space.lg)
+                    agePicker
+                        .padding(.horizontal, Space.lg)
+                        .padding(.top, Space.xl)
 
-                    footer.padding(.horizontal, Space.lg)
-                    Spacer().frame(height: Space.xxl)
+                    footer
+                        .padding(.horizontal, Space.lg)
+                        .padding(.top, Space.xl)
+                        .padding(.bottom, Space.xl)
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
         }
         .onAppear {
             if !needsName && name.isEmpty { name = displayName }
-            withAnimation(.spring(response: 0.85, dampingFraction: 0.85).delay(0.1)) {
-                appeared = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if needsName { nameFocused = true }
-            }
+            appeared = true
         }
         .alert("Couldn't save", isPresented: Binding(
             get: { errorMessage != nil },
@@ -79,49 +65,41 @@ struct ProfileSetupView: View {
         }
     }
 
+    // MARK: - Header
+
     private var header: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
-            HStack(spacing: Space.xs) {
-                Rectangle()
-                    .fill(Color.gold)
-                    .frame(width: 24, height: 2)
-                Text("SETUP · STEP 2 OF 2")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(2.5)
-                    .foregroundStyle(Color.gold)
+        VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(spacing: Space.sm) {
+                BraidMark(length: 46, thickness: 28, strand: 6, horizontal: true, cycles: 1.4)
+                Text("One last step")
+                    .font(.bmUI(14, weight: .semibold))
+                    .foregroundStyle(Color.bmTextDim)
             }
 
             Text(needsName ? "A little\nabout you." : "How old\nare you?")
-                .font(.system(size: 42, weight: .bold, design: .serif))
+                .font(.bmDisplay(44, weight: .semibold))
+                .foregroundStyle(Color.bmText)
                 .lineSpacing(-6)
-                .foregroundStyle(Color.appInk)
                 .minimumScaleFactor(0.7)
                 .lineLimit(2)
 
             Text(needsName
-                 ? "We'll use this to personalise your feed and match you with the right braiders."
-                 : "This helps us keep BraidMe safe and shows age-appropriate styles.")
-                .font(.system(size: 15))
-                .foregroundStyle(Color.appAsh)
-                .lineSpacing(4)
+                 ? "We'll use this to match you with the right braiders."
+                 : "This helps us keep BraidMe safe and show age-appropriate styles.")
+                .font(.bmUI(15))
+                .foregroundStyle(Color.bmTextDim)
+                .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 24)
+        .reveal(appeared, offset: 26, blur: 8)
     }
 
+    // MARK: - Name
+
     private var nameField: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            HStack(spacing: Space.xs) {
-                Rectangle()
-                    .fill(Color.gold)
-                    .frame(width: 20, height: 1.5)
-                Text("YOUR NAME")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(2)
-                    .foregroundStyle(Color.appAsh)
-            }
+        VStack(alignment: .leading, spacing: Space.xs) {
+            BMSectionLabel(text: "Your name")
             BMFieldRow(
                 icon: "person",
                 placeholder: "First and last name",
@@ -130,110 +108,86 @@ struct ProfileSetupView: View {
                 submitLabel: .done
             )
             .focused($nameFocused)
+            .onSubmit { nameFocused = false }
         }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 24)
-        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.15), value: appeared)
+        .reveal(appeared, delay: 0.08)
     }
 
+    // MARK: - Age
+
     private var agePicker: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            HStack(spacing: Space.xs) {
-                Rectangle()
-                    .fill(Color.gold)
-                    .frame(width: 20, height: 1.5)
-                Text("YOUR AGE")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(2)
-                    .foregroundStyle(Color.appAsh)
-            }
+        VStack(alignment: .leading, spacing: Space.xs) {
+            BMSectionLabel(text: "Your age")
 
-            VStack(spacing: Space.md) {
-                // Giant numeral
-                HStack(alignment: .lastTextBaseline, spacing: Space.sm) {
+            VStack(spacing: 0) {
+                HStack(alignment: .lastTextBaseline, spacing: Space.xs) {
                     Text("\(age)")
-                        .font(.system(size: 88, weight: .bold, design: .serif))
-                        .foregroundStyle(Color.appInk)
-                        .contentTransition(.numericText(countsDown: false))
-                        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: age)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-
+                        .font(.bmDisplay(84, weight: .semibold))
+                        .foregroundStyle(LinearGradient.bmGiltGradient)
+                        .contentTransition(.numericText())
+                        .animation(Motion.press, value: age)
                     Text("years")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(Color.appAsh)
-                        .padding(.bottom, 16)
+                        .font(.bmUI(18, weight: .medium))
+                        .foregroundStyle(Color.bmTextDim)
                 }
+                .padding(.top, Space.md)
 
                 ZStack {
-                    RoundedRectangle(cornerRadius: Radius.button)
-                        .fill(Color.gold.opacity(0.10))
+                    RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                        .fill(Color.white.opacity(0.06))
                         .frame(height: 44)
-                        .padding(.horizontal, Space.xl)
+                        .padding(.horizontal, Space.lg)
 
                     Picker("Age", selection: $age) {
                         ForEach(range, id: \.self) { n in
-                            Text("\(n)").tag(n)
-                                .font(.system(size: 22, weight: .semibold))
-                                .foregroundStyle(Color.appInk)
+                            Text("\(n)")
+                                .font(.bmNum(22, weight: .semibold))
+                                .foregroundStyle(Color.bmText)
+                                .tag(n)
                         }
                     }
                     .pickerStyle(.wheel)
-                    .frame(height: 180)
+                    .frame(height: 150)
                     .clipped()
                     .onChange(of: age) { _, _ in Haptic.select() }
                 }
-                .frame(height: 180)
             }
-            .padding(.vertical, Space.sm)
-            .background(Color.appSurface)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                    .stroke(Color.appDivider, lineWidth: 0.5)
-            )
-            .shadow(color: Color.black.opacity(0.06), radius: 16, y: 8)
+            .frame(maxWidth: .infinity)
+            .bmCard(radius: Radius.card)
         }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 24)
-        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.20), value: appeared)
+        .reveal(appeared, delay: 0.14)
     }
+
+    // MARK: - Footer
 
     private var footer: some View {
         VStack(spacing: Space.sm) {
             if !isValid && !name.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11))
-                    Text("You must be at least 13 to continue.")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .foregroundStyle(Color.appAlert)
-                .padding(.horizontal, Space.md)
-                .padding(.vertical, 8)
-                .background(Color.appAlert.opacity(0.1), in: Capsule())
-                .transition(.scale.combined(with: .opacity))
+                Text("You must be at least 13 to continue.")
+                    .font(.bmUI(13, weight: .medium))
+                    .foregroundStyle(Color.bmBad)
             }
 
             BMPrimaryButton(
                 title: saving ? "Saving…" : "Continue",
-                icon: "arrow.right",
+                icon: saving ? nil : "arrow.right",
                 loading: saving
             ) {
                 save()
             }
             .disabled(!isValid || saving)
             .opacity(isValid ? 1 : 0.4)
+            .animation(Motion.subtle, value: isValid)
         }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 24)
-        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.25), value: appeared)
-        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isValid)
+        .reveal(appeared, delay: 0.2)
     }
+
+    // MARK: - Save
 
     private func save() {
         guard isValid else { return }
         saving = true
+        nameFocused = false
         Haptic.press()
 
         let trimmed = name.trimmingCharacters(in: .whitespaces)

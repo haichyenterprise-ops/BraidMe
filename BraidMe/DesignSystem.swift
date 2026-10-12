@@ -2,208 +2,34 @@ import SwiftUI
 import UIKit
 
 // =============================================================================
-// BraidMe Design System — "Obsidian Couture"
+// BraidMe Design System — "Night Salon"
 //
-// Foundation for the entire app. Every color, font, spacing token, motion
-// curve, haptic pattern, and shared modifier lives here. Waves 1–6 were
-// built against this exact API surface.
+// Aubergine-night surfaces, gilt / orchid / ember accents, New York serif
+// display type, SF Rounded numerals. The signature element is the living
+// three-strand braid (BraidMark) that appears on splash, loaders and progress.
 // =============================================================================
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Color Palette
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Color
 
 extension Color {
-    fileprivate enum Palette {
-        // ─── Light neutrals ───
-        static let cream        = Color(hex: "#FAF8F5")
-        static let pearl        = Color(hex: "#F2EEE8")
-        static let linen        = Color(hex: "#E8E2D9")
-        static let sand         = Color(hex: "#D4CCC0")
+    static let bmDeep      = Color(hex: "#0B0712")
+    static let bmBase      = Color(hex: "#130D1D")
+    static let bmSurface   = Color(hex: "#1C1428")
+    static let bmRaised    = Color(hex: "#271D37")
+    static let bmLine      = Color.white.opacity(0.09)
 
-        // ─── Dark neutrals ───
-        static let onyx         = Color(hex: "#121218")
-        static let graphite     = Color(hex: "#1A1A22")
-        static let slate        = Color(hex: "#252530")
-        static let steel        = Color(hex: "#3A3A48")
-        static let void         = Color(hex: "#050507")
+    static let bmText      = Color(hex: "#F7F1FB")
+    static let bmTextDim   = Color(hex: "#B5A9C6")
+    static let bmTextFaint = Color(hex: "#7E7192")
 
-        // ─── Text hierarchy ───
-        static let ink          = Color(hex: "#0F0F12")
-        static let charcoal     = Color(hex: "#2A2A32")
-        static let pewter       = Color(hex: "#6B6B78")
-        static let fog          = Color(hex: "#9A9AA5")
-
-        // ─── Gold scale ───
-        static let goldSoft     = Color(hex: "#F2DFA0")
-        static let goldLight    = Color(hex: "#E8C84A")
-        static let gold         = Color(hex: "#C9A227")
-        static let goldDeep     = Color(hex: "#8B7119")
-        static let goldInk      = Color(hex: "#5C4A15")
-
-        // ─── Semantic ───
-        static let emerald      = Color(hex: "#34D399")
-        static let ruby         = Color(hex: "#F87171")
-        static let sapphire     = Color(hex: "#60A5FA")
-        static let amethyst     = Color(hex: "#A78BFA")
-    }
-
-    // ─── Adaptive surfaces ───
-    static var appBackground: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.onyx) : UIColor(Palette.cream) })
-    }
-    static var appSurface: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.graphite) : UIColor.white })
-    }
-    static var appSurfaceElevated: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.slate) : UIColor(Palette.pearl) })
-    }
-    static var appSurfaceInverse: Color { Palette.onyx }
-
-    // ─── Adaptive text ───
-    static var appInk: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.cream) : UIColor(Palette.ink) })
-    }
-    static var appInkSecondary: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.sand) : UIColor(Palette.charcoal) })
-    }
-    static var appInkTertiary: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.fog) : UIColor(Palette.pewter) })
-    }
-    static var appDivider: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.slate) : UIColor(Palette.linen) })
-    }
-
-    // ─── Legacy aliases ───
-    static var appAsh: Color { appInkSecondary }
-    static var appSmoke: Color { appInkTertiary }
-    static var appInkInverse: Color { Palette.cream }
-
-    // ─── Gold accent system ───
-    static var appAccent: Color { Palette.gold }
-    static var appAccentSoft: Color { Palette.goldLight }
-    static var appAccentDeep: Color { Palette.goldDeep }
-    static var appAccentTint: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-            ? UIColor(Palette.gold).withAlphaComponent(0.16)
-            : UIColor(Palette.gold).withAlphaComponent(0.10) })
-    }
-    static var appAccentGlow: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-            ? UIColor(Palette.goldLight).withAlphaComponent(0.35)
-            : UIColor(Palette.gold).withAlphaComponent(0.25) })
-    }
-
-    // ─── Semantic shortcuts ───
-    static var appSignal: Color { Palette.emerald }
-    static var appAlert: Color { Palette.ruby }
-    static var appInfo: Color { Palette.sapphire }
-    static var appPremium: Color { Palette.amethyst }
-
-    // ─── Direct gold accessors ───
-    static var goldSoft: Color { Palette.goldSoft }
-    static var goldLight: Color { Palette.goldLight }
-    static var gold: Color { Palette.gold }
-    static var goldDeep: Color { Palette.goldDeep }
-    static var goldInk: Color { Palette.goldInk }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Blur-free glass tints (performance)
-    // ═══════════════════════════════════════════════════════════════
-
-    /// Cheap alternative to `.ultraThinMaterial` — same visual, no GPU blur cost.
-    static var glassTint: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-            ? UIColor(Palette.graphite).withAlphaComponent(0.72)
-            : UIColor.white.withAlphaComponent(0.82) })
-    }
-    /// Cheap alternative to `.regularMaterial`.
-    static var glassTintStrong: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-            ? UIColor(Palette.slate).withAlphaComponent(0.88)
-            : UIColor.white.withAlphaComponent(0.94) })
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Gradients
-    // ═══════════════════════════════════════════════════════════════
-
-    static var accentGradient: LinearGradient {
-        LinearGradient(
-            colors: [Palette.goldLight, Palette.gold, Palette.goldDeep],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    /// Gold hairline for section dividers — bright in center, transparent at edges.
-    static var goldHairline: LinearGradient {
-        LinearGradient(
-            colors: [Palette.gold.opacity(0), Palette.gold, Palette.gold.opacity(0)],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-    }
-
-    /// Gold rim for outlined cards.
-    static var goldRim: LinearGradient {
-        LinearGradient(
-            colors: [Palette.goldLight.opacity(0.9), Palette.gold.opacity(0.2)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    /// Moving gold sheen — used on shimmer overlays.
-    static var goldSweep: LinearGradient {
-        LinearGradient(
-            stops: [
-                .init(color: Palette.gold.opacity(0), location: 0.0),
-                .init(color: Palette.goldLight.opacity(0.6), location: 0.5),
-                .init(color: Palette.gold.opacity(0), location: 1.0)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-    }
-
-    static var darkGradient: LinearGradient {
-        LinearGradient(
-            colors: [Palette.onyx, Palette.void],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-
-    static var surfaceGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.graphite) : UIColor.white }),
-                Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.onyx) : UIColor(Palette.pearl) })
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    /// 5-stop cinematic veil used on hero images.
-    static var heroVeil: LinearGradient {
-        LinearGradient(
-            stops: [
-                .init(color: .black.opacity(0.55), location: 0.00),
-                .init(color: .clear,                location: 0.30),
-                .init(color: .black.opacity(0.10), location: 0.55),
-                .init(color: .black.opacity(0.78), location: 0.85),
-                .init(color: .black.opacity(0.98), location: 1.00)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Hex init
-    // ═══════════════════════════════════════════════════════════════
+    static let bmGiltHi    = Color(hex: "#FFE2AE")
+    static let bmGilt      = Color(hex: "#F1BF79")
+    static let bmGiltLo    = Color(hex: "#D38E45")
+    static let bmOrchid    = Color(hex: "#B38DFF")
+    static let bmEmber     = Color(hex: "#FF7D6C")
+    static let bmGood      = Color(hex: "#5BD9A3")
+    static let bmBad       = Color(hex: "#FF6B7B")
+    static let bmOnGilt    = Color(hex: "#23132D")
 
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -224,34 +50,45 @@ extension Color {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Typography
-// ═══════════════════════════════════════════════════════════════════
+extension LinearGradient {
+    static var bmGiltGradient: LinearGradient {
+        LinearGradient(
+            colors: [Color.bmGiltHi, Color.bmGilt, Color.bmGiltLo],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+    static var bmBraidGradient: LinearGradient {
+        LinearGradient(
+            colors: [Color.bmGilt, Color.bmEmber, Color.bmOrchid],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+    static var bmNightGradient: LinearGradient {
+        LinearGradient(
+            colors: [Color.bmBase, Color.bmDeep],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+// MARK: - Type
 
 extension Font {
     static func bmDisplay(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
         .system(size: size, weight: weight, design: .serif)
     }
     static func bmUI(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .rounded)
-    }
-    static func bmMono(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
-    }
-    static func bmHero(_ size: CGFloat) -> Font {
-        .system(size: size, weight: .bold, design: .serif)
-    }
-    static func bmSerif(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .serif)
-    }
-    static func bmSans(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .default)
+    }
+    static func bmNum(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
+        Font.system(size: size, weight: weight, design: .rounded).monospacedDigit()
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Spacing
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Spacing / radius
 
 enum Space {
     static let xxs: CGFloat = 4
@@ -262,66 +99,29 @@ enum Space {
     static let xl:  CGFloat = 32
     static let xxl: CGFloat = 48
     static let xxxl: CGFloat = 64
-    static let huge: CGFloat = 96
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Radius
-// ═══════════════════════════════════════════════════════════════════
 
 enum Radius {
-    static let chip:     CGFloat = 10
-    static let button:   CGFloat = 16
-    static let card:     CGFloat = 24
-    static let modal:    CGFloat = 36
-    static let pill:     CGFloat = 999
-    static let hero:     CGFloat = 32
-    static let squircle: CGFloat = 20
+    static let chip:   CGFloat = 10
+    static let button: CGFloat = 18
+    static let card:   CGFloat = 24
+    static let modal:  CGFloat = 36
+    static let pill:   CGFloat = 999
 }
 
-// ═══════════════════════════════════════════════════════════════════
 // MARK: - Motion
-// ═══════════════════════════════════════════════════════════════════
 
 enum Motion {
-    // Navigation & sheets
-    static let navigation = Animation.spring(response: 0.45, dampingFraction: 0.86)
-    static let sheet      = Animation.spring(response: 0.42, dampingFraction: 0.88)
+    static let navigation = Animation.spring(response: 0.55, dampingFraction: 0.86)
+    static let press      = Animation.spring(response: 0.30, dampingFraction: 0.72)
+    static let reveal     = Animation.spring(response: 0.75, dampingFraction: 0.82)
+    static let sheet      = Animation.spring(response: 0.50, dampingFraction: 0.84)
+    static let pop        = Animation.spring(response: 0.38, dampingFraction: 0.50)
+    static let subtle     = Animation.easeOut(duration: 0.20)
 
-    // Interactions
-    static let press      = Animation.spring(response: 0.25, dampingFraction: 0.75)
-    static let reveal     = Animation.spring(response: 0.55, dampingFraction: 0.82)
-    static let subtle     = Animation.easeOut(duration: 0.22)
-    static let smooth     = Animation.easeInOut(duration: 0.35)
-    static let bouncy     = Animation.spring(response: 0.35, dampingFraction: 0.65)
-    static let slow       = Animation.easeInOut(duration: 0.6)
-
-    // Physical dynamics
-    static let morph      = Animation.spring(response: 0.5, dampingFraction: 0.75)
-    static let expand     = Animation.spring(response: 0.38, dampingFraction: 0.65)
-    static let collapse   = Animation.spring(response: 0.42, dampingFraction: 0.78)
-    static let cardDrop   = Animation.spring(response: 0.5, dampingFraction: 0.78)
-    static let cardMorph  = Animation.spring(response: 0.55, dampingFraction: 0.72)
-
-    // Hero
-    static let heroReveal = Animation.spring(response: 0.8, dampingFraction: 0.75)
-    static let cameraFly  = Animation.smooth(duration: 0.9)
-
-    // Loops
-    static let shimmer    = Animation.linear(duration: 2.5).repeatForever(autoreverses: false)
-    static let pulse      = Animation.easeInOut(duration: 2.0).repeatForever(autoreverses: true)
-    static let breathe    = Animation.easeInOut(duration: 2.4).repeatForever(autoreverses: true)
-    static let marquee    = Animation.linear(duration: 30).repeatForever(autoreverses: false)
-    static let sheenLoop  = Animation.linear(duration: 2.5).repeatForever(autoreverses: false)
-
-    // Stagger
-    static let staggerStep: Double = 0.05
-    static func stagger(_ index: Int) -> Double { Double(index) * staggerStep }
+    static let staggerStep: Double = 0.055
+    static func stagger(_ index: Int) -> Double { Double(min(index, 10)) * staggerStep }
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Adaptive Animation Modifier
-// ═══════════════════════════════════════════════════════════════════
 
 struct AdaptiveAnimation<V: Equatable>: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -332,65 +132,129 @@ struct AdaptiveAnimation<V: Equatable>: ViewModifier {
     }
 }
 
+struct RevealModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let appeared: Bool
+    let delay: Double
+    let offset: CGFloat
+    let blur: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(appeared ? 1 : 0)
+            .offset(y: (appeared || reduceMotion) ? 0 : offset)
+            .blur(radius: (appeared || reduceMotion) ? 0 : blur)
+            .animation(
+                reduceMotion ? Motion.subtle : Motion.reveal.delay(delay),
+                value: appeared
+            )
+    }
+}
+
 extension View {
     func animate<V: Equatable>(_ animation: Animation, value: V) -> some View {
         modifier(AdaptiveAnimation(animation: animation, value: value))
     }
+
+    /// Staggered entrance: rises, de-blurs and fades in.
+    func reveal(_ appeared: Bool, delay: Double = 0, offset: CGFloat = 22, blur: CGFloat = 5) -> some View {
+        modifier(RevealModifier(appeared: appeared, delay: delay, offset: offset, blur: blur))
+    }
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Surfaces
+
+extension View {
+    /// Solid raised surface with a light-catching hairline.
+    func bmCard(radius: CGFloat = Radius.card, fill: Color = Color.bmSurface) -> some View {
+        self
+            .background(fill, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.16), Color.white.opacity(0.03)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.8
+                    )
+            )
+    }
+
+    /// Frosted glass surface.
+    func bmGlass(radius: CGFloat = Radius.card, tint: Color = Color.white.opacity(0.04)) -> some View {
+        self
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .fill(tint)
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.28), Color.white.opacity(0.04)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.8
+                    )
+            )
+    }
+
+    func bmGlassCircle() -> some View {
+        self
+            .background(.ultraThinMaterial, in: Circle())
+            .overlay(
+                Circle().strokeBorder(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.30), Color.white.opacity(0.04)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.8
+                )
+            )
+    }
+}
+
+// MARK: - Press styles
+
+struct BMPressStyle: ButtonStyle {
+    var scale: CGFloat = 0.97
+    var dim: Double = 0.05
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .brightness(configuration.isPressed ? -dim : 0)
+            .animation(Motion.press, value: configuration.isPressed)
+    }
+}
+
+struct BMIconPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .animation(Motion.press, value: configuration.isPressed)
+    }
+}
+
 // MARK: - Haptics
-// ═══════════════════════════════════════════════════════════════════
 
 enum Haptic {
     static func select()  { UISelectionFeedbackGenerator().selectionChanged() }
     static func press()   { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
-    static func light()   { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-    static func medium()  { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
-    static func heavy()   { UIImpactFeedbackGenerator(style: .heavy).impactOccurred() }
-    static func rigid()   { UIImpactFeedbackGenerator(style: .rigid).impactOccurred() }
+    static func thud()    { UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.7) }
     static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
     static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
     static func error()   { UINotificationFeedbackGenerator().notificationOccurred(.error) }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Dual-Layer Glass Stroke
-// ═══════════════════════════════════════════════════════════════════
-
-struct DualLayerGlassStroke: ViewModifier {
-    var cornerRadius: CGFloat = Radius.card
-    var lineWidth: CGFloat = 0.8
-    @Environment(\.colorScheme) private var colorScheme
-
-    func body(content: Content) -> some View {
-        content.overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Color.goldLight.opacity(colorScheme == .dark ? 0.55 : 0.75),
-                            Color.gold.opacity(colorScheme == .dark ? 0.35 : 0.45),
-                            Color.goldDeep.opacity(colorScheme == .dark ? 0.20 : 0.25)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: lineWidth
-                )
-        )
-    }
-}
-
-extension View {
-    func dualLayerGlassStroke(cornerRadius: CGFloat = Radius.card, lineWidth: CGFloat = 0.8) -> some View {
-        modifier(DualLayerGlassStroke(cornerRadius: cornerRadius, lineWidth: lineWidth))
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Shimmer Modifier
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Shimmer
 
 struct ShimmerModifier: ViewModifier {
     @State private var phase: CGFloat = -1
@@ -398,21 +262,22 @@ struct ShimmerModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .overlay(
+            .overlay {
                 GeometryReader { geo in
                     LinearGradient(
-                        colors: [.clear, Color.white.opacity(0.4), .clear],
+                        colors: [.clear, Color.white.opacity(0.10), .clear],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
-                    .frame(width: geo.size.width * 0.6)
-                    .offset(x: reduceMotion ? 0 : phase * geo.size.width * 1.6)
-                    .blendMode(.overlay)
+                    .frame(width: geo.size.width * 0.8)
+                    .offset(x: phase * geo.size.width)
                 }
-            )
+                .allowsHitTesting(false)
+            }
+            .clipped()
             .onAppear {
                 guard !reduceMotion else { return }
-                withAnimation(Motion.shimmer) {
+                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
                     phase = 1.2
                 }
             }
@@ -420,171 +285,207 @@ struct ShimmerModifier: ViewModifier {
 }
 
 extension View {
-    func shimmer() -> some View {
-        modifier(ShimmerModifier())
+    func shimmer() -> some View { modifier(ShimmerModifier()) }
+}
+
+// MARK: - Scroll offset
+
+struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Glow Modifier
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Aurora backdrop
 
-struct GlowModifier: ViewModifier {
-    var color: Color
-    var radius: CGFloat
-    var intensity: Double
-
-    func body(content: Content) -> some View {
-        content
-            .shadow(color: color.opacity(intensity), radius: radius * 0.5, y: radius * 0.25)
-            .shadow(color: color.opacity(intensity * 0.6), radius: radius, y: radius * 0.5)
-    }
-}
-
-extension View {
-    func glow(color: Color = .appAccent, radius: CGFloat = 20, intensity: Double = 0.4) -> some View {
-        modifier(GlowModifier(color: color, radius: radius, intensity: intensity))
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Noise Texture
-// ═══════════════════════════════════════════════════════════════════
-
-struct NoiseTexture: View {
-    var opacity: Double = 0.03
-    var seed: UInt64 = 42
+/// Slow-drifting colour fields behind hero screens.
+struct AuroraBackground: View {
+    var intensity: Double = 1.0
+    @State private var drift = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Canvas { context, size in
-            var rng = SeededRNG(seed: seed)
-            let count = Int(size.width * size.height / 180)
-            for _ in 0..<count {
-                let x = CGFloat.random(in: 0...size.width, using: &rng)
-                let y = CGFloat.random(in: 0...size.height, using: &rng)
-                let rect = CGRect(x: x, y: y, width: 1, height: 1)
-                context.fill(Path(rect), with: .color(.white.opacity(opacity)))
+        ZStack {
+            Color.bmBase
+
+            Circle()
+                .fill(Color.bmOrchid.opacity(0.42 * intensity))
+                .frame(width: 360, height: 360)
+                .blur(radius: 90)
+                .offset(x: drift ? -110 : 80, y: drift ? -260 : -170)
+
+            Circle()
+                .fill(Color.bmGilt.opacity(0.26 * intensity))
+                .frame(width: 320, height: 320)
+                .blur(radius: 90)
+                .offset(x: drift ? 120 : -60, y: drift ? 80 : 190)
+
+            Circle()
+                .fill(Color.bmEmber.opacity(0.20 * intensity))
+                .frame(width: 280, height: 280)
+                .blur(radius: 80)
+                .offset(x: drift ? -40 : 110, y: drift ? 330 : 260)
+        }
+        .ignoresSafeArea()
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 11).repeatForever(autoreverses: true)) {
+                drift = true
             }
         }
-        .allowsHitTesting(false)
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Seeded RNG
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Braid mark (signature element)
 
-/// Deterministic RNG so noise and star fields are stable across re-renders.
-struct SeededRNG: RandomNumberGenerator {
-    private var state: UInt64
-    init(seed: UInt64) { self.state = seed == 0 ? 0x9E3779B97F4A7C15 : seed }
-    mutating func next() -> UInt64 {
-        state ^= state << 13
-        state ^= state >> 7
-        state ^= state << 17
-        return state
-    }
+private struct BraidSegment {
+    let z: Double
+    let strand: Int
+    let alpha: Double
+    let a: CGPoint
+    let b: CGPoint
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Animated Gradient Border
-// ═══════════════════════════════════════════════════════════════════
+/// Three interwoven strands, drawn live. Used as the app's mark, loader and progress motif.
+struct BraidMark: View {
+    var length: CGFloat = 150
+    var thickness: CGFloat = 44
+    var strand: CGFloat = 10
+    var horizontal: Bool = false
+    var animated: Bool = true
+    var speed: Double = 1.0
+    var cycles: Double = 2.4
+    var edge: Color = Color.bmBase
 
-struct AnimatedGradientBorder: View {
-    var cornerRadius: CGFloat = Radius.card
-    var lineWidth: CGFloat = 1.5
-    @State private var rotation: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var palette: [Color] { [Color.bmGilt, Color.bmOrchid, Color.bmEmber] }
 
     var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .stroke(
-                AngularGradient(
-                    colors: [
-                        Color.gold.opacity(0.08),
-                        Color.goldLight.opacity(0.85),
-                        Color.gold.opacity(0.25),
-                        Color.goldDeep.opacity(0.6),
-                        Color.gold.opacity(0.08)
-                    ],
-                    center: .center,
-                    angle: .degrees(rotation)
-                ),
-                lineWidth: lineWidth
-            )
-            .onAppear {
-                withAnimation(.linear(duration: 5).repeatForever(autoreverses: false)) {
-                    rotation = 360
+        let live = animated && !reduceMotion
+        TimelineView(.animation(minimumInterval: 1.0 / 45.0, paused: !live)) { timeline in
+            Canvas { context, size in
+                let t: Double = live ? timeline.date.timeIntervalSinceReferenceDate * speed : 0.7
+                let segments = buildSegments(size: size, t: t)
+                for seg in segments {
+                    var path = Path()
+                    path.move(to: seg.a)
+                    path.addLine(to: seg.b)
+                    let width = strand * CGFloat(0.86 + 0.14 * seg.z)
+                    context.stroke(
+                        path,
+                        with: .color(edge.opacity(seg.alpha)),
+                        style: StrokeStyle(lineWidth: width + 4, lineCap: .round)
+                    )
+                    context.stroke(
+                        path,
+                        with: .color(palette[seg.strand].opacity(seg.alpha)),
+                        style: StrokeStyle(lineWidth: width, lineCap: .round)
+                    )
                 }
             }
+        }
+        .frame(
+            width: horizontal ? length : thickness,
+            height: horizontal ? thickness : length
+        )
+        .accessibilityHidden(true)
+    }
+
+    private func buildSegments(size: CGSize, t: Double) -> [BraidSegment] {
+        let along: Double = horizontal ? Double(size.width) : Double(size.height)
+        let across: Double = horizontal ? Double(size.height) : Double(size.width)
+        let amp: Double = (across - Double(strand)) / 2
+        let center: Double = across / 2
+        let steps = 64
+        var out: [BraidSegment] = []
+        out.reserveCapacity(steps * 3)
+
+        for s in 0..<3 {
+            let phase = Double(s) * 2.0 * Double.pi / 3.0
+            for i in 0..<steps {
+                let u0 = Double(i) / Double(steps)
+                let u1 = Double(i + 1) / Double(steps)
+                let a0 = u0 * cycles * 2.0 * Double.pi - t * 2.2 + phase
+                let a1 = u1 * cycles * 2.0 * Double.pi - t * 2.2 + phase
+                let p0 = braidPoint(u: u0, angle: a0, along: along, center: center, amp: amp)
+                let p1 = braidPoint(u: u1, angle: a1, along: along, center: center, amp: amp)
+                let mid = (u0 + u1) / 2
+                let taper = min(1.0, min(mid * 7.0, (1.0 - mid) * 7.0))
+                out.append(
+                    BraidSegment(z: cos((a0 + a1) / 2), strand: s, alpha: max(0.0, taper), a: p0, b: p1)
+                )
+            }
+        }
+        out.sort { $0.z < $1.z }
+        return out
+    }
+
+    private func braidPoint(u: Double, angle: Double, along: Double, center: Double, amp: Double) -> CGPoint {
+        let cross = center + amp * sin(angle)
+        let main = u * along
+        return horizontal
+            ? CGPoint(x: main, y: cross)
+            : CGPoint(x: cross, y: main)
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Pulse Ring
-// ═══════════════════════════════════════════════════════════════════
-
-struct PulseRing: View {
-    var color: Color = .gold
-    var size: CGFloat = 60
-    var duration: Double = 1.8
-    @State private var scale: CGFloat = 1
-    @State private var opacity: Double = 0.7
+/// Small rotating arc for use inside buttons.
+struct BMSpinner: View {
+    var color: Color = Color.bmText
+    var size: CGFloat = 18
+    @State private var spin = false
 
     var body: some View {
         Circle()
-            .stroke(color, lineWidth: 1.5)
+            .trim(from: 0.08, to: 0.78)
+            .stroke(color, style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
             .frame(width: size, height: size)
-            .scaleEffect(scale)
-            .opacity(opacity)
+            .rotationEffect(.degrees(spin ? 360 : 0))
             .onAppear {
-                withAnimation(.easeOut(duration: duration).repeatForever(autoreverses: false)) {
-                    scale = 2.0
-                    opacity = 0
+                withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
+                    spin = true
                 }
             }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Glass Background
-// ═══════════════════════════════════════════════════════════════════
+// =============================================================================
+// FlowLayout — the ONLY definition in the project.
+// =============================================================================
 
-struct GlassBackground: View {
-    var cornerRadius: CGFloat = Radius.card
-    @Environment(\.colorScheme) private var colorScheme
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
 
-    var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(.ultraThinMaterial)
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(colorScheme == .dark ? 0.18 : 0.65),
-                                Color.white.opacity(colorScheme == .dark ? 0.06 : 0.22)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-            )
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Squircle Convenience
-// ═══════════════════════════════════════════════════════════════════
-
-extension View {
-    func bmSquircle(_ radius: CGFloat = Radius.card) -> some View {
-        clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: maxWidth, height: y + rowHeight)
     }
 
-    func bmCouturePanel(_ radius: CGFloat = Radius.card) -> some View {
-        self
-            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .dualLayerGlassStroke(cornerRadius: radius)
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x: CGFloat = bounds.minX, y: CGFloat = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }

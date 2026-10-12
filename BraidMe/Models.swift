@@ -1,13 +1,7 @@
 import Foundation
 import CoreLocation
 
-// =============================================================================
-// BraidMe Models — data structures + rich convenience helpers
-// =============================================================================
-
-// ═══════════════════════════════════════════════════════════════════
 // MARK: - User
-// ═══════════════════════════════════════════════════════════════════
 
 struct UserProfile: Identifiable, Codable, Hashable {
     var id: String
@@ -53,39 +47,7 @@ struct UserProfile: Identifiable, Codable, Hashable {
     }
 }
 
-extension UserProfile {
-    /// Two-letter initials for avatar fallbacks.
-    var initials: String {
-        let r = displayName
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap { $0.first }
-            .map(String.init)
-            .joined()
-            .uppercased()
-        return r.isEmpty ? "·" : r
-    }
-
-    /// Whether onboarding is complete.
-    var isProfileComplete: Bool {
-        age > 0 && !displayName.isEmpty && displayName != "BraidMe User"
-    }
-
-    /// Best-guess first name for warm greetings.
-    var firstName: String {
-        displayName.split(separator: " ").first.map(String.init) ?? displayName
-    }
-
-    /// Whether avatar is set.
-    var hasAvatar: Bool {
-        guard let url = avatarUrl else { return false }
-        return !url.isEmpty
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
 // MARK: - Braider
-// ═══════════════════════════════════════════════════════════════════
 
 struct Braider: Identifiable, Hashable {
     let id: String
@@ -147,111 +109,15 @@ struct Braider: Identifiable, Hashable {
     }
 }
 
-extension Braider {
-    /// Two-letter initials for avatar fallbacks.
-    var initials: String {
-        let r = name
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap { $0.first }
-            .map(String.init)
-            .joined()
-            .uppercased()
-        return r.isEmpty ? "·" : r
-    }
-
-    /// First name only.
-    var firstName: String {
-        name.split(separator: " ").first.map(String.init) ?? name
-    }
-
-    /// Location string with fallback.
-    var shortLocation: String {
-        city.isEmpty ? "Location TBD" : city
-    }
-
-    /// Whether the braider has any bookable services.
-    var isBookable: Bool {
-        !services.isEmpty && services.contains { $0.hasAvailability }
-    }
-
-    /// Total review count formatted for the badge.
-    var reviewCountText: String {
-        "\(reviewCount) review\(reviewCount == 1 ? "" : "s")"
-    }
-
-    /// Formatted rating text (e.g., "4.8").
-    var ratingText: String {
-        String(format: "%.1f", rating)
-    }
-
-    /// Rating tier: drives pin color, badge color, halo intensity.
-    enum RatingTier {
-        case excellent      // 4.8+
-        case great          // 4.5 – 4.79
-        case good           // 4.0 – 4.49
-        case fair           // < 4.0
-
-        var label: String {
-            switch self {
-            case .excellent: return "Excellent"
-            case .great:     return "Great"
-            case .good:      return "Good"
-            case .fair:      return "Fair"
-            }
-        }
-    }
-
-    /// Determine rating tier from current rating.
-    var ratingTier: RatingTier {
-        if rating >= 4.8 { return .excellent }
-        if rating >= 4.5 { return .great }
-        if rating >= 4.0 { return .good }
-        return .fair
-    }
-
-    /// Star count for the vortex transition — rounds to nearest.
-    var starCount: Int {
-        let rounded = Int(rating.rounded())
-        return max(1, min(5, rounded))
-    }
-
-    /// Response time as a friendly string.
-    var responseTimeText: String {
-        responseTime.isEmpty ? "~30 min" : responseTime
-    }
-
-    /// Number of specialties (for "and N more").
-    var specialtyCount: Int {
-        specialties.count
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Portfolio
-// ═══════════════════════════════════════════════════════════════════
-
 struct PortfolioItem: Identifiable, Hashable {
     let id: String
     let imageUrl: String
     let caption: String
     let tag: String
     let likes: Int
-
-    /// Friendly tag if empty.
-    var displayTag: String {
-        tag.isEmpty ? "Portfolio" : tag
-    }
-
-    /// Friendly caption if empty.
-    var displayCaption: String {
-        caption.isEmpty ? "Recent work" : caption
-    }
 }
 
-// ═══════════════════════════════════════════════════════════════════
 // MARK: - Service
-// ═══════════════════════════════════════════════════════════════════
 
 struct BraidService: Identifiable, Hashable {
     let id: String
@@ -270,39 +136,7 @@ struct BraidService: Identifiable, Hashable {
     }
 }
 
-extension BraidService {
-    /// "2h 30m" style duration.
-    var durationText: String {
-        let h = durationMinutes / 60
-        let m = durationMinutes % 60
-        if h == 0 { return "\(m)m" }
-        if m == 0 { return "\(h)h" }
-        return "\(h)h \(m)m"
-    }
-
-    /// Whether the service has any available time slots for a given date.
-    func hasSlots(on date: Date) -> Bool {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = .current
-        let key = f.string(from: date)
-        return !(availableSlots[key] ?? []).isEmpty
-    }
-
-    /// Total bookable dates count.
-    var availableDatesCount: Int {
-        availableDates.count
-    }
-
-    /// Simple price string.
-    var priceText: String {
-        "£\(priceFrom)"
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
 // MARK: - Reviews
-// ═══════════════════════════════════════════════════════════════════
 
 struct Review: Identifiable, Hashable {
     let id: String
@@ -321,41 +155,6 @@ struct Review: Identifiable, Hashable {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
-
-extension Review {
-    /// Two-letter initials for avatar fallbacks.
-    var initials: String {
-        let r = userName
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap { $0.first }
-            .map(String.init)
-            .joined()
-            .uppercased()
-        return r.isEmpty ? "·" : r
-    }
-
-    /// Short relative date (e.g., "2w ago").
-    var shortDateString: String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
-    }
-
-    /// Rating as an integer 1-5.
-    var ratingInt: Int {
-        max(1, min(5, Int(rating.rounded())))
-    }
-
-    /// Whether the review has a specific style.
-    var hasStyle: Bool {
-        !styleDone.isEmpty
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Rating Breakdown
-// ═══════════════════════════════════════════════════════════════════
 
 struct RatingBreakdown: Hashable {
     let five: Int
@@ -387,36 +186,9 @@ struct RatingBreakdown: Hashable {
         }
         return RatingBreakdown(five: f, four: fo, three: t, two: tw, one: o)
     }
-
-    /// Count for a specific star tier.
-    func count(for stars: Int) -> Int {
-        switch stars {
-        case 5: return five
-        case 4: return four
-        case 3: return three
-        case 2: return two
-        default: return one
-        }
-    }
-
-    /// Ratio of a specific star tier (0.0 – 1.0).
-    func ratio(for stars: Int) -> Double {
-        guard total > 0 else { return 0 }
-        return Double(count(for: stars)) / Double(total)
-    }
-
-    /// Percentage for a specific star tier (0-100).
-    func percentage(for stars: Int) -> Int {
-        Int((ratio(for: stars) * 100).rounded())
-    }
-
-    /// Whether there are any reviews at all.
-    var isEmpty: Bool { total == 0 }
 }
 
-// ═══════════════════════════════════════════════════════════════════
 // MARK: - Chat
-// ═══════════════════════════════════════════════════════════════════
 
 struct ChatMessage: Identifiable, Hashable {
     let id: String
@@ -424,21 +196,8 @@ struct ChatMessage: Identifiable, Hashable {
     let senderName: String
     let text: String
     let timestamp: Date
-
-    /// Time formatted for display.
-    var timeString: String {
-        timestamp.formatted(date: .omitted, time: .shortened)
-    }
-
-    /// Whether the message is from a system.
-    var isSystem: Bool {
-        senderId == "system"
-    }
 }
-
-// ═══════════════════════════════════════════════════════════════════
 // MARK: - Booking
-// ═══════════════════════════════════════════════════════════════════
 
 struct Booking: Identifiable, Codable {
     let id: String
@@ -450,105 +209,27 @@ struct Booking: Identifiable, Codable {
     let price: Int
     let status: String
     let createdAt: Date
-    let customerName: String?
+    let customerName: String?   // NEW
 
-    var dictionary: [String: Any] {
-        var d: [String: Any] = [
-            "id": id,
-            "braiderName": braiderName,
-            "braiderId": braiderId,
-            "date": date,
-            "time": time,
-            "style": style,
-            "price": price,
-            "status": status,
-            "createdAt": createdAt
-        ]
-        if let customerName { d["customerName"] = customerName }
-        return d
-    }
+
+var dictionary: [String: Any] {
+    var d: [String: Any] = [
+        "id": id,
+        "braiderName": braiderName,
+        "braiderId": braiderId,
+        "date": date,
+        "time": time,
+        "style": style,
+        "price": price,
+        "status": status,
+        "createdAt": createdAt
+    ]
+    if let customerName { d["customerName"] = customerName }
+    return d
+}
 }
 
-extension Booking {
-    /// Whether this booking is upcoming (from today onwards).
-    var isUpcoming: Bool {
-        date >= Calendar.current.startOfDay(for: Date())
-            && status != "completed"
-            && status != "cancelled"
-    }
-
-    /// Whether this booking can still be cancelled.
-    var isCancellable: Bool {
-        status == "confirmed" && date > Date()
-    }
-
-    /// Whether the user can still message the braider.
-    var canMessage: Bool {
-        status == "confirmed" || status == "cancellation_requested"
-    }
-
-    /// Whether this booking is considered "past" for filtering.
-    var isPast: Bool {
-        let now = Calendar.current.startOfDay(for: Date())
-        return date < now || status == "completed" || status == "cancelled"
-    }
-
-    /// Human-readable status label.
-    var statusLabel: String {
-        switch status {
-        case "confirmed":              return "Confirmed"
-        case "completed":              return "Completed"
-        case "cancelled":              return "Cancelled"
-        case "cancellation_requested": return "Pending"
-        case "cancellation_denied":    return "Denied"
-        default:                       return status.capitalized
-        }
-    }
-
-    /// Formatted time string for display.
-    var timeText: String {
-        time.isEmpty ? "TBD" : time
-    }
-
-    /// Whether this is happening today.
-    var isToday: Bool {
-        Calendar.current.isDateInToday(date)
-    }
-
-    /// Whether this is happening tomorrow.
-    var isTomorrow: Bool {
-        Calendar.current.isDateInTomorrow(date)
-    }
-
-    /// Relative day string.
-    var relativeDayString: String {
-        if isToday { return "Today" }
-        if isTomorrow { return "Tomorrow" }
-        if isPast { return date.formatted(.dateTime.month(.abbreviated).day()) }
-        return date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
-    }
-
-    /// Price text.
-    var priceText: String {
-        "£\(price)"
-    }
-
-    /// Provider-style status color token (used in views).
-    var statusColorToken: String {
-        switch status {
-        case "confirmed":              return "signal"
-        case "completed":              return "ash"
-        case "cancelled":              return "alert"
-        case "cancellation_requested": return "gold"
-        case "cancellation_denied":    return "alert"
-        default:                       return "ash"
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Time Slot
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Time slot
 
 struct TimeSlot: Identifiable, Hashable {
     let id: String
@@ -561,12 +242,4 @@ enum DayPeriod: String, Hashable {
     case morning = "Morning"
     case afternoon = "Afternoon"
     case evening = "Evening"
-
-    var icon: String {
-        switch self {
-        case .morning:   return "sunrise.fill"
-        case .afternoon: return "sun.max.fill"
-        case .evening:   return "moon.stars.fill"
-        }
-    }
 }

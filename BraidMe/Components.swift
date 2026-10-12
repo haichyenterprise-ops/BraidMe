@@ -1,22 +1,28 @@
 import SwiftUI
 
 // =============================================================================
-// Components — Shared UI primitives
+// Shared components — buttons, chips, fields, avatars, states.
 // =============================================================================
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Primary Button
-// ═══════════════════════════════════════════════════════════════════
+/// Two-letter initials for any display name.
+func bmInitials(_ name: String) -> String {
+    let parts = name.split(separator: " ")
+    let r = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
+    return r.isEmpty ? "·" : r.uppercased()
+}
+
+// MARK: - Buttons
 
 struct BMPrimaryButton: View {
     let title: String
     var subtitle: String? = nil
     var icon: String? = nil
     var loading: Bool = false
+    var shine: Bool = true
     var action: () -> Void
 
-    @State private var isPressed = false
-    @State private var shimmerPhase: CGFloat = -1
+    @State private var sweep = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: {
@@ -24,87 +30,69 @@ struct BMPrimaryButton: View {
             action()
         }) {
             ZStack {
-                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                    .fill(Color.appInk)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.white.opacity(0.08), .clear],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                    )
-
                 HStack(spacing: Space.xs) {
                     if let icon {
                         Image(systemName: icon)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.bmUI(15, weight: .bold))
                     }
-                    VStack(alignment: .leading, spacing: 1) {
+                    VStack(spacing: 1) {
                         Text(title)
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.bmUI(16, weight: .bold))
                         if let subtitle {
                             Text(subtitle)
-                                .font(.system(size: 12, weight: .medium))
-                                .opacity(0.65)
+                                .font(.bmUI(11, weight: .medium))
+                                .opacity(0.7)
                         }
                     }
                 }
-                .foregroundStyle(Color.appInkInverse)
                 .opacity(loading ? 0 : 1)
 
                 if loading {
-                    ProgressView()
-                        .tint(Color.appInkInverse)
-                        .scaleEffect(1.1)
-                }
-
-                if !loading {
-                    GeometryReader { geo in
-                        LinearGradient(
-                            colors: [.clear, .white.opacity(0.15), .clear],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: geo.size.width * 0.5)
-                        .offset(x: shimmerPhase * geo.size.width * 1.5)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
+                    BMSpinner(color: Color.bmOnGilt)
                 }
             }
+            .foregroundStyle(Color.bmOnGilt)
             .frame(maxWidth: .infinity)
-            .frame(minHeight: 56)
+            .frame(minHeight: 58)
+            .background(LinearGradient.bmGiltGradient)
+            .overlay { shineLayer }
             .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
-            .shadow(color: Color.appInk.opacity(0.2), radius: 12, y: 6)
-            .scaleEffect(isPressed ? 0.97 : 1)
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.4), lineWidth: 0.8)
+            )
+            .shadow(color: Color.bmGilt.opacity(0.32), radius: 18, y: 8)
         }
-        .buttonStyle(.plain)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) { isPressed = true } }
-                .onEnded { _ in withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) { isPressed = false } }
-        )
+        .buttonStyle(BMPressStyle())
         .disabled(loading)
         .onAppear {
-            withAnimation(.linear(duration: 3).repeatForever(autoreverses: false).delay(1)) {
-                shimmerPhase = 1.5
+            guard shine, !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 1.9).repeatForever(autoreverses: false).delay(0.8)) {
+                sweep = true
             }
         }
     }
-}
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Secondary Button
-// ═══════════════════════════════════════════════════════════════════
+    private var shineLayer: some View {
+        GeometryReader { geo in
+            LinearGradient(
+                colors: [.clear, Color.white.opacity(0.45), .clear],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: geo.size.width * 0.45)
+            .offset(x: sweep ? geo.size.width * 1.1 : -geo.size.width * 0.6)
+            .blendMode(.plusLighter)
+        }
+        .allowsHitTesting(false)
+        .opacity(shine ? 1 : 0)
+    }
+}
 
 struct BMSecondaryButton: View {
     let title: String
     var icon: String? = nil
     var action: () -> Void
-
-    @State private var isPressed = false
 
     var body: some View {
         Button(action: {
@@ -114,216 +102,43 @@ struct BMSecondaryButton: View {
             HStack(spacing: Space.xs) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.bmUI(15, weight: .semibold))
                 }
                 Text(title)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.bmUI(16, weight: .semibold))
             }
-            .foregroundStyle(Color.appInk)
+            .foregroundStyle(Color.bmText)
             .frame(maxWidth: .infinity)
             .frame(minHeight: 56)
-            .background(Color.appSurface)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                    .stroke(Color.appDivider, lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.04), radius: 8, y: 4)
-            .scaleEffect(isPressed ? 0.97 : 1)
+            .bmGlass(radius: Radius.button)
         }
-        .buttonStyle(.plain)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) { isPressed = true } }
-                .onEnded { _ in withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) { isPressed = false } }
-        )
+        .buttonStyle(BMPressStyle())
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Press Styles
-// ═══════════════════════════════════════════════════════════════════
-
-struct BMPressStyle: ButtonStyle {
-    var scale: CGFloat = 0.97
-    var dim: Double = 0.04
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? scale : 1)
-            .brightness(configuration.isPressed ? -dim : 0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.75), value: configuration.isPressed)
-    }
-}
-
-struct BMIconPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.90 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.75), value: configuration.isPressed)
-    }
-}
-
-struct BMSquirclePressStyle: ButtonStyle {
-    var scale: CGFloat = 0.965
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? scale : 1)
-            .opacity(configuration.isPressed ? 0.96 : 1)
-            .animation(.spring(response: 0.38, dampingFraction: 0.65), value: configuration.isPressed)
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Rating Line
-// ═══════════════════════════════════════════════════════════════════
-
-struct BMRatingLine: View {
-    let rating: Double
-    let count: Int
-    var size: CGFloat = 13
-    var showsStars: Bool = true
+struct BMIconButton: View {
+    let icon: String
+    var size: CGFloat = 42
+    var iconSize: CGFloat = 15
+    var fg: Color = Color.bmText
+    var action: () -> Void
 
     var body: some View {
-        HStack(spacing: Space.xxs) {
-            if showsStars {
-                HStack(spacing: 1) {
-                    ForEach(0..<5, id: \.self) { i in
-                        Image(systemName: Double(i) < rating.rounded() ? "star.fill" : "star")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(Color.gold)
-                    }
-                }
-            }
-            Text(String(format: "%.1f", rating))
-                .font(.system(size: size, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.appInk)
-            Text("·")
-                .font(.system(size: size, design: .monospaced))
-                .foregroundStyle(Color.appSmoke)
-            Text("\(count)")
-                .font(.system(size: size, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.appAsh)
+        Button(action: {
+            Haptic.press()
+            action()
+        }) {
+            Image(systemName: icon)
+                .font(.bmUI(iconSize, weight: .semibold))
+                .foregroundStyle(fg)
+                .frame(width: size, height: size)
+                .bmGlassCircle()
         }
+        .buttonStyle(BMIconPressStyle())
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Price Tag
-// ═══════════════════════════════════════════════════════════════════
-
-struct BMPriceTag: View {
-    let price: Int
-    var prefix: String = "from"
-
-    var body: some View {
-        HStack(spacing: Space.xxs) {
-            Text(prefix)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.appSmoke)
-            Text("£\(price)")
-                .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.gold)
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Divider
-// ═══════════════════════════════════════════════════════════════════
-
-struct BMDivider: View {
-    var inset: CGFloat = 0
-    var body: some View {
-        Rectangle()
-            .fill(
-                LinearGradient(
-                    colors: [Color.appDivider.opacity(0), Color.appDivider, Color.appDivider.opacity(0)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-            .frame(height: 0.5)
-            .padding(.leading, inset)
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Avatar
-// ═══════════════════════════════════════════════════════════════════
-
-struct BMAvatar: View {
-    let url: String
-    var size: CGFloat = 44
-    var initials: String? = nil
-    var ringed: Bool = false
-    var glow: Bool = false
-
-    var body: some View {
-        ZStack {
-            if url.isEmpty {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.gold.opacity(0.18), Color.gold.opacity(0.08)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .overlay(
-                        Text(initials ?? "·")
-                            .font(.system(size: size * 0.4, weight: .bold, design: .serif))
-                            .foregroundStyle(Color.gold)
-                    )
-            } else {
-                RemoteImage(url: url)
-                    .frame(width: size, height: size)
-                    .clipShape(Circle())
-            }
-
-            if ringed {
-                Circle()
-                    .stroke(
-                        LinearGradient(
-                            colors: [Color.goldLight, Color.gold, Color.goldDeep],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 2.5
-                    )
-                    .frame(width: size + 6, height: size + 6)
-            }
-        }
-        .frame(width: size, height: size)
-        .shadow(
-            color: glow ? Color.gold.opacity(0.4) : .clear,
-            radius: glow ? 12 : 0,
-            y: glow ? 4 : 0
-        )
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Section Label
-// ═══════════════════════════════════════════════════════════════════
-
-struct BMSectionLabel: View {
-    let text: String
-    var body: some View {
-        HStack(spacing: Space.xs) {
-            Rectangle()
-                .fill(Color.gold)
-                .frame(width: 16, height: 2)
-            Text(text.uppercased())
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.5)
-                .foregroundStyle(Color.appAsh)
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Chip
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Chips
 
 struct BMChip: View {
     let title: String
@@ -339,28 +154,242 @@ struct BMChip: View {
             HStack(spacing: Space.xxs) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.bmUI(11, weight: .bold))
                 }
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.bmUI(13, weight: .semibold))
             }
-            .foregroundStyle(isSelected ? Color.appInkInverse : Color.appInk)
-            .padding(.horizontal, Space.sm)
-            .frame(minHeight: 32)
-            .padding(.vertical, 6)
-            .background(isSelected ? Color.gold : Color.appSurface, in: Capsule())
+            .foregroundStyle(isSelected ? Color.bmOnGilt : Color.bmText)
+            .padding(.horizontal, Space.md)
+            .frame(minHeight: 38)
+            .background {
+                if isSelected {
+                    Capsule().fill(LinearGradient.bmGiltGradient)
+                } else {
+                    Capsule().fill(.ultraThinMaterial)
+                }
+            }
             .overlay(
-                Capsule().stroke(isSelected ? Color.clear : Color.appDivider, lineWidth: 0.5)
+                Capsule().strokeBorder(
+                    isSelected ? Color.white.opacity(0.35) : Color.white.opacity(0.12),
+                    lineWidth: 0.8
+                )
             )
         }
-        .buttonStyle(BMPressStyle(scale: 0.96))
+        .buttonStyle(BMPressStyle(scale: 0.95))
         .disabled(onTap == nil)
+        .animation(Motion.press, value: isSelected)
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Empty State
-// ═══════════════════════════════════════════════════════════════════
+struct BMTag: View {
+    let text: String
+    var icon: String? = nil
+    var tint: Color = Color.bmGilt
+
+    var body: some View {
+        HStack(spacing: Space.xxs) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.bmUI(10, weight: .bold))
+            }
+            Text(text)
+                .font(.bmUI(12, weight: .semibold))
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, Space.sm)
+        .frame(minHeight: 28)
+        .background(tint.opacity(0.14), in: Capsule())
+    }
+}
+
+// MARK: - Rating
+
+struct BMStars: View {
+    let rating: Double
+    var size: CGFloat = 11
+    var spacing: CGFloat = 2
+
+    var body: some View {
+        HStack(spacing: spacing) {
+            ForEach(0..<5, id: \.self) { i in
+                Image(systemName: Double(i) < rating.rounded() ? "star.fill" : "star")
+                    .font(.bmUI(size, weight: .semibold))
+                    .foregroundStyle(
+                        Double(i) < rating.rounded() ? Color.bmGilt : Color.bmTextFaint
+                    )
+            }
+        }
+    }
+}
+
+struct BMRatingLine: View {
+    let rating: Double
+    let count: Int
+    var size: CGFloat = 13
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "star.fill")
+                .font(.bmUI(size - 1, weight: .bold))
+                .foregroundStyle(Color.bmGilt)
+            Text(String(format: "%.1f", rating))
+                .font(.bmNum(size, weight: .bold))
+                .foregroundStyle(Color.bmText)
+            Text("(\(count))")
+                .font(.bmNum(size - 1, weight: .medium))
+                .foregroundStyle(Color.bmTextDim)
+        }
+    }
+}
+
+struct BMPriceTag: View {
+    let price: Int
+    var prefix: String = "from"
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(prefix)
+                .font(.bmUI(11, weight: .medium))
+                .foregroundStyle(Color.bmTextFaint)
+            Text("£\(price)")
+                .font(.bmNum(16, weight: .bold))
+                .foregroundStyle(Color.bmGilt)
+        }
+    }
+}
+
+// MARK: - Dividers / labels
+
+struct BMDivider: View {
+    var inset: CGFloat = 0
+    var body: some View {
+        Rectangle()
+            .fill(Color.bmLine)
+            .frame(height: 0.6)
+            .padding(.leading, inset)
+    }
+}
+
+struct BMSectionLabel: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.bmUI(13, weight: .semibold))
+            .foregroundStyle(Color.bmTextDim)
+    }
+}
+
+/// Large serif heading with an optional trailing accessory.
+struct BMSectionHeading<Trailing: View>: View {
+    let title: String
+    var subtitle: String? = nil
+    @ViewBuilder var trailing: () -> Trailing
+
+    var body: some View {
+        HStack(alignment: .lastTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.bmDisplay(26, weight: .semibold))
+                    .foregroundStyle(Color.bmText)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.bmUI(13))
+                        .foregroundStyle(Color.bmTextDim)
+                }
+            }
+            Spacer(minLength: Space.sm)
+            trailing()
+        }
+    }
+}
+
+extension BMSectionHeading where Trailing == EmptyView {
+    init(title: String, subtitle: String? = nil) {
+        self.title = title
+        self.subtitle = subtitle
+        self.trailing = { EmptyView() }
+    }
+}
+
+/// Header used at the top of modal sheets.
+struct BMSheetBar: View {
+    let title: String
+    var subtitle: String? = nil
+    var icon: String = "xmark"
+    var onClose: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Space.md) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.bmDisplay(30, weight: .semibold))
+                    .foregroundStyle(Color.bmText)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.bmUI(14))
+                        .foregroundStyle(Color.bmTextDim)
+                }
+            }
+            Spacer(minLength: 0)
+            BMIconButton(icon: icon, size: 40, iconSize: 13, action: onClose)
+        }
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.lg)
+        .padding(.bottom, Space.md)
+    }
+}
+
+// MARK: - Orb + empty / loading
+
+struct BMOrb: View {
+    let icon: String
+    var size: CGFloat = 96
+    @State private var float = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.bmGilt.opacity(0.28))
+                .frame(width: size * 0.9, height: size * 0.9)
+                .blur(radius: size * 0.28)
+
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color.bmRaised, Color.bmSurface],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    Circle().strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.35), Color.white.opacity(0.04)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+                )
+
+            Image(systemName: icon)
+                .font(.system(size: size * 0.36, weight: .light))
+                .foregroundStyle(LinearGradient.bmGiltGradient)
+        }
+        .frame(width: size, height: size)
+        .offset(y: float ? -5 : 5)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) {
+                float = true
+            }
+        }
+    }
+}
 
 struct BMEmptyState: View {
     let icon: String
@@ -368,38 +397,22 @@ struct BMEmptyState: View {
     let message: String
     var action: (label: String, handler: () -> Void)? = nil
 
-    @State private var appeared = false
-
     var body: some View {
         VStack(spacing: Space.lg) {
-            ZStack {
-                Circle()
-                    .fill(Color.gold.opacity(0.12))
-                    .frame(width: 100, height: 100)
-                Circle()
-                    .stroke(Color.gold.opacity(0.2), lineWidth: 1)
-                    .frame(width: 100, height: 100)
-                Image(systemName: icon)
-                    .font(.system(size: 36, weight: .light))
-                    .foregroundStyle(Color.gold)
-            }
-            .scaleEffect(appeared ? 1 : 0.8)
-            .opacity(appeared ? 1 : 0)
+            BMOrb(icon: icon)
 
             VStack(spacing: Space.xs) {
                 Text(title)
-                    .font(.system(size: 24, weight: .semibold, design: .serif))
-                    .foregroundStyle(Color.appInk)
+                    .font(.bmDisplay(24, weight: .semibold))
+                    .foregroundStyle(Color.bmText)
                     .multilineTextAlignment(.center)
                 Text(message)
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.appAsh)
+                    .font(.bmUI(14))
+                    .foregroundStyle(Color.bmTextDim)
                     .multilineTextAlignment(.center)
-                    .lineSpacing(4)
+                    .lineSpacing(3)
                     .padding(.horizontal, Space.xl)
             }
-            .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 12)
 
             if let action {
                 Button {
@@ -407,151 +420,208 @@ struct BMEmptyState: View {
                     action.handler()
                 } label: {
                     Text(action.label)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.appInkInverse)
+                        .font(.bmUI(14, weight: .bold))
+                        .foregroundStyle(Color.bmOnGilt)
                         .padding(.horizontal, Space.lg)
-                        .frame(minHeight: 48)
-                        .background(Color.appInk, in: Capsule())
-                        .shadow(color: Color.appInk.opacity(0.2), radius: 12, y: 4)
+                        .frame(minHeight: 46)
+                        .background(LinearGradient.bmGiltGradient, in: Capsule())
                 }
                 .buttonStyle(BMPressStyle())
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 16)
             }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, Space.xxl)
-        .onAppear {
-            withAnimation(.spring(response: 0.75, dampingFraction: 0.85).delay(0.1)) {
-                appeared = true
-            }
-        }
     }
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Loading View
-// ═══════════════════════════════════════════════════════════════════
 
 struct BMLoadingView: View {
     var message: String = "Loading"
-    @State private var animating = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var edge: Color = Color.bmBase
 
     var body: some View {
         VStack(spacing: Space.md) {
-            HStack(spacing: 8) {
-                ForEach(0..<3, id: \.self) { i in
-                    Circle()
-                        .fill(Color.gold)
-                        .frame(width: 8, height: 8)
-                        .scaleEffect(animating ? 1.2 : 0.8)
-                        .opacity(animating ? 0.4 : 1)
-                        .animation(
-                            reduceMotion
-                                ? .default
-                                : .easeInOut(duration: 0.6)
-                                    .repeatForever()
-                                    .delay(Double(i) * 0.15),
-                            value: animating
-                        )
-                }
-            }
+            BraidMark(length: 74, thickness: 30, strand: 7, horizontal: true, cycles: 1.6, edge: edge)
             Text(message)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color.appAsh)
-        }
-        .onAppear {
-            if !reduceMotion { animating = true }
+                .font(.bmUI(13, weight: .medium))
+                .foregroundStyle(Color.bmTextDim)
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Avatar
+
+struct BMAvatar: View {
+    let url: String
+    var size: CGFloat = 44
+    var ringed: Bool = false
+    var initials: String? = nil
+
+    var body: some View {
+        ZStack {
+            if url.isEmpty {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.bmRaised, Color.bmSurface],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: size, height: size)
+                    .overlay(
+                        Text(initials ?? "·")
+                            .font(.bmDisplay(size * 0.4, weight: .semibold))
+                            .foregroundStyle(LinearGradient.bmGiltGradient)
+                    )
+            } else {
+                RemoteImage(url: url)
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+            }
+
+            if ringed {
+                Circle()
+                    .strokeBorder(
+                        AngularGradient(
+                            colors: [Color.bmGilt, Color.bmEmber, Color.bmOrchid, Color.bmGilt],
+                            center: .center
+                        ),
+                        lineWidth: 2.5
+                    )
+                    .frame(width: size + 7, height: size + 7)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
 // MARK: - Skeleton
-// ═══════════════════════════════════════════════════════════════════
 
 struct BMSkeleton: View {
     var height: CGFloat = 16
-    var cornerRadius: CGFloat = 6
-    @State private var phase: CGFloat = -1.2
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var cornerRadius: CGFloat = 8
 
     var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius)
-            .fill(Color.appDivider)
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Color.bmRaised)
             .frame(height: height)
-            .overlay(
-                GeometryReader { geo in
-                    LinearGradient(
-                        colors: [.clear, Color.appSurface.opacity(0.6), .clear],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: geo.size.width * 0.6)
-                    .offset(x: reduceMotion ? 0 : phase * geo.size.width * 1.5)
-                    .blendMode(.overlay)
-                }
+            .shimmer()
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+}
+
+// MARK: - Text fields
+
+struct BMFieldRow: View {
+    let icon: String
+    let placeholder: String
+    @Binding var text: String
+    var contentType: UITextContentType? = nil
+    var keyboard: UIKeyboardType = .default
+    var submitLabel: SubmitLabel = .next
+
+    var body: some View {
+        HStack(spacing: Space.sm) {
+            Image(systemName: icon)
+                .font(.bmUI(15, weight: .medium))
+                .foregroundStyle(text.isEmpty ? Color.bmTextFaint : Color.bmGilt)
+                .frame(width: 20)
+
+            TextField(
+                "",
+                text: $text,
+                prompt: Text(placeholder).foregroundColor(Color.bmTextFaint)
             )
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-            .onAppear {
-                if !reduceMotion {
-                    withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
-                        phase = 1.5
-                    }
+            .font(.bmUI(16, weight: .medium))
+            .foregroundStyle(Color.bmText)
+            .tint(Color.bmGilt)
+            .textContentType(contentType)
+            .keyboardType(keyboard)
+            .submitLabel(submitLabel)
+            .textInputAutocapitalization(keyboard == .emailAddress ? .never : .words)
+            .autocorrectionDisabled(true)
+
+            if !text.isEmpty {
+                Button {
+                    Haptic.select()
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.bmUI(15))
+                        .foregroundStyle(Color.bmTextFaint)
+                }
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, Space.md)
+        .frame(height: 58)
+        .background(Color.bmSurface, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                .strokeBorder(
+                    text.isEmpty ? Color.white.opacity(0.09) : Color.bmGilt.opacity(0.55),
+                    lineWidth: 1
+                )
+        )
+        .animation(Motion.subtle, value: text.isEmpty)
+    }
+}
+
+struct BMPasswordRow: View {
+    let placeholder: String
+    @Binding var text: String
+    var isNew: Bool = false
+
+    @State private var show = false
+
+    var body: some View {
+        HStack(spacing: Space.sm) {
+            Image(systemName: "lock")
+                .font(.bmUI(15, weight: .medium))
+                .foregroundStyle(text.isEmpty ? Color.bmTextFaint : Color.bmGilt)
+                .frame(width: 20)
+
+            Group {
+                if show {
+                    TextField(
+                        "",
+                        text: $text,
+                        prompt: Text(placeholder).foregroundColor(Color.bmTextFaint)
+                    )
+                } else {
+                    SecureField(
+                        "",
+                        text: $text,
+                        prompt: Text(placeholder).foregroundColor(Color.bmTextFaint)
+                    )
                 }
             }
-    }
-}
+            .font(.bmUI(16, weight: .medium))
+            .foregroundStyle(Color.bmText)
+            .tint(Color.bmGilt)
+            .textContentType(isNew ? .newPassword : .password)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled(true)
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - FlowLayout
-// ═══════════════════════════════════════════════════════════════════
-
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
+            Button {
+                Haptic.select()
+                show.toggle()
+            } label: {
+                Image(systemName: show ? "eye.slash" : "eye")
+                    .font(.bmUI(15, weight: .medium))
+                    .foregroundStyle(Color.bmTextDim)
             }
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
         }
-        return CGSize(width: maxWidth, height: y + rowHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x: CGFloat = bounds.minX, y: CGFloat = bounds.minY, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-    }
-}
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Check Shape
-// ═══════════════════════════════════════════════════════════════════
-
-struct CheckShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.width * 0.15, y: rect.height * 0.55))
-        path.addLine(to: CGPoint(x: rect.width * 0.42, y: rect.height * 0.80))
-        path.addLine(to: CGPoint(x: rect.width * 0.88, y: rect.height * 0.20))
-        return path
+        .padding(.horizontal, Space.md)
+        .frame(height: 58)
+        .background(Color.bmSurface, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                .strokeBorder(
+                    text.isEmpty ? Color.white.opacity(0.09) : Color.bmGilt.opacity(0.55),
+                    lineWidth: 1
+                )
+        )
+        .animation(Motion.subtle, value: text.isEmpty)
     }
 }

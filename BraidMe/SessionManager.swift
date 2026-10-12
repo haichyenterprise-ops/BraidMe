@@ -30,30 +30,10 @@ final class SessionManager: NSObject, ObservableObject {
         }
     }
 
-    deinit {
-        if let listener = authListener {
-            Auth.auth().removeStateDidChangeListener(listener)
-        }
-    }
-
-    // MARK: - Computed
-
     var isSignedIn: Bool { user != nil }
     var uid: String { user?.uid ?? "" }
     var email: String? { user?.email }
     var displayName: String? { user?.displayName }
-
-    /// Provider string used across the app
-    var providerString: String {
-        guard let user else { return "guest" }
-        let ids = user.providerData.compactMap { $0.providerID }
-        if ids.contains("apple.com") { return "apple" }
-        if ids.contains("google.com") { return "google" }
-        if ids.contains("password") { return "email" }
-        return "guest"
-    }
-
-    // MARK: - Sign Out
 
     func signOut() {
         do {
@@ -82,13 +62,11 @@ final class SessionManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Apple
-
     func signInWithApple(credential: ASAuthorizationAppleIDCredential, nonce: String) async throws {
         guard let tokenData = credential.identityToken,
               let idToken = String(data: tokenData, encoding: .utf8) else {
             throw NSError(domain: "BraidMe", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Apple didn't return an identity token."])
+                          userInfo: [NSLocalizedDescriptionKey: "No identity token from Apple."])
         }
 
         let firebaseCredential = OAuthProvider.appleCredential(
@@ -100,7 +78,6 @@ final class SessionManager: NSObject, ObservableObject {
         let result = try await Auth.auth().signIn(with: firebaseCredential)
         self.user = result.user
 
-        // Persist Apple's full name (only provided on first sign-in)
         if let name = credential.fullName {
             let formatter = PersonNameComponentsFormatter()
             let display = formatter.string(from: name)
@@ -112,8 +89,6 @@ final class SessionManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Google
-
     func signInWithGoogle() async throws {
         guard let root = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
@@ -122,12 +97,12 @@ final class SessionManager: NSObject, ObservableObject {
             .rootViewController
         else {
             throw NSError(domain: "BraidMe", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Couldn't find the app window."])
+                          userInfo: [NSLocalizedDescriptionKey: "Unable to locate window."])
         }
 
         guard let clientID = FirebaseApp.app()?.options.clientID else {
             throw NSError(domain: "BraidMe", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Firebase client ID is missing."])
+                          userInfo: [NSLocalizedDescriptionKey: "Firebase client ID missing."])
         }
 
         GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
@@ -136,7 +111,7 @@ final class SessionManager: NSObject, ObservableObject {
 
         guard let idToken = result.user.idToken?.tokenString else {
             throw NSError(domain: "BraidMe", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Google didn't return an ID token."])
+                          userInfo: [NSLocalizedDescriptionKey: "Google returned no ID token."])
         }
 
         let accessToken = result.user.accessToken.tokenString
@@ -146,23 +121,21 @@ final class SessionManager: NSObject, ObservableObject {
         self.user = authResult.user
     }
 
-    // MARK: - Email
-
     func signUpWithEmail(email: String, password: String, name: String) async throws {
         let clean = email.trimmingCharacters(in: .whitespaces).lowercased()
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
 
         guard !clean.isEmpty, clean.contains("@") else {
             throw NSError(domain: "BraidMe", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "That email doesn't look quite right."])
+                          userInfo: [NSLocalizedDescriptionKey: "Enter a valid email address."])
         }
         guard password.count >= 6 else {
             throw NSError(domain: "BraidMe", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Password needs at least 6 characters."])
+                          userInfo: [NSLocalizedDescriptionKey: "Password must be at least 6 characters."])
         }
         guard !trimmedName.isEmpty else {
             throw NSError(domain: "BraidMe", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "We need your name to set up your account."])
+                          userInfo: [NSLocalizedDescriptionKey: "Please enter your name."])
         }
 
         let result = try await Auth.auth().createUser(withEmail: clean, password: password)
@@ -177,11 +150,11 @@ final class SessionManager: NSObject, ObservableObject {
 
         guard !clean.isEmpty, clean.contains("@") else {
             throw NSError(domain: "BraidMe", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "That email doesn't look quite right."])
+                          userInfo: [NSLocalizedDescriptionKey: "Enter a valid email address."])
         }
         guard !password.isEmpty else {
             throw NSError(domain: "BraidMe", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Enter your password to continue."])
+                          userInfo: [NSLocalizedDescriptionKey: "Please enter your password."])
         }
 
         let result = try await Auth.auth().signIn(withEmail: clean, password: password)
@@ -192,61 +165,31 @@ final class SessionManager: NSObject, ObservableObject {
         let clean = email.trimmingCharacters(in: .whitespaces).lowercased()
         guard !clean.isEmpty, clean.contains("@") else {
             throw NSError(domain: "BraidMe", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Enter a valid email first."])
+                          userInfo: [NSLocalizedDescriptionKey: "Enter a valid email address."])
         }
         try await Auth.auth().sendPasswordReset(withEmail: clean)
     }
 
-    // MARK: - Friendly Errors
-
-    /// Maps Firebase Auth errors into warm, human copy that matches the new tone.
     static func friendlyError(_ error: Error) -> String {
         let ns = error as NSError
-
-        // Handle our own custom errors first
-        if ns.domain == "BraidMe" {
-            return ns.localizedDescription
-        }
-
-        // Map Firebase Auth errors
-        if let code = AuthErrorCode.Code(rawValue: ns.code) {
+        let code = AuthErrorCode.Code(rawValue: ns.code)
+        if let code {
             switch code {
-            case .emailAlreadyInUse:
-                return "That email's already registered. Try logging in instead."
-            case .invalidEmail:
-                return "That email doesn't look quite right."
-            case .weakPassword:
-                return "Password needs at least 6 characters."
-            case .wrongPassword:
-                return "That password doesn't match. Try again."
-            case .userNotFound:
-                return "We couldn't find an account for that email."
-            case .invalidCredential:
-                return "Wrong email or password. Give it another go."
-            case .networkError:
-                return "Connection hiccup. Check your internet and try again."
-            case .tooManyRequests:
-                return "Too many tries. Take a breather, then try again."
-            case .operationNotAllowed:
-                return "Email sign-in isn't enabled yet. Try Google or Apple."
-            case .userDisabled:
-                return "This account has been disabled. Contact support."
-            case .requiresRecentLogin:
-                return "For security, please sign in again."
-            case .missingEmail:
-                return "We need an email to continue."
-            case .credentialAlreadyInUse:
-                return "That credential is linked to another account."
-            default:
-                return ns.localizedDescription
+            case .emailAlreadyInUse: return "That email is already registered. Try logging in."
+            case .invalidEmail: return "That email doesn't look right."
+            case .weakPassword: return "Password must be at least 6 characters."
+            case .wrongPassword: return "Incorrect password."
+            case .userNotFound: return "No account found for that email."
+            case .invalidCredential: return "Wrong email or password."
+            case .networkError: return "Network problem. Check your connection."
+            case .tooManyRequests: return "Too many attempts. Try again in a moment."
+            case .operationNotAllowed: return "Email sign-in isn't enabled in Firebase Console."
+            default: return ns.localizedDescription
             }
         }
-
         return ns.localizedDescription
     }
 }
-
-// MARK: - Apple Nonce
 
 enum AppleNonce {
     static func random(length: Int = 32) -> String {

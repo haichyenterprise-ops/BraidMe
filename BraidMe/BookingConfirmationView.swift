@@ -1,10 +1,5 @@
 import SwiftUI
 
-// =============================================================================
-// BookingConfirmationView — Success screen
-// Animated checkmark with glow burst, celebratory gradient, staggered text reveal.
-// =============================================================================
-
 struct BookingConfirmationView: View {
     let braider: Braider
     let service: BraidService
@@ -12,70 +7,41 @@ struct BookingConfirmationView: View {
     let time: String
     let total: Int
 
-    @Environment(\.dismiss) private var dismiss
-
     @State private var circleProgress: CGFloat = 0
     @State private var checkProgress: CGFloat = 0
-    @State private var contentOpacity: Double = 0
-    @State private var contentOffset: CGFloat = 30
-    @State private var glowScale: CGFloat = 0.5
-    @State private var glowOpacity: Double = 0
-    @State private var ringPulse: CGFloat = 1
-    @State private var ringOpacity: Double = 0.8
+    @State private var glow = false
+    @State private var contentShown = false
+    @State private var confetti = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ZStack {
-            Color.appBackground.ignoresSafeArea()
+        ZStack(alignment: .top) {
+            AuroraBackground(intensity: 0.9)
 
-            // Ambient celebration gradient
-            RadialGradient(
-                colors: [Color.gold.opacity(0.14), .clear],
-                center: .top,
-                startRadius: 0,
-                endRadius: 400
-            )
-            .ignoresSafeArea()
+            if confetti && !reduceMotion {
+                ConfettiBurst()
+                    .ignoresSafeArea()
+            }
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: Space.xl) {
-                    Spacer().frame(height: Space.xxl)
-
-                    checkmark.padding(.bottom, Space.lg)
+                    checkmark
+                        .padding(.top, Space.xxl)
 
                     header
-                        .opacity(contentOpacity)
-                        .offset(y: contentOffset)
+                        .reveal(contentShown, delay: 0.0, offset: 18)
 
-                    summary
-                        .opacity(contentOpacity)
-                        .offset(y: contentOffset)
+                    ticket
+                        .reveal(contentShown, delay: 0.12, offset: 28, blur: 0)
 
                     nextSteps
-                        .opacity(contentOpacity)
-                        .offset(y: contentOffset)
+                        .reveal(contentShown, delay: 0.22, offset: 20, blur: 0)
 
-                    Spacer().frame(height: Space.xl)
-
-                    Button {
-                        Haptic.press()
+                    BMPrimaryButton(title: "Back to map", icon: "map.fill") {
                         finish()
-                    } label: {
-                        HStack(spacing: Space.xs) {
-                            Image(systemName: "map.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                            Text("Back to map")
-                                .font(.system(size: 15, weight: .semibold))
-                        }
-                        .foregroundStyle(Color.appInkInverse)
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: 56)
-                        .background(Color.appInk, in: Capsule())
-                        .shadow(color: Color.appInk.opacity(0.25), radius: 16, y: 8)
                     }
-                    .buttonStyle(BMPressStyle())
                     .padding(.horizontal, Space.lg)
-                    .opacity(contentOpacity)
+                    .reveal(contentShown, delay: 0.3, offset: 20, blur: 0)
 
                     Spacer().frame(height: Space.lg)
                 }
@@ -86,187 +52,165 @@ struct BookingConfirmationView: View {
         .task { await playAnimation() }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Checkmark
+    // MARK: - Check
 
     private var checkmark: some View {
         ZStack {
-            // Outer gold glow burst
             Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            Color.gold.opacity(0.6),
-                            Color.gold.opacity(0.15),
-                            .clear
-                        ],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 110
-                    )
-                )
-                .frame(width: 220, height: 220)
-                .scaleEffect(glowScale)
-                .opacity(glowOpacity)
-                .blur(radius: 12)
-
-            // Expanding ring pulse
-            Circle()
-                .stroke(Color.gold.opacity(0.5), lineWidth: 1.5)
+                .fill(Color.bmGilt.opacity(0.35))
                 .frame(width: 120, height: 120)
-                .scaleEffect(ringPulse)
-                .opacity(ringOpacity)
+                .blur(radius: 30)
+                .scaleEffect(glow ? 1.25 : 0.8)
+                .opacity(glow ? 1 : 0)
 
-            // Track circle
             Circle()
-                .stroke(Color.appDivider, lineWidth: 5)
-                .frame(width: 120, height: 120)
-
-            // Progress ring
+                .stroke(Color.white.opacity(0.10), lineWidth: 5)
+                .frame(width: 112, height: 112)
             Circle()
                 .trim(from: 0, to: circleProgress)
                 .stroke(
-                    LinearGradient(
-                        colors: [Color.goldLight, Color.gold, Color.goldDeep],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+                    AngularGradient(
+                        colors: [Color.bmGilt, Color.bmEmber, Color.bmOrchid, Color.bmGilt],
+                        center: .center
                     ),
                     style: StrokeStyle(lineWidth: 5, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))
-                .frame(width: 120, height: 120)
-
-            // Checkmark
+                .frame(width: 112, height: 112)
             CheckShape()
                 .trim(from: 0, to: checkProgress)
                 .stroke(
-                    Color.gold,
+                    LinearGradient.bmGiltGradient,
                     style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
                 )
-                .frame(width: 48, height: 48)
+                .frame(width: 46, height: 46)
         }
     }
 
     private var header: some View {
-        VStack(spacing: Space.sm) {
-            Text("Booking confirmed")
-                .font(.system(size: 30, weight: .bold, design: .serif))
-                .foregroundStyle(Color.appInk)
+        VStack(spacing: Space.xs) {
+            Text("You're booked")
+                .font(.bmDisplay(38, weight: .semibold))
+                .foregroundStyle(Color.bmText)
+            Text("\(braider.name) will see your appointment right away.")
+                .font(.bmUI(15))
+                .foregroundStyle(Color.bmTextDim)
                 .multilineTextAlignment(.center)
-
-            Text("\(braider.name) will see your appointment shortly.")
-                .font(.system(size: 15))
-                .foregroundStyle(Color.appAsh)
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
                 .padding(.horizontal, Space.xl)
         }
     }
 
-    private var summary: some View {
+    // MARK: - Ticket
+
+    private var ticket: some View {
         VStack(spacing: 0) {
-            row(label: "Service", value: service.name)
-            BMDivider(inset: Space.md)
-            row(label: "Date", value: date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
-            BMDivider(inset: Space.md)
-            row(label: "Time", value: time)
-            BMDivider(inset: Space.md)
-            row(label: "Total", value: "£\(total)", emphasized: true)
+            VStack(alignment: .leading, spacing: Space.md) {
+                HStack(spacing: Space.sm) {
+                    BMAvatar(url: braider.avatarUrl, size: 44, initials: bmInitials(braider.name))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(service.name)
+                            .font(.bmDisplay(20, weight: .semibold))
+                            .foregroundStyle(Color.bmText)
+                            .lineLimit(2)
+                        Text("with \(braider.name)")
+                            .font(.bmUI(13))
+                            .foregroundStyle(Color.bmTextDim)
+                    }
+                    Spacer()
+                }
+
+                HStack(alignment: .top) {
+                    ticketField(label: "Date", value: date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
+                    Spacer()
+                    ticketField(label: "Time", value: time)
+                    Spacer()
+                    ticketField(label: "Total", value: "£\(total)", highlight: true)
+                }
+            }
+            .padding(Space.md)
+
+            perforation
+
+            HStack(spacing: Space.sm) {
+                BraidMark(length: 70, thickness: 26, strand: 6, horizontal: true, cycles: 1.6, edge: Color.bmSurface)
+                Spacer()
+                Text("BraidMe")
+                    .font(.bmDisplay(16, weight: .semibold))
+                    .foregroundStyle(Color.bmTextDim)
+            }
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.sm)
         }
-        .background(Color.appSurface)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .stroke(Color.appDivider, lineWidth: 0.5)
-        )
-        .shadow(color: Color.black.opacity(0.08), radius: 20, y: 10)
+        .bmCard(radius: Radius.card)
         .padding(.horizontal, Space.lg)
     }
 
-    private func row(label: String, value: String, emphasized: Bool = false) -> some View {
-        HStack {
+    private func ticketField(label: String, value: String, highlight: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.system(size: 13))
-                .foregroundStyle(Color.appAsh)
-            Spacer()
+                .font(.bmUI(12, weight: .medium))
+                .foregroundStyle(Color.bmTextDim)
             Text(value)
-                .font(emphasized ? .system(size: 16, weight: .bold, design: .monospaced) : .system(size: 14, weight: .medium))
-                .foregroundStyle(emphasized ? Color.gold : Color.appInk)
+                .font(.bmNum(16, weight: .bold))
+                .foregroundStyle(highlight ? Color.bmGilt : Color.bmText)
         }
-        .padding(.horizontal, Space.md)
-        .padding(.vertical, Space.sm)
+    }
+
+    private var perforation: some View {
+        ZStack {
+            Line()
+                .stroke(Color.white.opacity(0.18), style: StrokeStyle(lineWidth: 1.2, dash: [5, 5]))
+                .frame(height: 1)
+                .padding(.horizontal, Space.lg)
+            HStack {
+                Circle().fill(Color.bmBase).frame(width: 22, height: 22).offset(x: -11)
+                Spacer()
+                Circle().fill(Color.bmBase).frame(width: 22, height: 22).offset(x: 11)
+            }
+        }
+        .frame(height: 22)
     }
 
     private var nextSteps: some View {
-        HStack(alignment: .top, spacing: Space.md) {
-            ZStack {
-                Circle()
-                    .fill(Color.gold)
-                    .frame(width: 36, height: 36)
-                Image(systemName: "bell.badge.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.appInkInverse)
-            }
-            Text("You'll get a message from \(braider.name) in your Bookings tab to confirm final details.")
-                .font(.system(size: 13))
-                .foregroundStyle(Color.appInkSecondary)
-                .lineSpacing(4)
+        HStack(alignment: .top, spacing: Space.sm) {
+            Image(systemName: "bell.badge.fill")
+                .font(.bmUI(14, weight: .semibold))
+                .foregroundStyle(Color.bmOrchid)
+            Text("Message \(braider.name) from My Bookings to confirm any final details.")
+                .font(.bmUI(13))
+                .foregroundStyle(Color.bmTextDim)
+                .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(Space.md)
-        .background(Color.gold.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.button))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.bmOrchid.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                .strokeBorder(Color.bmOrchid.opacity(0.28), lineWidth: 0.8)
+        )
         .padding(.horizontal, Space.lg)
     }
 
-    // ═══════════════════════════════════════════════════════════════
     // MARK: - Animation
 
     private func playAnimation() async {
-        Haptic.success()
-
         if reduceMotion {
             circleProgress = 1
             checkProgress = 1
-            glowOpacity = 1
-            glowScale = 1
-            contentOpacity = 1
-            contentOffset = 0
+            contentShown = true
+            Haptic.success()
             return
         }
 
-        // Ring pulse loop
-        withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) {
-            ringPulse = 1.8
-            ringOpacity = 0
-        }
-
-        // Circle progress
-        withAnimation(.easeOut(duration: 0.55)) {
-            circleProgress = 1
-        }
-
-        try? await Task.sleep(nanoseconds: 400_000_000)
-
-        // Glow burst
-        Haptic.medium()
-        withAnimation(.spring(response: 0.7, dampingFraction: 0.65)) {
-            glowScale = 1.0
-            glowOpacity = 1.0
-        }
-
-        // Checkmark
-        withAnimation(.easeOut(duration: 0.35)) {
-            checkProgress = 1
-        }
-
+        withAnimation(.easeOut(duration: 0.7)) { circleProgress = 1 }
+        withAnimation(.easeOut(duration: 1.2)) { glow = true }
+        try? await Task.sleep(nanoseconds: 550_000_000)
+        withAnimation(.easeOut(duration: 0.4)) { checkProgress = 1 }
         try? await Task.sleep(nanoseconds: 250_000_000)
-
-        // Content reveal
-        withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) {
-            contentOpacity = 1
-            contentOffset = 0
-        }
+        Haptic.success()
+        confetti = true
+        withAnimation(Motion.reveal) { contentShown = true }
     }
 
     private func finish() {
@@ -274,9 +218,79 @@ struct BookingConfirmationView: View {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Notification Names
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Shapes
+
+struct CheckShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.width * 0.15, y: rect.height * 0.55))
+        path.addLine(to: CGPoint(x: rect.width * 0.42, y: rect.height * 0.80))
+        path.addLine(to: CGPoint(x: rect.width * 0.88, y: rect.height * 0.20))
+        return path
+    }
+}
+
+private struct Line: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        return p
+    }
+}
+
+// MARK: - Confetti
+
+private struct ConfettiParticle {
+    let angle: Double
+    let speed: Double
+    let spin: Double
+    let colorIndex: Int
+    let size: CGFloat
+}
+
+private struct ConfettiBurst: View {
+    @State private var start = Date()
+    private let particles: [ConfettiParticle] = ConfettiBurst.makeParticles()
+    private let palette: [Color] = [Color.bmGilt, Color.bmGiltHi, Color.bmOrchid, Color.bmEmber, Color.white]
+
+    private static func makeParticles() -> [ConfettiParticle] {
+        var list: [ConfettiParticle] = []
+        for _ in 0..<64 {
+            list.append(
+                ConfettiParticle(
+                    angle: Double.random(in: (-Double.pi * 0.95)...(-Double.pi * 0.05)),
+                    speed: Double.random(in: 220...520),
+                    spin: Double.random(in: -8...8),
+                    colorIndex: Int.random(in: 0..<5),
+                    size: CGFloat.random(in: 6...11)
+                )
+            )
+        }
+        return list
+    }
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSince(start)
+                guard t < 3.2 else { return }
+                let fade = max(0.0, 1.0 - t / 3.2)
+                for p in particles {
+                    let x = Double(size.width) / 2 + cos(p.angle) * p.speed * t
+                    let y = Double(size.height) * 0.22 + sin(p.angle) * p.speed * t + 520 * t * t
+                    var c = context
+                    c.opacity = fade
+                    c.translateBy(x: CGFloat(x), y: CGFloat(y))
+                    c.rotate(by: .radians(p.spin * t))
+                    let rect = CGRect(x: -p.size / 2, y: -p.size / 3, width: p.size, height: p.size * 0.66)
+                    c.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(palette[p.colorIndex]))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
 
 extension Notification.Name {
     static let bookingFlowFinished = Notification.Name("bookingFlowFinished")

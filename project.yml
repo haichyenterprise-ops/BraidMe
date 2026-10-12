@@ -1,11 +1,8 @@
-﻿name: BraidMe
+name: BraidMe
 options:
   bundleIdPrefix: com.example
   deploymentTarget:
     iOS: "17.0"
-  createIntermediateGroups: true
-  groupSortPosition: top
-
 packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
@@ -13,13 +10,6 @@ packages:
   GoogleSignIn:
     url: https://github.com/google/GoogleSignIn-iOS
     from: 7.1.0
-
-settings:
-  base:
-    SWIFT_VERSION: "5.0"
-    DEVELOPMENT_TEAM: ""
-    CODE_SIGN_STYLE: Automatic
-
 targets:
   BraidMe:
     type: application
@@ -30,13 +20,11 @@ targets:
           - "Info.plist"
       - path: BraidMe/GoogleService-Info.plist
         buildPhase: resources
-
     entitlements:
       path: BraidMe/BraidMe.entitlements
       properties:
         com.apple.developer.applesignin:
           - Default
-
     info:
       path: BraidMe/Info.plist
       properties:
@@ -44,9 +32,9 @@ targets:
         CFBundleVersion: "1"
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        UIUserInterfaceStyle: Light
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsArbitraryLoadsInWebContent: true
@@ -56,13 +44,11 @@ targets:
         NSLocationWhenInUseUsageDescription: "BraidMe uses your location to find braiders near you."
         NSPhotoLibraryUsageDescription: "BraidMe needs access to your photos to set your profile picture."
         NSCameraUsageDescription: "BraidMe uses your camera to take profile photos."
-        NSMotionUsageDescription: "BraidMe uses motion to subtly light-tilt elements as you move your device."
         NSApplePayMerchantID: "merchant.com.example.BraidMe"
         CFBundleURLTypes:
           - CFBundleTypeRole: Editor
             CFBundleURLSchemes:
               - com.googleusercontent.apps.158058529601-34lkbg1ha528nv1e4vaamb4t9rfr0261
-
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.BraidMe
@@ -73,8 +59,6 @@ targets:
         CODE_SIGN_IDENTITY: ""
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
-        ENABLE_USER_SCRIPT_SANDBOXING: NO
-
     dependencies:
       - package: Firebase
         product: FirebaseFirestore

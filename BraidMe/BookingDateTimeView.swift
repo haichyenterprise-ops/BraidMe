@@ -1,16 +1,11 @@
 import SwiftUI
 
-// =============================================================================
-// BookingDateTimeView — Step 2: pick date and time, upgraded
-// Content-transition date pills, period-grouped time chips with spring physics,
-// floating glass continue bar.
-// =============================================================================
-
 struct BookingDateTimeView: View {
     let braider: Braider
     let service: BraidService
 
     @Environment(\.dismiss) private var dismiss
+    @Namespace private var dateNS
     @State private var selectedDate: Date
     @State private var selectedSlot: String?
     @State private var appeared = false
@@ -43,165 +38,130 @@ struct BookingDateTimeView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color.appBackground.ignoresSafeArea()
+            AuroraBackground(intensity: 0.5)
 
             VStack(spacing: 0) {
-                BookingProgressHeader(step: 2)
+                BookingTopBar(step: 2) { dismiss() }
                 header
-                ScrollView(showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: Space.lg) {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: Space.xl) {
                         dateStrip
                         timesSection
-                        Color.clear.frame(height: 140)
+                        Color.clear.frame(height: 120)
                     }
-                    .padding(.top, Space.md)
+                    .padding(.top, Space.xs)
                 }
             }
 
             if let slot = selectedSlot {
                 continueBar(slot: slot)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .bottom).combined(with: .opacity),
-                        removal: .opacity
-                    ))
+                    .padding(.horizontal, Space.md)
+                    .padding(.bottom, Space.sm)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(isPresented: $showPay) {
             if let slot = selectedSlot {
                 PaymentView(braider: braider, service: service, date: selectedDate, time: slot)
             }
         }
-        .task {
-            withAnimation(.spring(response: 0.85, dampingFraction: 0.85).delay(0.1)) {
-                appeared = true
-            }
-        }
+        .task { appeared = true }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Header
-
     private var header: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            HStack(spacing: Space.xs) {
-                Rectangle()
-                    .fill(Color.gold)
-                    .frame(width: 20, height: 2)
-                Text("STEP 2 OF 3")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(2)
-                    .foregroundStyle(Color.gold)
-            }
-
+        VStack(alignment: .leading, spacing: Space.xs) {
             Text("Pick a time")
-                .font(.system(size: 34, weight: .bold, design: .serif))
-                .lineSpacing(-4)
-                .foregroundStyle(Color.appInk)
-
+                .font(.bmDisplay(36, weight: .semibold))
+                .foregroundStyle(Color.bmText)
             Text(service.name)
-                .font(.system(size: 14))
-                .foregroundStyle(Color.appAsh)
+                .font(.bmUI(14, weight: .medium))
+                .foregroundStyle(Color.bmTextDim)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Space.lg)
-        .padding(.top, Space.md)
+        .padding(.top, Space.lg)
         .padding(.bottom, Space.md)
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
+        .reveal(appeared, offset: 16)
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Date strip
+    // MARK: - Dates
 
     private var dateStrip: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            sectionEyebrow("AVAILABLE DATES")
+            BMSectionLabel(text: "Available dates")
                 .padding(.horizontal, Space.lg)
 
             if availableDates.isEmpty {
-                HStack(spacing: Space.md) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.appSurfaceElevated)
-                            .frame(width: 44, height: 44)
-                        Image(systemName: "calendar.badge.exclamationmark")
-                            .font(.system(size: 18))
-                            .foregroundStyle(Color.appSmoke)
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: Space.sm) {
+                    Image(systemName: "calendar.badge.exclamationmark")
+                        .font(.bmUI(20))
+                        .foregroundStyle(LinearGradient.bmGiltGradient)
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("No dates available")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.appInk)
+                            .font(.bmUI(15, weight: .bold))
+                            .foregroundStyle(Color.bmText)
                         Text("This service hasn't been scheduled yet.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Color.appAsh)
+                            .font(.bmUI(13))
+                            .foregroundStyle(Color.bmTextDim)
                     }
                     Spacer()
                 }
                 .padding(Space.md)
-                .background(Color.appSurface)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.card))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.card)
-                        .stroke(Color.appDivider, lineWidth: 0.5)
-                )
+                .bmCard(radius: Radius.card)
                 .padding(.horizontal, Space.lg)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Space.sm) {
-                        ForEach(availableDates, id: \.self) { date in
+                    HStack(spacing: Space.xs) {
+                        ForEach(Array(availableDates.enumerated()), id: \.element) { index, date in
                             DateStripPill(
                                 date: date,
-                                isSelected: Calendar.current.isDate(date, inSameDayAs: selectedDate)
+                                isSelected: Calendar.current.isDate(date, inSameDayAs: selectedDate),
+                                namespace: dateNS
                             ) {
                                 Haptic.select()
-                                withAnimation(.spring(response: 0.45, dampingFraction: 0.72)) {
+                                withAnimation(Motion.sheet) {
                                     selectedDate = date
                                     selectedSlot = nil
                                 }
                             }
+                            .reveal(appeared, delay: Motion.stagger(index) + 0.1, offset: 14, blur: 0)
                         }
                     }
                     .padding(.horizontal, Space.lg)
                 }
             }
         }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
-        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.15), value: appeared)
     }
 
-    // ═══════════════════════════════════════════════════════════════
     // MARK: - Times
 
     private var timesSection: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            sectionEyebrow("AVAILABLE TIMES")
+            BMSectionLabel(text: "Available times")
                 .padding(.horizontal, Space.lg)
 
             if slotsForDate.isEmpty {
                 Text("No times on this date. Try another.")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.appAsh)
+                    .font(.bmUI(14))
+                    .foregroundStyle(Color.bmTextDim)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, Space.xl)
             } else {
                 VStack(alignment: .leading, spacing: Space.lg) {
                     ForEach(groupedSlots, id: \.0) { group in
                         VStack(alignment: .leading, spacing: Space.sm) {
-                            HStack(spacing: Space.xs) {
+                            HStack(spacing: 6) {
                                 Image(systemName: periodIcon(group.0))
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Color.gold)
-                                Text(group.0.rawValue.uppercased())
-                                    .font(.system(size: 10, weight: .bold))
-                                    .tracking(1.5)
-                                    .foregroundStyle(Color.appAsh)
+                                    .font(.bmUI(13, weight: .bold))
+                                    .foregroundStyle(periodTint(group.0))
+                                Text(group.0.rawValue)
+                                    .font(.bmUI(14, weight: .bold))
+                                    .foregroundStyle(Color.bmText)
                             }
                             LazyVGrid(
-                                columns: [GridItem(.adaptive(minimum: 96), spacing: Space.sm)],
-                                spacing: Space.sm
+                                columns: [GridItem(.adaptive(minimum: 96), spacing: Space.xs)],
+                                spacing: Space.xs
                             ) {
                                 ForEach(group.1, id: \.self) { label in
                                     TimeChipView(
@@ -209,9 +169,7 @@ struct BookingDateTimeView: View {
                                         isSelected: selectedSlot == label
                                     ) {
                                         Haptic.select()
-                                        withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
-                                            selectedSlot = label
-                                        }
+                                        withAnimation(Motion.sheet) { selectedSlot = label }
                                     }
                                 }
                             }
@@ -219,76 +177,49 @@ struct BookingDateTimeView: View {
                     }
                 }
                 .padding(.horizontal, Space.lg)
+                .id(dateKey(selectedDate))
+                .transition(.opacity.combined(with: .offset(y: 12)))
             }
         }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
-        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.20), value: appeared)
+        .animation(Motion.sheet, value: dateKey(selectedDate))
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Continue bar
 
     private func continueBar(slot: String) -> some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [Color.clear, Color.gold.opacity(0.5), Color.clear],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(height: 0.8)
-
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(selectedDate.formatted(.dateTime.weekday(.wide).day().month(.abbreviated)))
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color.appInk)
-                    Text(slot)
-                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color.gold)
-                }
-                Spacer()
-                Button {
-                    Haptic.press()
-                    showPay = true
-                } label: {
-                    HStack(spacing: Space.xs) {
-                        Text("Continue")
-                            .font(.system(size: 15, weight: .semibold))
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 12, weight: .bold))
-                    }
-                    .foregroundStyle(Color.appInkInverse)
-                    .padding(.horizontal, Space.lg)
-                    .frame(minHeight: 52)
-                    .background(Color.appInk, in: Capsule())
-                    .shadow(color: Color.appInk.opacity(0.2), radius: 12, y: 6)
-                }
-                .buttonStyle(BMPressStyle())
+        HStack(spacing: Space.md) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(selectedDate.formatted(.dateTime.weekday(.wide).day().month(.abbreviated)))
+                    .font(.bmUI(14, weight: .bold))
+                    .foregroundStyle(Color.bmText)
+                Text(slot)
+                    .font(.bmNum(13, weight: .bold))
+                    .foregroundStyle(Color.bmGilt)
             }
-            .padding(.horizontal, Space.lg)
-            .padding(.vertical, Space.md)
-            .background(Color.glassTintStrong)
+            Spacer(minLength: 0)
+            Button {
+                Haptic.press()
+                showPay = true
+            } label: {
+                HStack(spacing: Space.xs) {
+                    Text("Continue")
+                        .font(.bmUI(15, weight: .bold))
+                    Image(systemName: "arrow.right")
+                        .font(.bmUI(13, weight: .bold))
+                }
+                .foregroundStyle(Color.bmOnGilt)
+                .padding(.horizontal, Space.lg)
+                .frame(height: 52)
+                .background(LinearGradient.bmGiltGradient, in: Capsule())
+            }
+            .buttonStyle(BMPressStyle())
         }
+        .padding(.leading, Space.lg)
+        .padding(.trailing, Space.xs)
+        .padding(.vertical, Space.xs)
+        .bmGlass(radius: 40, tint: Color.black.opacity(0.3))
+        .shadow(color: Color.black.opacity(0.4), radius: 24, y: 10)
     }
 
-    // ═══════════════════════════════════════════════════════════════
     // MARK: - Helpers
-
-    private func sectionEyebrow(_ text: String) -> some View {
-        HStack(spacing: Space.xs) {
-            Rectangle()
-                .fill(Color.gold)
-                .frame(width: 20, height: 1.5)
-            Text(text)
-                .font(.system(size: 10, weight: .bold))
-                .tracking(1.5)
-                .foregroundStyle(Color.appAsh)
-        }
-    }
 
     private func dateKey(_ date: Date) -> String {
         let f = DateFormatter()
@@ -314,54 +245,59 @@ struct BookingDateTimeView: View {
         case .evening: return "moon.stars.fill"
         }
     }
+
+    private func periodTint(_ p: DayPeriod) -> Color {
+        switch p {
+        case .morning: return Color.bmGilt
+        case .afternoon: return Color.bmEmber
+        case .evening: return Color.bmOrchid
+        }
+    }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Date Pill
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Date pill
 
 struct DateStripPill: View {
     let date: Date
     let isSelected: Bool
+    let namespace: Namespace.ID
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 6) {
-                Text(date.formatted(.dateTime.weekday(.abbreviated)).uppercased())
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1)
-                    .foregroundStyle(isSelected ? Color.appInkInverse.opacity(0.7) : Color.appAsh)
+            VStack(spacing: 5) {
+                Text(date.formatted(.dateTime.weekday(.abbreviated)))
+                    .font(.bmUI(12, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color.bmOnGilt.opacity(0.75) : Color.bmTextDim)
                 Text(date.formatted(.dateTime.day()))
-                    .font(.system(size: 24, weight: .bold, design: .serif))
-                    .foregroundStyle(isSelected ? Color.appInkInverse : Color.appInk)
-                    .contentTransition(.numericText())
-                Text(date.formatted(.dateTime.month(.abbreviated)).uppercased())
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1)
-                    .foregroundStyle(isSelected ? Color.appInkInverse.opacity(0.7) : Color.appAsh)
+                    .font(.bmDisplay(26, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color.bmOnGilt : Color.bmText)
+                Text(date.formatted(.dateTime.month(.abbreviated)))
+                    .font(.bmUI(12, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color.bmOnGilt.opacity(0.75) : Color.bmTextDim)
             }
-            .frame(width: 70, height: 96)
-            .background(isSelected ? Color.appInk : Color.appSurface)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                    .stroke(isSelected ? Color.clear : Color.appDivider, lineWidth: 0.5)
-            )
-            .shadow(
-                color: isSelected ? Color.appInk.opacity(0.2) : Color.black.opacity(0.04),
-                radius: isSelected ? 14 : 6,
-                y: isSelected ? 6 : 2
-            )
+            .frame(width: 66, height: 96)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                        .fill(LinearGradient.bmGiltGradient)
+                        .matchedGeometryEffect(id: "datePill", in: namespace)
+                        .shadow(color: Color.bmGilt.opacity(0.4), radius: 14, y: 6)
+                } else {
+                    RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                        .fill(Color.bmSurface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8)
+                        )
+                }
+            }
         }
-        .buttonStyle(BMPressStyle(scale: 0.96))
-        .animation(.spring(response: 0.45, dampingFraction: 0.72), value: isSelected)
+        .buttonStyle(BMPressStyle(scale: 0.95))
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Time Chip
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Time chip
 
 struct TimeChipView: View {
     let label: String
@@ -371,23 +307,26 @@ struct TimeChipView: View {
     var body: some View {
         Button(action: onTap) {
             Text(label)
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                .foregroundStyle(isSelected ? Color.appInkInverse : Color.appInk)
+                .font(.bmNum(14, weight: .bold))
+                .foregroundStyle(isSelected ? Color.bmOnGilt : Color.bmText)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 48)
-                .background(isSelected ? Color.appInk : Color.appSurface)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.button))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.button)
-                        .stroke(isSelected ? Color.clear : Color.appDivider, lineWidth: 0.5)
-                )
-                .shadow(
-                    color: isSelected ? Color.appInk.opacity(0.2) : .clear,
-                    radius: isSelected ? 12 : 0,
-                    y: isSelected ? 4 : 0
-                )
+                .frame(height: 48)
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                            .fill(LinearGradient.bmGiltGradient)
+                            .shadow(color: Color.bmGilt.opacity(0.35), radius: 10, y: 4)
+                    } else {
+                        RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                            .fill(Color.bmSurface)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8)
+                            )
+                    }
+                }
         }
-        .buttonStyle(BMPressStyle(scale: 0.97))
-        .animation(.spring(response: 0.4, dampingFraction: 0.65), value: isSelected)
+        .buttonStyle(BMPressStyle(scale: 0.95))
+        .animation(Motion.press, value: isSelected)
     }
 }

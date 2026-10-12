@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -25,6 +25,8 @@
         <key>UIApplicationSupportsMultipleScenes</key>
         <false/>
     </dict>
+    <key>UIUserInterfaceStyle</key>
+    <string>Dark</string>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UIRequiredDeviceCapabilities</key>
@@ -35,16 +37,12 @@
     <array>
         <string>UIInterfaceOrientationPortrait</string>
     </array>
-    <key>UIUserInterfaceStyle</key>
-    <string>Light</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>BraidMe uses your location to find braiders near you.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>BraidMe needs access to your photos to set your profile picture.</string>
     <key>NSCameraUsageDescription</key>
     <string>BraidMe uses your camera to take profile photos.</string>
-    <key>NSMotionUsageDescription</key>
-    <string>BraidMe uses motion to subtly light-tilt elements as you move your device.</string>
     <key>NSApplePayMerchantID</key>
     <string>merchant.com.example.BraidMe</string>
     <key>CFBundleURLTypes</key>
@@ -54,18 +52,9 @@
             <string>Editor</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>com.googleusercontent.apps.158058529601-34lkbg1ha528nv1e4vaamb4t9rfr0261</string>
+                <string>com.googleusercontent.apps.REPLACE_WITH_CLIENT_ID</string>
             </array>
         </dict>
     </array>
-    <key>NSAppTransportSecurity</key>
-    <dict>
-        <key>NSAllowsArbitraryLoads</key>
-        <true/>
-        <key>NSAllowsArbitraryLoadsInWebContent</key>
-        <true/>
-        <key>NSAllowsLocalNetworking</key>
-        <true/>
-    </dict>
 </dict>
 </plist>

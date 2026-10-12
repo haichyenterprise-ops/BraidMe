@@ -1,11 +1,6 @@
 import SwiftUI
 import AuthenticationServices
 
-// =============================================================================
-// AuthView — Landing page, rebuilt
-// Ambient gold orbs, staggered hero reveal, feature cards, three auth paths.
-// =============================================================================
-
 struct AuthView: View {
     @EnvironmentObject private var session: SessionManager
 
@@ -13,12 +8,6 @@ struct AuthView: View {
     @State private var currentNonce: String?
     @State private var errorMessage: String?
     @State private var appeared = false
-
-    // Ambient background motion
-    @State private var orbAOffset: CGSize = .zero
-    @State private var orbBOffset: CGSize = .zero
-    @State private var orbAAngle: Double = 0
-    @State private var orbBAngle: Double = 0
 
     enum AuthMode: Equatable {
         case landing
@@ -29,19 +18,12 @@ struct AuthView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                // Base
-                Color.appBackground.ignoresSafeArea()
+                AuroraBackground()
 
-                // Ambient gold orbs — breathing
-                ambientOrbs(in: geo.size)
-
-                // Content
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Spacer().frame(height: geo.safeAreaInsets.top + Space.xl)
-
+                    ZStack {
                         if mode == .landing {
-                            landingView
+                            landingView(minHeight: geo.size.height)
                                 .transition(.asymmetric(
                                     insertion: .move(edge: .leading).combined(with: .opacity),
                                     removal: .move(edge: .leading).combined(with: .opacity)
@@ -50,30 +32,23 @@ struct AuthView: View {
                             EmailAuthView(
                                 mode: mode == .emailSignup ? .signup : .login,
                                 onBack: {
-                                    withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
-                                        mode = .landing
-                                    }
+                                    withAnimation(Motion.navigation) { mode = .landing }
                                 }
                             )
+                            .frame(minHeight: geo.size.height, alignment: .top)
                             .transition(.asymmetric(
                                 insertion: .move(edge: .trailing).combined(with: .opacity),
                                 removal: .move(edge: .trailing).combined(with: .opacity)
                             ))
                         }
-
-                        Spacer().frame(height: Space.xxl)
                     }
                     .frame(maxWidth: .infinity)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
         }
-        .onAppear {
-            withAnimation(.spring(response: 0.9, dampingFraction: 0.85).delay(0.1)) {
-                appeared = true
-            }
-            startAmbientMotion()
-        }
-        .alert("Sign-In Failed", isPresented: Binding(
+        .onAppear { appeared = true }
+        .alert("Sign-in failed", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -83,172 +58,91 @@ struct AuthView: View {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Ambient orbs
-
-    private func ambientOrbs(in size: CGSize) -> some View {
-        ZStack {
-            // Top-right gold
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            Color.gold.opacity(0.16),
-                            Color.gold.opacity(0.04),
-                            .clear
-                        ],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 320
-                    )
-                )
-                .frame(width: 640, height: 640)
-                .offset(x: orbAOffset.width + size.width * 0.28,
-                        y: orbAOffset.height - size.height * 0.32)
-                .blur(radius: 40)
-
-            // Bottom-left warm
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            Color(hex: "#A88461").opacity(0.14),
-                            .clear
-                        ],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 280
-                    )
-                )
-                .frame(width: 560, height: 560)
-                .offset(x: orbBOffset.width - size.width * 0.42,
-                        y: orbBOffset.height + size.height * 0.40)
-                .blur(radius: 60)
-        }
-        .allowsHitTesting(false)
-    }
-
-    private func startAmbientMotion() {
-        withAnimation(.easeInOut(duration: 9).repeatForever(autoreverses: true)) {
-            orbAOffset = CGSize(width: 40, height: 30)
-        }
-        withAnimation(.easeInOut(duration: 12).repeatForever(autoreverses: true)) {
-            orbBOffset = CGSize(width: -30, height: -40)
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     // MARK: - Landing
 
-    private var landingView: some View {
+    private func landingView(minHeight: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            brandBlock.padding(.horizontal, Space.lg)
-            Spacer().frame(height: Space.xxl)
-            featureStack.padding(.horizontal, Space.lg)
-            Spacer().frame(height: Space.xxl)
-            authStack.padding(.horizontal, Space.lg)
-            Spacer().frame(height: Space.lg)
-            legal.padding(.horizontal, Space.lg)
+            hero
+                .padding(.horizontal, Space.lg)
+                .padding(.top, Space.xxl)
+
+            Spacer(minLength: Space.xl)
+
+            featureRow
+                .padding(.bottom, Space.lg)
+
+            authPanel
+                .padding(.horizontal, Space.md)
+                .padding(.bottom, Space.sm)
+
+            legal
+                .padding(.horizontal, Space.lg)
+                .padding(.bottom, Space.lg)
         }
+        .frame(minHeight: minHeight, alignment: .top)
     }
 
-    private var brandBlock: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
-            // Eyebrow
-            HStack(spacing: Space.xs) {
-                Rectangle()
-                    .fill(Color.gold)
-                    .frame(width: 24, height: 2)
-                Text("BRAIDME")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(3)
-                    .foregroundStyle(Color.gold)
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(alignment: .center, spacing: Space.sm) {
+                BraidMark(length: 46, thickness: 28, strand: 6, horizontal: true, cycles: 1.4)
+                Text("BraidMe")
+                    .font(.bmDisplay(22, weight: .semibold))
+                    .foregroundStyle(Color.bmText)
             }
-            .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 8)
+            .reveal(appeared, delay: 0.0)
 
-            // Headline
-            Text("Where craft\nmeets care.")
-                .font(.system(size: 42, weight: .bold, design: .serif))
+            Text("Braids, booked\nbeautifully.")
+                .font(.bmDisplay(46, weight: .semibold))
+                .foregroundStyle(Color.bmText)
                 .lineSpacing(-6)
-                .foregroundStyle(Color.appInk)
                 .minimumScaleFactor(0.7)
                 .lineLimit(2)
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 16)
+                .reveal(appeared, delay: 0.08, offset: 26, blur: 10)
 
-            // Subtitle
-            Text("Discover braiders near you — booked, verified, and rated by real clients.")
-                .font(.system(size: 15))
-                .foregroundStyle(Color.appAsh)
+            Text("Verified braiders near you, real reviews from real clients, and an appointment in a few taps.")
+                .font(.bmUI(16))
+                .foregroundStyle(Color.bmTextDim)
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 20)
+                .reveal(appeared, delay: 0.16)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var featureStack: some View {
-        VStack(spacing: Space.sm) {
-            featureRow(
-                icon: "magnifyingglass",
-                title: "Search by city",
-                subtitle: "Find braiders near you",
-                delay: 0.15
-            )
-            featureRow(
-                icon: "star.fill",
-                title: "Real reviews",
-                subtitle: "From verified customers",
-                delay: 0.20
-            )
-            featureRow(
-                icon: "calendar",
-                title: "Book in seconds",
-                subtitle: "Pick a time, confirm, done",
-                delay: 0.25
-            )
+    private var featureRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Space.sm) {
+                featurePill(icon: "mappin.and.ellipse", title: "Search your city", tint: Color.bmGilt)
+                featurePill(icon: "star.bubble.fill", title: "Real reviews", tint: Color.bmOrchid)
+                featurePill(icon: "calendar.badge.checkmark", title: "Book in seconds", tint: Color.bmEmber)
+            }
+            .padding(.horizontal, Space.lg)
         }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 24)
+        .reveal(appeared, delay: 0.24)
     }
 
-    private func featureRow(icon: String, title: String, subtitle: String, delay: Double) -> some View {
-        HStack(spacing: Space.md) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.gold.opacity(0.12))
-                    .frame(width: 44, height: 44)
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.gold)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.appInk)
-                Text(subtitle)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.appAsh)
-            }
-            Spacer()
+    private func featurePill(icon: String, title: String, tint: Color) -> some View {
+        HStack(spacing: Space.xs) {
+            Image(systemName: icon)
+                .font(.bmUI(13, weight: .bold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+                .background(tint.opacity(0.16), in: Circle())
+            Text(title)
+                .font(.bmUI(13, weight: .semibold))
+                .foregroundStyle(Color.bmText)
         }
-        .padding(Space.sm)
-        .background(Color.appSurface.opacity(0.65))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                .stroke(Color.appDivider.opacity(0.5), lineWidth: 0.5)
-        )
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
-        .animation(.spring(response: 0.65, dampingFraction: 0.85).delay(delay), value: appeared)
+        .padding(.leading, 8)
+        .padding(.trailing, Space.md)
+        .padding(.vertical, 8)
+        .bmGlass(radius: 40)
     }
 
-    private var authStack: some View {
+    // MARK: - Auth stack
+
+    private var authPanel: some View {
         VStack(spacing: Space.sm) {
-            // Apple Sign In
             ZStack {
                 SignInWithAppleButton(
                     onRequest: { request in
@@ -259,100 +153,83 @@ struct AuthView: View {
                     },
                     onCompletion: handleAppleResult
                 )
-                .signInWithAppleButtonStyle(.black)
+                .signInWithAppleButtonStyle(.white)
                 .frame(height: 56)
                 .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
-                .shadow(color: Color.black.opacity(0.15), radius: 12, y: 6)
                 .opacity(session.isBusy ? 0.6 : 1)
                 .disabled(session.isBusy)
 
                 if session.isBusy, currentNonce != nil {
-                    ProgressView().tint(.white).scaleEffect(1.1)
+                    BMSpinner(color: Color.black)
                 }
             }
 
-            // Google
             Button {
                 Task { await handleGoogle() }
             } label: {
                 HStack(spacing: Space.xs) {
-                    Image(systemName: "g.circle.fill")
-                        .font(.system(size: 18))
+                    Text("G")
+                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Color(hex: "#4285F4"))
+                        .frame(width: 24, height: 24)
+                        .background(Color.white, in: Circle())
                     Text("Continue with Google")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.bmUI(16, weight: .semibold))
                 }
-                .foregroundStyle(Color.appInk)
+                .foregroundStyle(Color.bmText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
-                .background(Color.appSurface)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                        .stroke(Color.appDivider, lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.06), radius: 8, y: 4)
+                .bmGlass(radius: Radius.button)
             }
             .buttonStyle(BMPressStyle())
             .disabled(session.isBusy)
 
-            // Email signup
-            Button {
-                Haptic.press()
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
-                    mode = .emailSignup
-                }
-            } label: {
-                HStack(spacing: Space.xs) {
-                    Image(systemName: "envelope.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text("Sign up with Email")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .foregroundStyle(Color.appInkInverse)
-                .frame(maxWidth: .infinity)
-                .frame(height: 56)
-                .background(Color.appInk)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
-                .shadow(color: Color.appInk.opacity(0.2), radius: 12, y: 6)
+            BMPrimaryButton(title: "Sign up with email", icon: "envelope.fill") {
+                withAnimation(Motion.navigation) { mode = .emailSignup }
             }
-            .buttonStyle(BMPressStyle())
             .disabled(session.isBusy)
 
-            // Login link
             Button {
                 Haptic.select()
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
-                    mode = .emailLogin
-                }
+                withAnimation(Motion.navigation) { mode = .emailLogin }
             } label: {
                 HStack(spacing: Space.xxs) {
                     Text("Already have an account?")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.appAsh)
+                        .font(.bmUI(14))
+                        .foregroundStyle(Color.bmTextDim)
                     Text("Log in")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.gold)
+                        .font(.bmUI(14, weight: .bold))
+                        .foregroundStyle(Color.bmGilt)
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 48)
+                .frame(height: 42)
             }
+            .buttonStyle(BMPressStyle(scale: 0.98, dim: 0))
         }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 28)
-        .animation(.spring(response: 0.75, dampingFraction: 0.85).delay(0.30), value: appeared)
+        .padding(Space.md)
+        .bmGlass(radius: Radius.modal, tint: Color.black.opacity(0.18))
+        .reveal(appeared, delay: 0.32, offset: 40, blur: 0)
     }
 
     private var legal: some View {
-        Text("By continuing you agree to our ")
-            .font(.system(size: 12))
-            .foregroundStyle(Color.appSmoke)
-        + Text("Terms").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.appAsh)
-        + Text(" and ").font(.system(size: 12)).foregroundStyle(Color.appSmoke)
-        + Text("Privacy Policy.").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.appAsh)
+        (Text("By continuing you agree to our ")
+            .font(.bmUI(12))
+            .foregroundStyle(Color.bmTextFaint)
+        + Text("Terms")
+            .font(.bmUI(12, weight: .semibold))
+            .foregroundStyle(Color.bmTextDim)
+        + Text(" and ")
+            .font(.bmUI(12))
+            .foregroundStyle(Color.bmTextFaint)
+        + Text("Privacy Policy.")
+            .font(.bmUI(12, weight: .semibold))
+            .foregroundStyle(Color.bmTextDim))
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .reveal(appeared, delay: 0.4, offset: 8, blur: 0)
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Apple / Google handlers
+    // MARK: - Handlers
 
     private func handleAppleResult(_ result: Result<ASAuthorization, Error>) {
         switch result {

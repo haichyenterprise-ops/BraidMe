@@ -1,10 +1,5 @@
 import SwiftUI
 
-// =============================================================================
-// WriteReviewSheet — Review composer, upgraded
-// Oversized glowing stars, live rating label, spring validation, gold accents.
-// =============================================================================
-
 struct WriteReviewSheet: View {
     let braider: Braider
     let onSubmitted: () -> Void
@@ -31,20 +26,15 @@ struct WriteReviewSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.appBackground.ignoresSafeArea()
+        ZStack {
+            AuroraBackground(intensity: 0.45)
 
-                // Ambient gradient
-                RadialGradient(
-                    colors: [Color.gold.opacity(0.08), .clear],
-                    center: .top,
-                    startRadius: 0,
-                    endRadius: 400
-                )
-                .ignoresSafeArea()
+            VStack(spacing: 0) {
+                BMSheetBar(title: "Write a review", subtitle: "Help others choose with confidence") {
+                    dismiss()
+                }
 
-                ScrollView(showsIndicators: true) {
+                ScrollView(showsIndicators: false) {
                     VStack(spacing: Space.lg) {
                         header
                         starsPicker
@@ -53,146 +43,98 @@ struct WriteReviewSheet: View {
                         submitArea
                         Color.clear.frame(height: Space.lg)
                     }
-                    .padding(Space.lg)
+                    .padding(.horizontal, Space.lg)
                 }
-            }
-            .navigationTitle("Write a review")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { dismiss() }
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Color.appAsh)
-                }
-            }
-            .alert("Error", isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
-            )) {
-                Button("OK", role: .cancel) { errorMessage = nil }
-            } message: {
-                Text(errorMessage ?? "")
-            }
-            .alert("Thanks for your review!", isPresented: $showSuccess) {
-                Button("Done") {
-                    onSubmitted()
-                    dismiss()
-                }
-            } message: {
-                Text("Your feedback helps other customers and \(braider.name).")
+                .scrollDismissesKeyboard(.interactively)
             }
         }
-        .onAppear {
-            withAnimation(.spring(response: 0.75, dampingFraction: 0.85).delay(0.1)) {
-                appeared = true
+        .alert("Couldn't post review", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .alert("Thanks for your review!", isPresented: $showSuccess) {
+            Button("Done") {
+                onSubmitted()
+                dismiss()
             }
+        } message: {
+            Text("Your feedback helps other customers and \(braider.name).")
+        }
+        .onAppear {
+            appeared = true
             if let first = braider.services.first {
                 styleDone = first.name
             }
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
     // MARK: - Header
 
     private var header: some View {
         HStack(spacing: Space.md) {
-            if braider.avatarUrl.isEmpty {
-                Circle()
-                    .fill(Color.gold.opacity(0.18))
-                    .frame(width: 56, height: 56)
-                    .overlay(
-                        Text(initials)
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(Color.gold)
-                    )
-            } else {
-                RemoteImage(url: braider.avatarUrl)
-                    .frame(width: 56, height: 56)
-                    .clipShape(Circle())
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Review \(braider.name)")
-                    .font(.system(size: 22, weight: .semibold, design: .serif))
-                    .foregroundStyle(Color.appInk)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+            BMAvatar(url: braider.avatarUrl, size: 56, ringed: true, initials: bmInitials(braider.name))
+                .frame(width: 64, height: 64)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("How was \(braider.name)?")
+                    .font(.bmDisplay(22, weight: .semibold))
+                    .foregroundStyle(Color.bmText)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
                 Text("Your honest feedback helps others.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.appAsh)
+                    .font(.bmUI(13))
+                    .foregroundStyle(Color.bmTextDim)
             }
             Spacer(minLength: 0)
         }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
+        .reveal(appeared, offset: 14)
     }
 
-    private var initials: String {
-        let parts = braider.name.split(separator: " ")
-        let r = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
-        return r.isEmpty ? "·" : r.uppercased()
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Stars picker
+    // MARK: - Stars
 
     private var starsPicker: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
+        VStack(spacing: Space.md) {
             HStack(spacing: Space.xs) {
-                Rectangle()
-                    .fill(Color.gold)
-                    .frame(width: 20, height: 1.5)
-                Text("YOUR RATING")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1.5)
-                    .foregroundStyle(Color.appAsh)
-            }
-
-            HStack(spacing: Space.sm) {
                 ForEach(1...5, id: \.self) { i in
                     Button {
-                        Haptic.medium()
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) {
-                            rating = i
-                        }
+                        Haptic.select()
+                        withAnimation(Motion.pop) { rating = i }
                     } label: {
                         Image(systemName: i <= rating ? "star.fill" : "star")
-                            .font(.system(size: 36))
-                            .foregroundStyle(i <= rating ? Color.gold : Color.appSmoke)
-                            .scaleEffect(i == rating ? 1.15 : 1)
-                            .shadow(
-                                color: i <= rating ? Color.gold.opacity(0.3) : .clear,
-                                radius: i == rating ? 12 : 0
+                            .font(.system(size: 38, weight: .semibold))
+                            .foregroundStyle(
+                                i <= rating
+                                    ? AnyShapeStyle(LinearGradient.bmGiltGradient)
+                                    : AnyShapeStyle(Color.white.opacity(0.22))
                             )
+                            .scaleEffect(i <= rating ? 1.0 : 0.88)
+                            .symbolEffect(.bounce, value: rating)
+                            .shadow(color: i <= rating ? Color.bmGilt.opacity(0.45) : Color.clear, radius: 10)
+                            .animation(Motion.pop.delay(Double(i) * 0.02), value: rating)
                     }
-                    .buttonStyle(BMPressStyle(scale: 0.9))
+                    .buttonStyle(BMPressStyle(scale: 0.9, dim: 0))
                 }
-                Spacer()
             }
 
             Text(ratingLabel)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.gold)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .font(.bmDisplay(18, weight: .medium))
+                .foregroundStyle(Color.bmGilt)
                 .id(rating)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
         }
-        .padding(Space.md)
-        .background(Color.appSurface)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .stroke(Color.appDivider, lineWidth: 0.5)
-        )
-        .shadow(color: Color.black.opacity(0.06), radius: 16, y: 8)
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
-        .animation(.spring(response: 0.65, dampingFraction: 0.85).delay(0.15), value: appeared)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Space.lg)
+        .bmCard(radius: Radius.card)
+        .animation(Motion.sheet, value: rating)
+        .reveal(appeared, delay: 0.06, offset: 18, blur: 0)
     }
 
     private var ratingLabel: String {
         switch rating {
-        case 5: return "Excellent — loved it"
+        case 5: return "Excellent, loved it"
         case 4: return "Very good"
         case 3: return "Good"
         case 2: return "Could be better"
@@ -200,152 +142,102 @@ struct WriteReviewSheet: View {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Text block
+    // MARK: - Text
 
     private var textBlock: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            HStack(spacing: Space.xs) {
-                Rectangle()
-                    .fill(Color.gold)
-                    .frame(width: 20, height: 1.5)
-                Text("YOUR REVIEW")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1.5)
-                    .foregroundStyle(Color.appAsh)
-            }
-
+        VStack(alignment: .leading, spacing: Space.xs) {
+            BMSectionLabel(text: "Your review")
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
-                    Text("Tell others about your experience — quality, timing, how you felt afterwards…")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Color.appSmoke)
+                    Text("Tell others about your experience: quality, timing, how you felt afterwards…")
+                        .font(.bmUI(15))
+                        .foregroundStyle(Color.bmTextFaint)
                         .padding(.horizontal, Space.md)
                         .padding(.vertical, Space.md)
                         .allowsHitTesting(false)
                 }
                 TextEditor(text: $text)
-                    .font(.system(size: 15))
-                    .foregroundStyle(Color.appInk)
+                    .font(.bmUI(15))
+                    .foregroundStyle(Color.bmText)
+                    .tint(Color.bmGilt)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
                     .padding(.horizontal, Space.sm)
                     .padding(.vertical, Space.xs)
                     .frame(minHeight: 150)
             }
-            .background(Color.appSurface)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.button))
+            .background(Color.bmSurface, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: Radius.button)
-                    .stroke(Color.appDivider, lineWidth: 1)
+                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                    .strokeBorder(
+                        text.isEmpty ? Color.white.opacity(0.1) : Color.bmGilt.opacity(0.5),
+                        lineWidth: 1
+                    )
             )
+            .animation(Motion.subtle, value: text.isEmpty)
 
             HStack {
                 Text("\(text.count) characters")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.appSmoke)
+                    .font(.bmUI(12))
+                    .foregroundStyle(Color.bmTextFaint)
                 Spacer()
                 if text.trimmingCharacters(in: .whitespaces).count < 5 && !text.isEmpty {
                     Text("A few more words please")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.gold)
+                        .font(.bmUI(12, weight: .semibold))
+                        .foregroundStyle(Color.bmGilt)
                 }
             }
         }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
-        .animation(.spring(response: 0.65, dampingFraction: 0.85).delay(0.20), value: appeared)
+        .reveal(appeared, delay: 0.12, offset: 18, blur: 0)
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Style block
+    // MARK: - Service
 
     private var styleBlock: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            HStack(spacing: Space.xs) {
-                Rectangle()
-                    .fill(Color.gold)
-                    .frame(width: 20, height: 1.5)
-                Text("WHICH SERVICE?")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1.5)
-                    .foregroundStyle(Color.appAsh)
-            }
-
+            BMSectionLabel(text: "Which service?")
             if braider.services.isEmpty {
                 Text("No services listed")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.appAsh)
+                    .font(.bmUI(14))
+                    .foregroundStyle(Color.bmTextDim)
                     .italic()
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Space.sm) {
+                    HStack(spacing: Space.xs) {
                         ForEach(braider.services) { service in
-                            Button {
-                                Haptic.select()
-                                withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
-                                    styleDone = service.name
-                                }
-                            } label: {
-                                Text(service.name)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(styleDone == service.name ? Color.appInkInverse : Color.appInk)
-                                    .padding(.horizontal, Space.md)
-                                    .frame(minHeight: 38)
-                                    .padding(.vertical, 4)
-                                    .background(styleDone == service.name ? Color.appInk : Color.appSurface, in: Capsule())
-                                    .overlay(
-                                        Capsule().stroke(
-                                            styleDone == service.name ? Color.clear : Color.appDivider,
-                                            lineWidth: 1
-                                        )
-                                    )
-                                    .shadow(
-                                        color: styleDone == service.name ? Color.appInk.opacity(0.2) : .clear,
-                                        radius: 8, y: 4
-                                    )
+                            BMChip(title: service.name, isSelected: styleDone == service.name) {
+                                withAnimation(Motion.press) { styleDone = service.name }
                             }
-                            .buttonStyle(BMPressStyle(scale: 0.97))
                         }
                     }
                 }
             }
         }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
-        .animation(.spring(response: 0.65, dampingFraction: 0.85).delay(0.25), value: appeared)
+        .reveal(appeared, delay: 0.18, offset: 18, blur: 0)
     }
 
-    // ═══════════════════════════════════════════════════════════════
     // MARK: - Submit
 
     private var submitArea: some View {
-        VStack(spacing: Space.sm) {
+        VStack(spacing: Space.xs) {
             if let hint = disabledHint {
-                HStack(spacing: 6) {
-                    Image(systemName: "info.circle.fill")
-                        .font(.system(size: 11))
-                    Text(hint)
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .foregroundStyle(Color.appAsh)
-                .transition(.opacity)
+                Text(hint)
+                    .font(.bmUI(13, weight: .medium))
+                    .foregroundStyle(Color.bmTextDim)
             }
             BMPrimaryButton(
-                title: submitting ? "Submitting…" : "Post review",
-                icon: "paperplane.fill",
+                title: submitting ? "Posting…" : "Post review",
+                icon: submitting ? nil : "paperplane.fill",
                 loading: submitting
             ) {
                 submit()
             }
             .disabled(!canSubmit || submitting)
-            .opacity(canSubmit ? 1 : 0.5)
+            .opacity(canSubmit ? 1 : 0.45)
+            .animation(Motion.subtle, value: canSubmit)
         }
         .padding(.top, Space.xs)
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
-        .animation(.spring(response: 0.65, dampingFraction: 0.85).delay(0.30), value: appeared)
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: canSubmit)
+        .reveal(appeared, delay: 0.24, offset: 18, blur: 0)
     }
 
     private func submit() {
