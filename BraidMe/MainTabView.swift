@@ -7,11 +7,6 @@ import UIKit
 
 // =============================================================================
 // MainTabView — "The Spatial Canvas"
-//
-// A clean, immersive map. Four chrome elements. Braider orbs that morph into
-// floating glass capsules via matchedGeometryEffect. Camera flies to selected
-// pins with a 28° pitch. Film grain overlay kills the flat vector look.
-// Gyro-tilted borders on the top-bar orbs. Layered CoreHaptics on every tap.
 // =============================================================================
 
 struct MainTabView: View {
@@ -30,6 +25,11 @@ struct MainTabView: View {
             pitch: 12
         )
     )
+    @State private var cameraCenter: CLLocationCoordinate2D = CLLocationCoordinate2D(
+        latitude: 52.4862, longitude: -1.8904
+    )
+    @State private var cameraDistance: Double = 5500
+    @State private var cameraPitch: Double = 12
     @State private var currentCity: City = CityCatalog.all[0]
     @State private var mapAppeared = false
 
@@ -51,7 +51,7 @@ struct MainTabView: View {
     // ─── Shockwaves ───
     @State private var shockwaves: [Shockwave] = []
 
-    // ─── Gyro tilt gate ───
+    // ─── Gyro gate ───
     @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
 
     // ═══════════════════════════════════════════════════════════════
@@ -74,25 +74,20 @@ struct MainTabView: View {
         NavigationStack {
             GeometryReader { geo in
                 ZStack {
-                    // Layer 1: Living map (pins + shockwaves as annotations)
                     mapCanvas(size: geo.size)
 
-                    // Layer 2: Film grain
                     NoiseTexture(opacity: 0.035, seed: 937)
                         .blendMode(.overlay)
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
 
-                    // Layer 3: Vignette + scrims
                     vignetteLayer
 
-                    // Layer 4: Top chrome
                     VStack(spacing: 0) {
                         topChrome
                         Spacer()
                     }
 
-                    // Layer 5: Bottom chrome
                     VStack(spacing: 0) {
                         Spacer()
                         bottomChrome
@@ -137,7 +132,6 @@ struct MainTabView: View {
 
     private func mapCanvas(size: CGSize) -> some View {
         Map(position: $cameraPosition, interactionModes: [.pan, .zoom]) {
-            // ── Braider orbs ──
             ForEach(fb.braiders) { braider in
                 Annotation(
                     "",
@@ -176,7 +170,6 @@ struct MainTabView: View {
                 }
             }
 
-            // ── Shockwaves ──
             ForEach(shockwaves) { wave in
                 Annotation(
                     "",
@@ -258,8 +251,6 @@ struct MainTabView: View {
         .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.2), value: mapAppeared)
     }
 
-    // ─── Settings Orb ───
-
     private var settingsOrb: some View {
         Button {
             Haptic.press()
@@ -281,8 +272,6 @@ struct MainTabView: View {
         }
         .buttonStyle(BMSquirclePressStyle())
     }
-
-    // ─── Avatar Orb ───
 
     private var avatarOrb: some View {
         Button {
@@ -310,8 +299,6 @@ struct MainTabView: View {
         }
         .buttonStyle(BMSquirclePressStyle())
     }
-
-    // ─── Gyro-reactive gold border ───
 
     private func gyroBorder(size: CGFloat) -> some View {
         let angle = gyroTiltEnabled ? motion.angle : 0
@@ -350,8 +337,6 @@ struct MainTabView: View {
         .offset(y: mapAppeared ? 0 : 24)
         .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.3), value: mapAppeared)
     }
-
-    // ─── City Chip ───
 
     private var cityChip: some View {
         Button {
@@ -423,8 +408,6 @@ struct MainTabView: View {
         .buttonStyle(BMSquirclePressStyle())
     }
 
-    // ─── Zoom Stack ───
-
     private var zoomStack: some View {
         VStack(spacing: Space.xs) {
             zoomButton(icon: "plus") { adjustZoom(in: true) }
@@ -479,6 +462,10 @@ struct MainTabView: View {
             shockwaves.removeAll { $0.id == wave.id }
         }
 
+        cameraCenter = braider.coordinate
+        cameraDistance = 1200
+        cameraPitch = 28
+
         withAnimation(Motion.cameraFly) {
             cameraPosition = .camera(
                 MapCamera(
@@ -509,40 +496,27 @@ struct MainTabView: View {
     // MARK: - Zoom Logic
 
     private func adjustZoom(in closer: Bool) {
-        // Get current camera distance, adjust it, keep center
-        let center = currentCameraCenter()
-        let currentDistance: Double = {
-            if case .camera(let cam) = cameraPosition.camera {
-                return Double(cam.distance)
-            }
-            return 5500
-        }()
-        let newDistance = closer ? currentDistance * 0.6 : currentDistance * 1.6
+        let newDistance = closer ? cameraDistance * 0.6 : cameraDistance * 1.6
         let clamped = max(300, min(newDistance, 60000))
+        cameraDistance = clamped
 
         withAnimation(.smooth(duration: 0.4)) {
             cameraPosition = .camera(
                 MapCamera(
-                    centerCoordinate: center,
+                    centerCoordinate: cameraCenter,
                     distance: clamped,
                     heading: 0,
-                    pitch: 12
+                    pitch: cameraPitch
                 )
             )
         }
     }
 
-    private func currentCameraCenter() -> CLLocationCoordinate2D {
-        if case .camera(let cam) = cameraPosition.camera {
-            return cam.centerCoordinate
-        }
-        if case .region(let region) = cameraPosition.region {
-            return region.center
-        }
-        return currentCity.coordinate
-    }
-
     private func flyTo(city: City) {
+        cameraCenter = city.coordinate
+        cameraDistance = 5000
+        cameraPitch = 12
+
         withAnimation(.smooth(duration: 0.9)) {
             cameraPosition = .camera(
                 MapCamera(
@@ -591,6 +565,9 @@ struct MainTabView: View {
                    let stored = CityCatalog.all.first(where: { $0.name == cityName }) {
                     await MainActor.run {
                         currentCity = stored
+                        cameraCenter = stored.coordinate
+                        cameraDistance = 5500
+                        cameraPitch = 10
                         cameraPosition = .camera(
                             MapCamera(
                                 centerCoordinate: stored.coordinate,
@@ -630,6 +607,9 @@ struct MainTabView: View {
             locationService.start()
             if let loc = locationService.lastLocation,
                let closest = CityCatalog.closest(to: loc) {
+                cameraCenter = closest.coordinate
+                cameraDistance = 5000
+                cameraPitch = 10
                 withAnimation(.smooth(duration: 0.9)) {
                     currentCity = closest
                     cameraPosition = .camera(
@@ -685,7 +665,7 @@ struct MainTabView: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - OrbPin (idle 14pt dot + breathing halo)
+// MARK: - OrbPin
 // ═══════════════════════════════════════════════════════════════════
 
 struct OrbPin: View {
@@ -698,21 +678,18 @@ struct OrbPin: View {
     var body: some View {
         Button(action: onTap) {
             ZStack {
-                // Outer pulse ring (breathing)
                 Circle()
                     .stroke(Color.gold.opacity(0.35), lineWidth: 1.2)
                     .frame(width: 32, height: 32)
                     .scaleEffect(breathe ? 1.7 : 1)
                     .opacity(breathe ? 0 : 0.7)
 
-                // Second pulse — offset phase
                 Circle()
                     .stroke(Color.gold.opacity(0.2), lineWidth: 1)
                     .frame(width: 32, height: 32)
                     .scaleEffect(breathe ? 1.4 : 1)
                     .opacity(breathe ? 0 : 0.5)
 
-                // Halo glow
                 Circle()
                     .fill(
                         RadialGradient(
@@ -724,7 +701,6 @@ struct OrbPin: View {
                     )
                     .frame(width: 44, height: 44)
 
-                // Core dot
                 Circle()
                     .fill(
                         LinearGradient(
@@ -739,7 +715,6 @@ struct OrbPin: View {
                     )
                     .shadow(color: Color.gold.opacity(0.55), radius: 8, y: 2)
 
-                // Tiny center highlight
                 Circle()
                     .fill(Color.white.opacity(0.6))
                     .frame(width: 4, height: 4)
@@ -772,7 +747,7 @@ struct OrbPinPressStyle: ButtonStyle {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - OrbCapsule (expanded floating glass card)
+// MARK: - OrbCapsule
 // ═══════════════════════════════════════════════════════════════════
 
 struct OrbCapsule: View {
@@ -924,7 +899,7 @@ struct ShockwaveView: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - MotionTracker (gyro → angle degrees)
+// MARK: - MotionTracker
 // ═══════════════════════════════════════════════════════════════════
 
 final class MotionTracker: ObservableObject {
@@ -954,7 +929,7 @@ final class MotionTracker: ObservableObject {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - HapticEngine (layered CoreHaptics with fallback)
+// MARK: - HapticEngine
 // ═══════════════════════════════════════════════════════════════════
 
 final class HapticEngine: ObservableObject {
@@ -1012,7 +987,6 @@ final class HapticEngine: ObservableObject {
                     relativeTime: 0
                 )
             ]
-
         case .tap:
             return [
                 CHHapticEvent(
@@ -1024,7 +998,6 @@ final class HapticEngine: ObservableObject {
                     relativeTime: 0
                 )
             ]
-
         case .pinTap:
             return [
                 CHHapticEvent(
@@ -1045,7 +1018,6 @@ final class HapticEngine: ObservableObject {
                     duration: 0.12
                 )
             ]
-
         case .pinExpand:
             return [
                 CHHapticEvent(
@@ -1066,7 +1038,6 @@ final class HapticEngine: ObservableObject {
                     relativeTime: 0.24
                 )
             ]
-
         case .dismiss:
             return [
                 CHHapticEvent(
@@ -1078,7 +1049,6 @@ final class HapticEngine: ObservableObject {
                     relativeTime: 0
                 )
             ]
-
         case .cityTap:
             return [
                 CHHapticEvent(
