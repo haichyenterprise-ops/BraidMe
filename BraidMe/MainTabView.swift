@@ -7,6 +7,9 @@ import UIKit
 
 // =============================================================================
 // MainTabView — "The Spatial Canvas"
+//
+// Clean map. Fixed top chrome (pinned to top safe area). Enhanced zoom
+// with spring animations. Star-rated pins. Globe transition on profile entry.
 // =============================================================================
 
 struct MainTabView: View {
@@ -36,6 +39,7 @@ struct MainTabView: View {
     // ─── Selection ───
     @State private var selectedBraider: Braider?
     @State private var expandedBraiderId: String?
+    @State private var pendingProfileBraider: Braider?
     @Namespace private var orbNamespace
 
     // ─── Sheets ───
@@ -50,6 +54,9 @@ struct MainTabView: View {
 
     // ─── Shockwaves ───
     @State private var shockwaves: [Shockwave] = []
+
+    // ─── Globe transition ───
+    @State private var globeActive = false
 
     // ─── Gyro gate ───
     @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
@@ -83,14 +90,39 @@ struct MainTabView: View {
 
                     vignetteLayer
 
+                    // ─── Top chrome (pinned to top safe area) ───
                     VStack(spacing: 0) {
                         topChrome
+                            .padding(.horizontal, Space.md)
+                            .padding(.top, safeAreaTop() + Space.xs)
                         Spacer()
                     }
+                    .ignoresSafeArea(edges: .top)
 
+                    // ─── Bottom chrome ───
                     VStack(spacing: 0) {
                         Spacer()
                         bottomChrome
+                    }
+
+                    // ─── Globe transition overlay ───
+                    if globeActive, let braider = pendingProfileBraider {
+                        GlobeTransitionOverlay(
+                            isActive: globeActive,
+                            targetName: braider.name,
+                            targetInitials: braider.initials,
+                            targetRating: braider.ratingText,
+                            targetAvatarUrl: braider.avatarUrl
+                        ) {
+                            // Transition complete — navigate
+                            globeActive = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                selectedBraider = braider
+                                pendingProfileBraider = nil
+                            }
+                        }
+                        .transition(.opacity)
+                        .zIndex(1000)
                     }
                 }
                 .ignoresSafeArea(edges: .bottom)
@@ -142,11 +174,7 @@ struct MainTabView: View {
                         if expandedBraiderId == braider.id {
                             OrbCapsule(
                                 braider: braider,
-                                onTap: {
-                                    Haptic.press()
-                                    haptics.play(.tap)
-                                    selectedBraider = braider
-                                },
+                                onTap: { openProfileWithGlobe(braider) },
                                 onDismiss: { collapseExpanded() }
                             )
                             .matchedGeometryEffect(
@@ -155,7 +183,7 @@ struct MainTabView: View {
                                 isSource: true
                             )
                         } else {
-                            OrbPin(
+                            StarOrbPin(
                                 braider: braider,
                                 onTap: { handlePinTap(braider) }
                             )
@@ -236,7 +264,7 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Top Chrome
+    // MARK: - Top Chrome (pinned at very top)
 
     private var topChrome: some View {
         HStack(spacing: Space.sm) {
@@ -244,8 +272,6 @@ struct MainTabView: View {
             Spacer(minLength: 0)
             avatarOrb
         }
-        .padding(.horizontal, Space.md)
-        .padding(.top, safeAreaTop() + Space.xs)
         .opacity(mapAppeared ? 1 : 0)
         .offset(y: mapAppeared ? 0 : -24)
         .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.2), value: mapAppeared)
@@ -417,8 +443,8 @@ struct MainTabView: View {
 
     private func zoomButton(icon: String, action: @escaping () -> Void) -> some View {
         Button {
-            Haptic.light()
-            haptics.play(.tap)
+            Haptic.rigid()
+            haptics.play(.zoom)
             action()
         } label: {
             ZStack {
@@ -466,7 +492,7 @@ struct MainTabView: View {
         cameraDistance = 1200
         cameraPitch = 28
 
-        withAnimation(Motion.cameraFly) {
+        withAnimation(.spring(response: 0.85, dampingFraction: 0.82)) {
             cameraPosition = .camera(
                 MapCamera(
                     centerCoordinate: braider.coordinate,
@@ -492,24 +518,44 @@ struct MainTabView: View {
         }
     }
 
+    /// Launches the globe transition and navigates to the profile.
+    private func openProfileWithGlobe(_ braider: Braider) {
+        Haptic.heavy()
+        haptics.play(.pinExpand)
+        pendingProfileBraider = braider
+
+        // Slight delay so the heavy impact registers before the flash
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            withAnimation(.easeIn(duration: 0.2)) {
+                globeActive = true
+            }
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Zoom Logic
+    // MARK: - Zoom Logic (enhanced)
 
     private func adjustZoom(in closer: Bool) {
-        let newDistance = closer ? cameraDistance * 0.6 : cameraDistance * 1.6
-        let clamped = max(300, min(newDistance, 60000))
+        let factor: Double = closer ? 0.55 : 1.8
+        let newDistance = cameraDistance * factor
+        let clamped = max(200, min(newDistance, 80000))
         cameraDistance = clamped
 
-        withAnimation(.smooth(duration: 0.4)) {
+        // Animated spring zoom
+        withAnimation(.spring(response: 0.65, dampingFraction: 0.72)) {
             cameraPosition = .camera(
                 MapCamera(
                     centerCoordinate: cameraCenter,
                     distance: clamped,
                     heading: 0,
-                    pitch: cameraPitch
+                    pitch: min(cameraPitch + (closer ? 4 : -4), 45)
                 )
             )
         }
+
+        // Update pitch state to match
+        let newPitch = min(cameraPitch + (closer ? 4 : -4), 45)
+        cameraPitch = max(0, newPitch)
     }
 
     private func flyTo(city: City) {
@@ -665,60 +711,104 @@ struct MainTabView: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - OrbPin
+// MARK: - StarOrbPin (idle pin with star rating badge)
 // ═══════════════════════════════════════════════════════════════════
 
-struct OrbPin: View {
+struct StarOrbPin: View {
     let braider: Braider
     let onTap: () -> Void
 
     @State private var breathe = false
     @State private var appear = false
 
+    private var ratingTier: (color: Color, label: String) {
+        let r = braider.rating
+        if r >= 4.8 { return (Color(hex: "#34D399"), "excellent") }
+        if r >= 4.5 { return (Color.goldLight, "great") }
+        if r >= 4.0 { return (Color.gold, "good") }
+        return (Color(hex: "#F59E0B"), "fair")
+    }
+
     var body: some View {
         Button(action: onTap) {
-            ZStack {
-                Circle()
-                    .stroke(Color.gold.opacity(0.35), lineWidth: 1.2)
-                    .frame(width: 32, height: 32)
-                    .scaleEffect(breathe ? 1.7 : 1)
-                    .opacity(breathe ? 0 : 0.7)
+            VStack(spacing: 4) {
+                // ─── Rating badge (top) ───
+                HStack(spacing: 3) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color.gold)
 
-                Circle()
-                    .stroke(Color.gold.opacity(0.2), lineWidth: 1)
-                    .frame(width: 32, height: 32)
-                    .scaleEffect(breathe ? 1.4 : 1)
-                    .opacity(breathe ? 0 : 0.5)
-
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [Color.gold.opacity(0.25), .clear],
-                            center: .center,
-                            startRadius: 0,
-                            endRadius: 22
+                    Text(braider.ratingText)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3.5)
+                .background(
+                    Capsule()
+                        .fill(Color.appInk)
+                        .overlay(
+                            Capsule().stroke(
+                                LinearGradient(
+                                    colors: [
+                                        ratingTier.color,
+                                        ratingTier.color.opacity(0.4)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
                         )
-                    )
-                    .frame(width: 44, height: 44)
+                        .shadow(color: ratingTier.color.opacity(0.4), radius: 6, y: 2)
+                )
+                .scaleEffect(appear ? 1 : 0.4)
+                .opacity(appear ? 1 : 0)
 
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.goldLight, Color.gold, Color.goldDeep],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+                // ─── Dot ───
+                ZStack {
+                    Circle()
+                        .stroke(Color.gold.opacity(0.35), lineWidth: 1.2)
+                        .frame(width: 32, height: 32)
+                        .scaleEffect(breathe ? 1.7 : 1)
+                        .opacity(breathe ? 0 : 0.7)
+
+                    Circle()
+                        .stroke(Color.gold.opacity(0.2), lineWidth: 1)
+                        .frame(width: 32, height: 32)
+                        .scaleEffect(breathe ? 1.4 : 1)
+                        .opacity(breathe ? 0 : 0.5)
+
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [ratingTier.color.opacity(0.3), .clear],
+                                center: .center,
+                                startRadius: 0,
+                                endRadius: 22
+                            )
                         )
-                    )
-                    .frame(width: 16, height: 16)
-                    .overlay(
-                        Circle().stroke(Color.white.opacity(0.45), lineWidth: 1)
-                    )
-                    .shadow(color: Color.gold.opacity(0.55), radius: 8, y: 2)
+                        .frame(width: 44, height: 44)
 
-                Circle()
-                    .fill(Color.white.opacity(0.6))
-                    .frame(width: 4, height: 4)
-                    .offset(x: -2.5, y: -2.5)
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.goldLight, Color.gold, Color.goldDeep],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 18, height: 18)
+                        .overlay(
+                            Circle().stroke(Color.white.opacity(0.5), lineWidth: 1)
+                        )
+                        .shadow(color: ratingTier.color.opacity(0.6), radius: 10, y: 3)
+
+                    Circle()
+                        .fill(Color.white.opacity(0.7))
+                        .frame(width: 4.5, height: 4.5)
+                        .offset(x: -3, y: -3)
+                }
             }
             .scaleEffect(appear ? 1 : 0.1)
             .opacity(appear ? 1 : 0)
@@ -741,7 +831,7 @@ struct OrbPin: View {
 struct OrbPinPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 1.25 : 1)
+            .scaleEffect(configuration.isPressed ? 1.22 : 1)
             .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
@@ -756,10 +846,12 @@ struct OrbCapsule: View {
     let onDismiss: () -> Void
 
     @State private var appeared = false
+    @State private var shimmerOffset: CGFloat = -1
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
+                // Avatar
                 ZStack {
                     if braider.avatarUrl.isEmpty {
                         Circle()
@@ -829,29 +921,44 @@ struct OrbCapsule: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background {
-                RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
-                    .fill(.regularMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
-                            .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
-                            .stroke(
-                                LinearGradient(
-                                    colors: [
-                                        Color.goldLight.opacity(0.6),
-                                        Color.gold.opacity(0.2),
-                                        Color.goldDeep.opacity(0.4)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1
-                            )
-                    )
-                    .shadow(color: Color.black.opacity(0.18), radius: 24, y: 10)
-                    .shadow(color: Color.gold.opacity(0.15), radius: 30, y: 4)
+                ZStack {
+                    RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
+                        .fill(.regularMaterial)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
+                                .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [
+                                            Color.goldLight.opacity(0.6),
+                                            Color.gold.opacity(0.2),
+                                            Color.goldDeep.opacity(0.4)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                        )
+                        .shadow(color: Color.black.opacity(0.18), radius: 24, y: 10)
+                        .shadow(color: Color.gold.opacity(0.15), radius: 30, y: 4)
+
+                    // Sheen sweep
+                    GeometryReader { geo in
+                        LinearGradient(
+                            colors: [.clear, .white.opacity(0.35), .clear],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: geo.size.width * 0.5)
+                        .offset(x: shimmerOffset * geo.size.width * 1.5)
+                        .blendMode(.overlay)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.pill, style: .continuous))
+                }
             }
             .scaleEffect(appeared ? 1 : 0.6)
             .opacity(appeared ? 1 : 0)
@@ -863,6 +970,13 @@ struct OrbCapsule: View {
         .onAppear {
             withAnimation(.spring(response: 0.45, dampingFraction: 0.72).delay(0.05)) {
                 appeared = true
+            }
+            withAnimation(
+                .linear(duration: 2.4)
+                .repeatForever(autoreverses: false)
+                .delay(0.8)
+            ) {
+                shimmerOffset = 1.2
             }
         }
     }
@@ -940,6 +1054,7 @@ final class HapticEngine: ObservableObject {
         case pinExpand
         case dismiss
         case cityTap
+        case zoom
     }
 
     private var engine: CHHapticEngine?
@@ -1069,6 +1184,17 @@ final class HapticEngine: ObservableObject {
                     duration: 0.14
                 )
             ]
+        case .zoom:
+            return [
+                CHHapticEvent(
+                    eventType: .hapticTransient,
+                    parameters: [
+                        .init(parameterID: .hapticIntensity, value: 0.55),
+                        .init(parameterID: .hapticSharpness, value: 0.85)
+                    ],
+                    relativeTime: 0
+                )
+            ]
         }
     }
 
@@ -1077,6 +1203,7 @@ final class HapticEngine: ObservableObject {
         case .select, .dismiss:     Haptic.select()
         case .tap, .cityTap:        Haptic.light()
         case .pinTap, .pinExpand:   Haptic.medium()
+        case .zoom:                 Haptic.rigid()
         }
     }
 }

@@ -6,10 +6,9 @@ import UIKit
 // =============================================================================
 // BraiderProfileView — "Haute Couture Dossier"
 //
-// A cinematic editorial profile. 3-layer parallax hero (image at 0.25x,
-// film grain, foreground type at 1.0x). Palette-tinted ambient shadows.
-// Odometer numeric roll-ins. 3D cover flow portfolio. Press-and-hold
-// magnifying lens. 82pt scramble rating. Magnetic sheen CTA.
+// Cinematic editorial profile. 3-layer parallax hero. Palette-tinted shadows.
+// Odometer metrics. 3D cover-flow portfolio with working magnifier lens.
+// 82pt scramble rating. Magnetic sheen CTA.
 // =============================================================================
 
 struct BraiderProfileView: View {
@@ -44,14 +43,11 @@ struct BraiderProfileView: View {
     @State private var contentAppeared = false
     @State private var savedPulse = false
 
-    // ─── Portfolio carousel tracking ───
-    @State private var portfolioScrollPosition: Int = 0
+    // ─── Portfolio carousel ───
+    @State private var portfolioIndex: Int = 0
 
-    // ─── Gyro tilt gate ───
+    // ─── Gyro gate ───
     @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
-
-    // ─── Env ───
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // ═══════════════════════════════════════════════════════════════
     // MARK: - Computed
@@ -67,7 +63,6 @@ struct BraiderProfileView: View {
         reviews.isEmpty ? braider.reviewCount : reviews.count
     }
 
-    /// Progress 0→1 as hero scrolls off screen.
     private var collapseProgress: CGFloat {
         guard heroHeight > 0 else { return 0 }
         let scrolled = -scrollOffset
@@ -75,21 +70,16 @@ struct BraiderProfileView: View {
         return min(max(scrolled / threshold, 0), 1)
     }
 
-    /// Hero image parallax — 0.25x speed.
     private var heroParallax: CGFloat {
         guard heroHeight > 0 else { return 0 }
-        let scrolled = -scrollOffset
-        return scrolled * 0.25
+        return (-scrollOffset) * 0.25
     }
 
-    /// Foreground type parallax — 1.0x speed (slightly ahead to feel layered).
     private var foregroundParallax: CGFloat {
         guard heroHeight > 0 else { return 0 }
-        let scrolled = -scrollOffset
-        return scrolled * 0.55
+        return (-scrollOffset) * 0.55
     }
 
-    /// Rubber-band scale on overscroll pull.
     private var heroScale: CGFloat {
         guard heroHeight > 0 else { return 1 }
         if scrollOffset > 0 {
@@ -190,13 +180,11 @@ struct BraiderProfileView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Hero Section (3-layer parallax)
-    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Hero Section
 
     private var heroSection: some View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
-                // ─── Layer 0: Image (0.25x parallax) ───
                 Group {
                     if !braider.coverUrl.isEmpty {
                         RemoteImage(url: braider.coverUrl, onPaletteReady: { color in
@@ -228,7 +216,6 @@ struct BraiderProfileView: View {
                 .frame(width: geo.size.width, height: geo.size.height)
                 .clipped()
 
-                // ─── Cinematic veil (5-stop) ───
                 LinearGradient(
                     stops: [
                         .init(color: .black.opacity(0.55), location: 0.00),
@@ -242,13 +229,11 @@ struct BraiderProfileView: View {
                 )
                 .frame(width: geo.size.width, height: geo.size.height)
 
-                // ─── Layer 1: Film grain ───
                 NoiseTexture(opacity: 0.03, seed: 152)
                     .blendMode(.overlay)
                     .frame(width: geo.size.width, height: geo.size.height)
                     .allowsHitTesting(false)
 
-                // ─── Layer 2: Foreground type with gyro tilt ───
                 heroContent
                     .padding(.horizontal, 24)
                     .padding(.bottom, 40)
@@ -272,7 +257,6 @@ struct BraiderProfileView: View {
 
     private var heroContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // ─── Gold eyebrow with rule ───
             HStack(spacing: 10) {
                 Rectangle()
                     .fill(Color.gold)
@@ -293,7 +277,6 @@ struct BraiderProfileView: View {
             .opacity(heroAppeared ? 1 : 0)
             .offset(y: heroAppeared ? 0 : 20)
 
-            // ─── Serif name (48pt) ───
             HStack(alignment: .top, spacing: 12) {
                 Text(braider.name)
                     .font(.system(size: 48, weight: .regular, design: .serif))
@@ -313,7 +296,6 @@ struct BraiderProfileView: View {
             .opacity(heroAppeared ? 1 : 0)
             .offset(y: heroAppeared ? 0 : 30)
 
-            // ─── Tagline (serif italic 15pt) ───
             if !braider.tagline.isEmpty {
                 Text(braider.tagline)
                     .font(.system(size: 15, weight: .regular, design: .serif))
@@ -325,7 +307,6 @@ struct BraiderProfileView: View {
                     .offset(y: heroAppeared ? 0 : 30)
             }
 
-            // ─── Meta pills ───
             HStack(spacing: 8) {
                 metaPill(icon: "mappin.and.ellipse", text: braider.shortLocation)
                 metaPill(icon: "star.fill", text: ratingText, accent: true)
@@ -338,8 +319,7 @@ struct BraiderProfileView: View {
     }
 
     private var heroEyebrowText: String {
-        if braider.verified { return "VERIFIED ARTIST" }
-        return "INDEPENDENT BRAIDER"
+        braider.verified ? "VERIFIED ARTIST" : "INDEPENDENT BRAIDER"
     }
 
     private func metaPill(icon: String, text: String, accent: Bool = false) -> some View {
@@ -359,7 +339,6 @@ struct BraiderProfileView: View {
 
     // ═══════════════════════════════════════════════════════════════
     // MARK: - Floating Top Controls
-    // ═══════════════════════════════════════════════════════════════
 
     private var floatingTopControls: some View {
         HStack {
@@ -418,7 +397,6 @@ struct BraiderProfileView: View {
 
     // ═══════════════════════════════════════════════════════════════
     // MARK: - Compact Sticky Header
-    // ═══════════════════════════════════════════════════════════════
 
     private var compactHeader: some View {
         HStack(spacing: 12) {
@@ -549,7 +527,6 @@ struct BraiderProfileView: View {
 
     // ═══════════════════════════════════════════════════════════════
     // MARK: - Content Sections
-    // ═══════════════════════════════════════════════════════════════
 
     private var contentSections: some View {
         VStack(spacing: 0) {
@@ -564,7 +541,7 @@ struct BraiderProfileView: View {
         .padding(.bottom, 110)
     }
 
-    // ─── Metrics Card (floating monolith) ───
+    // ─── Metrics Card ───
 
     private var metricsCard: some View {
         HStack(spacing: 0) {
@@ -715,7 +692,7 @@ struct BraiderProfileView: View {
         }
     }
 
-    // ─── Portfolio (3D cover flow) ───
+    // ─── Portfolio Gallery ───
 
     private var portfolioGallery: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -742,6 +719,7 @@ struct BraiderProfileView: View {
             } else {
                 PortfolioCoverFlow(
                     items: braider.portfolio,
+                    selectedIndex: $portfolioIndex,
                     onSelect: { item in
                         Haptic.select()
                         haptics.play(.select)
@@ -1017,8 +995,7 @@ struct BraiderProfileView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Booking Dock (Magnetic Sheen CTA)
-    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Booking Dock
 
     private var bookingDock: some View {
         HStack(spacing: 16) {
@@ -1036,7 +1013,6 @@ struct BraiderProfileView: View {
 
             MagneticSheenCTA(
                 title: "Book now",
-                price: braider.priceFrom,
                 ambientPalette: ambientPalette,
                 onTap: {
                     Haptic.press()
@@ -1081,7 +1057,6 @@ struct BraiderProfileView: View {
 
     // ═══════════════════════════════════════════════════════════════
     // MARK: - Data
-    // ═══════════════════════════════════════════════════════════════
 
     private func loadReviews() async {
         await MainActor.run { reviewsLoading = true }
@@ -1112,7 +1087,7 @@ struct ProfileHeroHeightKey: PreferenceKey {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Metric Cell (odometer numeric roll-in)
+// MARK: - Metric Cell
 // ═══════════════════════════════════════════════════════════════════
 
 struct ProfileMetricCell: View {
@@ -1159,19 +1134,20 @@ struct ProfileMetricCell: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Marquee View (auto-scrolling chips)
+// MARK: - Marquee View
 // ═══════════════════════════════════════════════════════════════════
 
 struct MarqueeView: View {
     let items: [String]
     let spacing: CGFloat
+
     @State private var offset: CGFloat = 0
     @State private var contentWidth: CGFloat = 0
     @State private var isPaused = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        GeometryReader { geo in
+        GeometryReader { _ in
             HStack(spacing: spacing) {
                 ForEach(0..<2, id: \.self) { _ in
                     HStack(spacing: spacing) {
@@ -1182,7 +1158,7 @@ struct MarqueeView: View {
                     .background(
                         GeometryReader { inner in
                             Color.clear.preference(
-                                key: WidthKey.self,
+                                key: MarqueeWidthKey.self,
                                 value: inner.size.width
                             )
                         }
@@ -1190,7 +1166,7 @@ struct MarqueeView: View {
                 }
             }
             .offset(x: offset)
-            .onPreferenceChange(WidthKey.self) { width in
+            .onPreferenceChange(MarqueeWidthKey.self) { width in
                 contentWidth = width
             }
             .onAppear {
@@ -1232,7 +1208,7 @@ struct MarqueeView: View {
     }
 }
 
-private struct WidthKey: PreferenceKey {
+private struct MarqueeWidthKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
@@ -1240,46 +1216,58 @@ private struct WidthKey: PreferenceKey {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Portfolio Cover Flow (3D perspective carousel)
+// MARK: - Portfolio Cover Flow (FIXED — uses GeometryReader-based math)
 // ═══════════════════════════════════════════════════════════════════
 
 struct PortfolioCoverFlow: View {
     let items: [PortfolioItem]
+    @Binding var selectedIndex: Int
     let onSelect: (PortfolioItem) -> Void
 
-    @State private var scrollPosition: Int = 0
-    private let cardWidth: CGFloat = 280
-    private let cardHeight: CGFloat = 380
-    private let spacing: CGFloat = 22
+    @State private var scrollID: Int? = 0
+
+    private let cardWidth: CGFloat = 260
+    private let cardHeight: CGFloat = 340
+    private let spacing: CGFloat = 20
+    private let horizontalPadding: CGFloat = 60
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: spacing) {
+            LazyHStack(spacing: spacing) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    PortfolioCoverCard(
-                        item: item,
-                        index: index,
-                        isCentered: scrollPosition == index,
-                        onTap: { onSelect(item) }
-                    )
+                    GeometryReader { proxy in
+                        let minX = proxy.frame(in: .global).minX
+                        let distance = abs(minX - screenMidX())
+
+                        PortfolioCoverCard(
+                            item: item,
+                            index: index,
+                            isCentered: scrollID == index,
+                            distance: distance,
+                            onTap: { onSelect(item) }
+                        )
+                        .frame(width: cardWidth, height: cardHeight + 70)
+                    }
                     .frame(width: cardWidth, height: cardHeight + 70)
                     .id(index)
                 }
             }
-            .padding(.horizontal, 60)
             .scrollTargetLayout()
+            .padding(.horizontal, horizontalPadding)
         }
         .scrollTargetBehavior(.viewAligned)
-        .scrollPosition(id: Binding(
-            get: { Optional(scrollPosition) },
-            set: { newValue in
-                if let newValue {
-                    Haptic.light()
-                    scrollPosition = newValue
-                }
+        .scrollPosition(id: $scrollID)
+        .onChange(of: scrollID) { _, newValue in
+            if let newValue = newValue {
+                Haptic.light()
+                selectedIndex = newValue
             }
-        ))
-        .safeAreaPadding(.horizontal, 0)
+        }
+    }
+
+    private func screenMidX() -> CGFloat {
+        let screenWidth = UIScreen.main.bounds.width
+        return screenWidth / 2
     }
 }
 
@@ -1287,63 +1275,116 @@ struct PortfolioCoverCard: View {
     let item: PortfolioItem
     let index: Int
     let isCentered: Bool
+    let distance: CGFloat
     let onTap: () -> Void
 
     @State private var magnifierActive = false
-    @State private var magnifierOffset: CGSize = .zero
+    @State private var magnifierLocation: CGPoint = .zero
+
+    // 3D transforms based on distance from center
+    private var scale: CGFloat {
+        let d = min(distance / 400, 1)
+        return isCentered ? 1 : max(0.85, 1 - d * 0.15)
+    }
+
+    private var opacity: Double {
+        isCentered ? 1 : max(0.5, 1 - (distance / 500))
+    }
+
+    private var rotation: Double {
+        guard !isCentered else { return 0 }
+        let maxRotation: Double = 14
+        return distance / 500 * maxRotation
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ZStack(alignment: .bottomLeading) {
-                // Image
+            ZStack(alignment: .topLeading) {
+                // Base image
                 RemoteImage(url: item.imageUrl)
-                    .frame(width: 280, height: 380)
+                    .frame(width: 260, height: 340)
                     .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                // Magnifier lens
+                // Gradient overlay
+                LinearGradient(
+                    colors: [.clear, .clear, .black.opacity(0.6)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .allowsHitTesting(false)
+
+                // Holographic index
+                Text(String(format: "%02d", index + 1))
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.6), radius: 4, y: 1)
+                    .padding(16)
+
+                // Magnifier lens overlay
                 if magnifierActive {
                     MagnifierLens(
                         imageUrl: item.imageUrl,
-                        offset: magnifierOffset,
+                        location: magnifierLocation,
+                        cardSize: CGSize(width: 260, height: 340),
                         size: 140
                     )
-                    .offset(magnifierOffset)
                     .allowsHitTesting(false)
                     .transition(.scale.combined(with: .opacity))
                 }
 
-                // Gradient overlay
-                LinearGradient(
-                    colors: [.clear, .black.opacity(0.65)],
-                    startPoint: .center,
-                    endPoint: .bottom
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .allowsHitTesting(false)
-
-                // Holographic index number
-                Text(String(format: "%02d", index + 1))
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.5), radius: 4, y: 1)
-                    .padding(16)
-                    .overlay(alignment: .topLeading) {
-                        Text(String(format: "%02d", index + 1))
-                            .font(.system(size: 13, weight: .medium, design: .monospaced))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [Color.goldLight, Color.gold, Color.goldDeep],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .padding(16)
-                            .blendMode(.plusLighter)
-                            .opacity(0.6)
-                    }
-                    .allowsHitTesting(false)
+                // Gold border when centered
+                if isCentered {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Color.goldLight.opacity(0.9),
+                                    Color.gold.opacity(0.3),
+                                    Color.goldDeep.opacity(0.7)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1.5
+                        )
+                        .allowsHitTesting(false)
+                }
             }
+            .frame(width: 260, height: 340)
+            .overlay(
+                // Gesture capture layer
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(
+                        LongPressGesture(minimumDuration: 0.3)
+                            .sequenced(before: DragGesture(minimumDistance: 0))
+                            .onChanged { value in
+                                switch value {
+                                case .first(true):
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                        magnifierActive = true
+                                    }
+                                    Haptic.medium()
+                                case .second(true, let drag):
+                                    if let drag = drag {
+                                        magnifierLocation = drag.location
+                                    }
+                                default:
+                                    break
+                                }
+                            }
+                            .onEnded { _ in
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    magnifierActive = false
+                                }
+                            }
+                    )
+                    .onTapGesture {
+                        onTap()
+                    }
+            )
 
             // Meta
             VStack(alignment: .leading, spacing: 5) {
@@ -1361,75 +1402,81 @@ struct PortfolioCoverCard: View {
                         .multilineTextAlignment(.leading)
                 }
             }
-            .frame(width: 280, alignment: .leading)
+            .frame(width: 260, alignment: .leading)
         }
-        .scaleEffect(isCentered ? 1.0 : 0.88)
-        .opacity(isCentered ? 1.0 : 0.55)
+        .scaleEffect(scale)
+        .opacity(opacity)
         .rotation3DEffect(
-            .degrees(isCentered ? 0 : 12),
+            .degrees(rotation),
             axis: (x: 0, y: 1, z: 0),
             anchor: .center,
-            perspective: 0.5
+            perspective: 0.6
         )
         .shadow(
-            color: isCentered ? Color.gold.opacity(0.35) : Color.black.opacity(0.08),
-            radius: isCentered ? 30 : 12,
+            color: isCentered ? Color.gold.opacity(0.35) : Color.black.opacity(0.12),
+            radius: isCentered ? 28 : 12,
             y: isCentered ? 14 : 6
         )
         .animation(.spring(response: 0.55, dampingFraction: 0.78), value: isCentered)
-        .onTapGesture {
-            onTap()
-        }
-        .onLongPressGesture(minimumDuration: 0.3, pressing: { pressing in
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                magnifierActive = pressing
-            }
-            if pressing { Haptic.medium() }
-        }, perform: {})
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    guard magnifierActive else { return }
-                    magnifierOffset = CGSize(
-                        width: value.translation.width,
-                        height: value.translation.height
-                    )
-                }
-        )
+        .animation(.spring(response: 0.55, dampingFraction: 0.78), value: distance)
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Magnifier Lens (FIXED)
+// ═══════════════════════════════════════════════════════════════════
+
 struct MagnifierLens: View {
     let imageUrl: String
-    let offset: CGSize
+    let location: CGPoint
+    let cardSize: CGSize
     let size: CGFloat
+
+    private var zoomFactor: CGFloat = 2.2
 
     var body: some View {
         ZStack {
-            RemoteImage(url: imageUrl)
-                .frame(width: 280 * 2.5, height: 380 * 2.5)
-                .offset(
-                    x: -offset.width * 1.5,
-                    y: -offset.height * 1.5
-                )
-                .clipShape(Circle())
+            // Zoomed image clipped to circle
+            GeometryReader { geo in
+                ZStack {
+                    // Position the zoomed image so that the point under the
+                    // finger aligns with the center of the lens.
+                    RemoteImage(url: imageUrl)
+                        .frame(
+                            width: cardSize.width * zoomFactor,
+                            height: cardSize.height * zoomFactor
+                        )
+                        .offset(
+                            x: -(location.x * zoomFactor) + size / 2,
+                            y: -(location.y * zoomFactor) + size / 2
+                        )
+                }
                 .frame(width: size, height: size)
-                .clipShape(Circle())
-                .overlay(
-                    Circle().stroke(
-                        LinearGradient(
-                            colors: [Color.goldLight, Color.gold, Color.goldDeep],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 2.5
-                    )
+                .clipped()
+            }
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+
+            // Gold rim
+            Circle()
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.goldLight, Color.gold, Color.goldDeep],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 2.5
                 )
-                .overlay(Circle().stroke(.white.opacity(0.35), lineWidth: 0.8))
-                .shadow(color: Color.gold.opacity(0.4), radius: 20, y: 6)
-                .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
+
+            // Inner highlight
+            Circle()
+                .stroke(.white.opacity(0.4), lineWidth: 0.8)
+                .padding(2)
         }
-        .offset(x: 140, y: 190)
+        .frame(width: size, height: size)
+        .shadow(color: Color.gold.opacity(0.5), radius: 20, y: 6)
+        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+        .position(x: location.x, y: location.y)
     }
 }
 
@@ -1441,13 +1488,11 @@ struct ServiceCoutureCard: View {
     let service: BraidService
     let onTap: () -> Void
 
-    @State private var expanded = false
     @State private var sheen: CGFloat = -1
 
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 0) {
-                // ── Image as background ──
                 ZStack(alignment: .topTrailing) {
                     Group {
                         if !service.imageUrl.isEmpty {
@@ -1475,7 +1520,6 @@ struct ServiceCoutureCard: View {
                         )
                     )
 
-                    // ── Signature ribbon ──
                     if service.popular {
                         ZStack {
                             Text("SIGNATURE")
@@ -1494,15 +1538,10 @@ struct ServiceCoutureCard: View {
                                 )
                                 .overlay(Capsule().stroke(.white.opacity(0.3), lineWidth: 0.5))
 
-                            // Sheen sweep
                             Capsule()
                                 .fill(
                                     LinearGradient(
-                                        colors: [
-                                            .clear,
-                                            .white.opacity(0.6),
-                                            .clear
-                                        ],
+                                        colors: [.clear, .white.opacity(0.6), .clear],
                                         startPoint: .leading,
                                         endPoint: .trailing
                                     )
@@ -1516,7 +1555,6 @@ struct ServiceCoutureCard: View {
                         .padding(12)
                     }
 
-                    // ── Text overlay ──
                     VStack(alignment: .leading, spacing: 6) {
                         Spacer()
 
@@ -1555,7 +1593,6 @@ struct ServiceCoutureCard: View {
                     )
                 )
 
-                // ── Includes row ──
                 if !service.includes.isEmpty {
                     HStack(spacing: 14) {
                         ForEach(service.includes.prefix(3), id: \.self) { item in
@@ -1612,7 +1649,7 @@ struct ServiceCoutureCard: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Giant Rating Block (82pt + scramble)
+// MARK: - Giant Rating Block
 // ═══════════════════════════════════════════════════════════════════
 
 struct GiantRatingBlock: View {
@@ -1628,7 +1665,6 @@ struct GiantRatingBlock: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 26) {
-            // Left: giant scramble number
             VStack(alignment: .leading, spacing: 6) {
                 Text(scrambleDisplay)
                     .font(.system(size: 82, weight: .regular, design: .serif))
@@ -1653,7 +1689,6 @@ struct GiantRatingBlock: View {
             }
             .frame(width: 160, alignment: .leading)
 
-            // Divider
             Rectangle()
                 .fill(
                     LinearGradient(
@@ -1668,7 +1703,6 @@ struct GiantRatingBlock: View {
                 )
                 .frame(width: 0.5, height: 100)
 
-            // Right: tier bars
             VStack(alignment: .leading, spacing: 10) {
                 ForEach([5, 4, 3, 2, 1], id: \.self) { star in
                     HStack(spacing: 10) {
@@ -1721,7 +1755,6 @@ struct GiantRatingBlock: View {
             return
         }
 
-        // Character scramble over 500ms
         let target = ratingText
         let digits = Array(target)
         scrambleCount = 0
@@ -1830,7 +1863,6 @@ struct EditorialReviewCard: View {
 
 struct MagneticSheenCTA: View {
     let title: String
-    let price: Int
     let ambientPalette: Color?
     let onTap: () -> Void
 
@@ -1844,7 +1876,6 @@ struct MagneticSheenCTA: View {
             onTap()
         }) {
             ZStack {
-                // Background
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(Color.appInk)
                     .overlay(
@@ -1861,7 +1892,6 @@ struct MagneticSheenCTA: View {
                             )
                     )
 
-                // Content
                 HStack(spacing: 10) {
                     Text(title)
                         .font(.system(size: 14, weight: .semibold))
@@ -1870,7 +1900,6 @@ struct MagneticSheenCTA: View {
                 }
                 .foregroundStyle(Color.goldLight)
 
-                // Sheen sweep
                 GeometryReader { geo in
                     LinearGradient(
                         colors: [
@@ -1888,7 +1917,6 @@ struct MagneticSheenCTA: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .allowsHitTesting(false)
 
-                // Gold border
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(
                         LinearGradient(
@@ -1917,7 +1945,6 @@ struct MagneticSheenCTA: View {
                 .onChanged { value in
                     pressed = true
                     let loc = value.location
-                    // Magnetic pull — offset toward finger within bounds
                     let dx = max(-4, min(4, (loc.x - 100) * 0.05))
                     let dy = max(-4, min(4, (loc.y - 28) * 0.05))
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -2128,7 +2155,7 @@ struct AllReviewsSheet: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Profile Motion (gyro tilt for hero)
+// MARK: - Profile Motion
 // ═══════════════════════════════════════════════════════════════════
 
 final class ProfileMotion: ObservableObject {
@@ -2143,7 +2170,6 @@ final class ProfileMotion: ObservableObject {
         motionManager.deviceMotionUpdateInterval = 1.0 / 30.0
         motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let motion = motion else { return }
-            // Max 6 degrees
             let targetX = -motion.gravity.y * 6
             let targetY = motion.gravity.x * 6
             self?.tiltX = (self?.tiltX ?? 0) * 0.85 + targetX * 0.15
@@ -2159,7 +2185,7 @@ final class ProfileMotion: ObservableObject {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Profile Haptics (layered CoreHaptics)
+// MARK: - Profile Haptics
 // ═══════════════════════════════════════════════════════════════════
 
 final class ProfileHaptics: ObservableObject {
