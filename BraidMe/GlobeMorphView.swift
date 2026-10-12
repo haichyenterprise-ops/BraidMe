@@ -3,11 +3,10 @@ import UIKit
 
 // =============================================================================
 // GlobeMorphView — Full-screen globe transition overlay.
+// Rendered inside a ZStack — NOT a modal.
 //
-// Rendered inside a ZStack — NOT a modal. Fades in over the map. Plays a
-// 3D globe spin + morph to avatar sequence. Fires onFinish when done.
-//
-// Cinematic: 2.9s. Fast: 1.4s.
+// The globe rotation is driven by SceneKit itself (SCNAction), not SwiftUI.
+// SwiftUI only drives opacity, camera distance, and text reveal.
 // =============================================================================
 
 struct GlobeMorphView: View {
@@ -15,13 +14,12 @@ struct GlobeMorphView: View {
     let isFastMode: Bool
     let onFinish: () -> Void
 
-    // SceneKit driven
-    @State private var rotation: Float = 0
-    @State private var ringRotation: Float = 0
+    // SceneKit bindings — only these change; rotation is internal
     @State private var cameraDistance: Float = 4.2
     @State private var globeOpacity: Float = 0
     @State private var atmosphereOpacity: Float = 0
     @State private var ringOpacity: Float = 0
+    @State private var spinSpeed: Float = 0
 
     // Overlays
     @State private var backdropOpacity: Double = 0
@@ -58,12 +56,11 @@ struct GlobeMorphView: View {
 
             // ─── SceneKit globe ───
             GlobeSceneView(
-                rotation: $rotation,
                 cameraDistance: $cameraDistance,
                 globeOpacity: $globeOpacity,
                 atmosphereOpacity: $atmosphereOpacity,
                 ringOpacity: $ringOpacity,
-                ringRotation: $ringRotation
+                spinSpeed: $spinSpeed
             )
             .ignoresSafeArea()
             .allowsHitTesting(false)
@@ -212,6 +209,8 @@ struct GlobeMorphView: View {
             backdropOpacity = 1
             globeOpacity = 1
             atmosphereOpacity = 1
+            ringOpacity = 1
+            spinSpeed = 1
             avatarOpacity = 1
             avatarScale = 1
             textOpacity = 1
@@ -231,20 +230,16 @@ struct GlobeMorphView: View {
         let tExit: TimeInterval = isFastMode ? 1.10 : 2.35
         let tComplete: TimeInterval = isFastMode ? 1.45 : 2.90
 
-        // ─── Phase A: fade in backdrop + globe + atmosphere ───
+        // ─── Phase A: fade in ───
         withAnimation(.easeIn(duration: tFadeIn)) {
             backdropOpacity = 1
             globeOpacity = 1
             atmosphereOpacity = 1
         }
 
-        // ─── Phase B: spin ───
-        withAnimation(.linear(duration: 8).repeatForever(autoreverses: false)) {
-            rotation = 360 * 6
-        }
-        withAnimation(.linear(duration: 12).repeatForever(autoreverses: false)) {
-            ringRotation = 360 * 4
-        }
+        // ─── Phase B: spin up ───
+        // SCNAction drives the actual rotation; speed 1 = normal
+        spinSpeed = 1
 
         // ─── Phase C: rings appear + camera pushes in ───
         DispatchQueue.main.asyncAfter(deadline: .now() + tSpinUp) {
@@ -259,10 +254,13 @@ struct GlobeMorphView: View {
             }
         }
 
-        // ─── Phase D: globe fades, gold glow bursts ───
+        // ─── Phase D: globe dims, gold glow bursts ───
         DispatchQueue.main.asyncAfter(deadline: .now() + tMorph) {
             guard sequenceID == token else { return }
             Haptic.medium()
+
+            // Slow spin down as globe dims
+            spinSpeed = 0.4
 
             withAnimation(.easeInOut(duration: 0.55)) {
                 globeOpacity = 0.35
@@ -277,6 +275,9 @@ struct GlobeMorphView: View {
             guard sequenceID == token else { return }
             Haptic.success()
 
+            // Globe continues slower
+            spinSpeed = 0.15
+
             withAnimation(.spring(response: 0.55, dampingFraction: 0.62)) {
                 avatarScale = 1.0
                 avatarOpacity = 1.0
@@ -289,7 +290,7 @@ struct GlobeMorphView: View {
             }
         }
 
-        // ─── Phase F: text reveal ───
+        // ─── Phase F: text ───
         DispatchQueue.main.asyncAfter(deadline: .now() + tText) {
             guard sequenceID == token else { return }
             withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) {
@@ -305,6 +306,7 @@ struct GlobeMorphView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + tExit) {
             guard sequenceID == token else { return }
             Haptic.heavy()
+            spinSpeed = 0
 
             withAnimation(.easeIn(duration: 0.4)) {
                 exitScale = 1.2
