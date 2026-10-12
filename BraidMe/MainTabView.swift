@@ -1,646 +1,695 @@
 import SwiftUI
 import MapKit
 import CoreLocation
-import CoreMotion
-import CoreHaptics
-import UIKit
-
-// =============================================================================
-// MainTabView — "The Spatial Canvas"
-//
-// Chrome: account top-right, nearby top-left. No gear, no re-center.
-// Zoom: single continuous spring. Expanded state clears on map move.
-// Capsule: avatar + stars only, no price.
-// Transition: simple expand via GlobeMorphView.
-// =============================================================================
 
 struct MainTabView: View {
     @EnvironmentObject private var session: SessionManager
     @StateObject private var fb = FirebaseManager.shared
     @StateObject private var locationService = LocationService()
-    @StateObject private var motion = MotionTracker()
-    @StateObject private var haptics = HapticEngine()
 
-    // ─── Camera ───
-    @State private var cameraPosition: MapCameraPosition = .camera(
-        MapCamera(
-            centerCoordinate: CLLocationCoordinate2D(latitude: 52.4862, longitude: -1.8904),
-            distance: 5500,
-            heading: 0,
-            pitch: 12
-        )
+    @State private var region = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 52.4862, longitude: -1.8904),
+        span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
     )
-    @State private var cameraCenter: CLLocationCoordinate2D = CLLocationCoordinate2D(
-        latitude: 52.4862, longitude: -1.8904
-    )
-    @State private var cameraDistance: Double = 5500
-    @State private var cameraPitch: Double = 12
     @State private var currentCity: City = CityCatalog.all[0]
-    @State private var mapAppeared = false
-
-    // ─── Selection ───
     @State private var selectedBraider: Braider?
-    @State private var expandedBraiderId: String?
     @State private var previewBraider: Braider?
-    @Namespace private var orbNamespace
-
-    // ─── Sheets ───
+    @State private var highlightedBraiderId: String?
     @State private var showLocationSheet = false
     @State private var showProfileSheet = false
     @State private var showCitySearch = false
-
-    // ─── Data ───
+    @State private var showBookings = false
+    @State private var showSaved = false
+    @State private var sheetDetent: SheetDetent = .collapsed
+    @State private var dragOffset: CGFloat = 0
+    @State private var mapAppeared = false
     @State private var userInfo: UserProfile?
     @State private var braidersLoading = false
+    @State private var filter: BraiderFilter = .all
 
-    // ─── Shockwaves ───
-    @State private var shockwaves: [Shockwave] = []
+    enum SheetDetent: CaseIterable {
+        case collapsed, medium, expanded
+    }
 
-    // ─── Transition ───
-    @State private var transitionActive = false
-    @State private var transitionBraider: Braider?
+    enum BraiderFilter: String, CaseIterable {
+        case all = "All"
+        case topRated = "Top rated"
+        case verified = "Verified"
+        case popular = "Most reviewed"
 
-    // ─── Gyro ───
-    @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Shockwave model
-
-    struct Shockwave: Identifiable, Equatable {
-        let id = UUID()
-        let coordinate: CLLocationCoordinate2D
-        let startTime: Date
-
-        static func == (lhs: Shockwave, rhs: Shockwave) -> Bool {
-            lhs.id == rhs.id
+        var icon: String? {
+            switch self {
+            case .all: return nil
+            case .topRated: return "star.fill"
+            case .verified: return "checkmark.seal.fill"
+            case .popular: return "flame.fill"
+            }
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Body
+    private var visibleBraiders: [Braider] {
+        switch filter {
+        case .all:      return fb.braiders
+        case .topRated: return fb.braiders.filter { $0.rating >= 4.5 }
+        case .verified: return fb.braiders.filter { $0.verified }
+        case .popular:  return fb.braiders.sorted { $0.reviewCount > $1.reviewCount }
+        }
+    }
+
+    private var firstName: String {
+        let full = userInfo?.displayName ?? session.displayName ?? ""
+        return full.split(separator: " ").first.map(String.init) ?? ""
+    }
 
     var body: some View {
         NavigationStack {
             GeometryReader { geo in
-                ZStack {
-                    mapCanvas(size: geo.size)
+                ZStack(alignment: .top) {
+                    mapLayer
 
-                    NoiseTexture(opacity: 0.035, seed: 937)
-                        .blendMode(.overlay)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-
-                    vignetteLayer
-
-                    // Top chrome
-                    VStack(spacing: 0) {
-                        topChrome
-                            .padding(.horizontal, Space.md)
-                            .padding(.top, safeAreaTop() + Space.xs)
-                        Spacer()
-                    }
+                    LinearGradient(
+                        colors: [Color.bmDeep.opacity(0.78), Color.bmDeep.opacity(0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 190)
                     .ignoresSafeArea(edges: .top)
-                    .opacity(transitionActive ? 0 : 1)
-                    .animation(.easeInOut(duration: 0.3), value: transitionActive)
+                    .allowsHitTesting(false)
 
-                    // Bottom chrome
-                    VStack(spacing: 0) {
+                    VStack(spacing: Space.sm) {
+                        topChrome
+                        filterRow
+                    }
+                    .padding(.top, Space.xs)
+
+                    VStack(spacing: Space.sm) {
                         Spacer()
-                        bottomChrome
-                    }
-                    .opacity(transitionActive ? 0 : 1)
-                    .animation(.easeInOut(duration: 0.3), value: transitionActive)
-
-                    // Simple transition overlay
-                    if transitionActive, let braider = transitionBraider {
-                        GlobeMorphView(braider: braider) {
-                            finishTransition()
+                        if let preview = previewBraider, sheetDetent == .collapsed {
+                            previewCard(preview)
+                                .padding(.horizontal, Space.md)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
-                        .transition(.opacity)
-                        .zIndex(1000)
+                        bottomSheet(height: geo.size.height)
                     }
+                    .ignoresSafeArea(edges: .bottom)
                 }
-                .ignoresSafeArea(edges: .bottom)
             }
             .navigationDestination(item: $selectedBraider) { braider in
                 BraiderProfileView(braider: braider)
             }
             .sheet(isPresented: $showProfileSheet) {
                 UserInfoSheet()
+                    .presentationBackground(Color.bmBase)
+                    .presentationCornerRadius(Radius.modal)
+            }
+            .sheet(isPresented: $showBookings) {
+                BookingsListView().environmentObject(session)
+                    .presentationBackground(Color.bmBase)
+                    .presentationCornerRadius(Radius.modal)
+            }
+            .sheet(isPresented: $showSaved) {
+                SavedBraidersView().environmentObject(session)
+                    .presentationBackground(Color.bmBase)
+                    .presentationCornerRadius(Radius.modal)
             }
             .sheet(isPresented: $showCitySearch) {
                 LocationSearchView(initialCity: currentCity) { newCity in
-                    flyTo(city: newCity)
+                    withAnimation(Motion.sheet) {
+                        currentCity = newCity
+                        region = MKCoordinateRegion(
+                            center: newCity.coordinate,
+                            span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
+                        )
+                    }
                     Haptic.success()
                 }
                 .presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
+                .presentationBackground(Color.bmBase)
                 .presentationCornerRadius(Radius.modal)
             }
             .onAppear(perform: onAppear)
-            .onDisappear { motion.stop() }
-            .onChange(of: cameraPosition) { _, _ in
-                // When camera moves via gesture, clear expanded state
-                if expandedBraiderId != nil {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
-                        expandedBraiderId = nil
-                        previewBraider = nil
-                    }
-                }
-            }
             .sheet(isPresented: $showLocationSheet, onDismiss: onLocationDismiss) {
                 LocationPermissionSheet { allowed in
                     handleLocationDecision(allowed)
                 }
-                .presentationDetents([.height(560)])
+                .presentationDetents([.height(540)])
                 .presentationDragIndicator(.hidden)
-                .interactiveDismissDisabled()
+                .presentationBackground(Color.bmBase)
                 .presentationCornerRadius(Radius.modal)
+                .interactiveDismissDisabled()
             }
         }
+        .tint(Color.bmGilt)
     }
 
-    // ═══════════════════════════════════════════════════════════════
     // MARK: - Map
 
-    private func mapCanvas(size: CGSize) -> some View {
-        Map(position: $cameraPosition, interactionModes: transitionActive ? [] : [.pan, .zoom]) {
-            ForEach(fb.braiders) { braider in
-                Annotation(
-                    "",
-                    coordinate: braider.coordinate,
-                    anchor: .center
+    private var mapLayer: some View {
+        Map(coordinateRegion: $region, annotationItems: visibleBraiders) { braider in
+            MapAnnotation(coordinate: braider.coordinate) {
+                BraiderPin(
+                    braider: braider,
+                    isSelected: previewBraider?.id == braider.id || highlightedBraiderId == braider.id
                 ) {
-                    Group {
-                        if expandedBraiderId == braider.id {
-                            OrbCapsule(
-                                braider: braider,
-                                onTap: { startTransition(braider) },
-                                onDismiss: { collapseExpanded() }
-                            )
-                            .matchedGeometryEffect(
-                                id: "orb-\(braider.id)",
-                                in: orbNamespace,
-                                isSource: true
-                            )
-                        } else {
-                            StarOrbPin(
-                                braider: braider,
-                                onTap: { handlePinTap(braider) }
-                            )
-                            .matchedGeometryEffect(
-                                id: "orb-\(braider.id)",
-                                in: orbNamespace,
-                                isSource: false
-                            )
-                            .opacity(mapAppeared ? 1 : 0)
-                        }
-                    }
-                }
-            }
-
-            ForEach(shockwaves) { wave in
-                Annotation(
-                    "",
-                    coordinate: wave.coordinate,
-                    anchor: .center
-                ) {
-                    ShockwaveView(startTime: wave.startTime)
-                        .allowsHitTesting(false)
+                    focus(on: braider)
                 }
             }
         }
-        .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll))
-        .mapControlVisibility(.hidden)
         .ignoresSafeArea()
         .opacity(mapAppeared ? 1 : 0)
-        .scaleEffect(mapAppeared ? 1 : 1.06)
-        .animation(.smooth(duration: 1.1).delay(0.05), value: mapAppeared)
+        .animate(Motion.navigation, value: mapAppeared)
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Vignette
-
-    private var vignetteLayer: some View {
-        ZStack {
-            RadialGradient(
-                colors: [.clear, Color.black.opacity(0.10)],
-                center: .center,
-                startRadius: 180,
-                endRadius: 520
+    private func focus(on braider: Braider) {
+        Haptic.select()
+        withAnimation(Motion.sheet) {
+            previewBraider = braider
+            highlightedBraiderId = braider.id
+            sheetDetent = .collapsed
+            region = MKCoordinateRegion(
+                center: CLLocationCoordinate2D(
+                    latitude: braider.latitude - region.span.latitudeDelta * 0.16,
+                    longitude: braider.longitude
+                ),
+                span: region.span
             )
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-
-            LinearGradient(
-                colors: [
-                    Color.appBackground.opacity(0.75),
-                    Color.appBackground.opacity(0.25),
-                    .clear
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 200)
-            .frame(maxHeight: .infinity, alignment: .top)
-            .ignoresSafeArea(edges: .top)
-            .allowsHitTesting(false)
-
-            LinearGradient(
-                colors: [.clear, Color.appBackground.opacity(0.35)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 160)
-            .frame(maxHeight: .infinity, alignment: .bottom)
-            .ignoresSafeArea(edges: .bottom)
-            .allowsHitTesting(false)
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Top chrome — nearby top-left, account top-right
+    // MARK: - Top chrome
 
     private var topChrome: some View {
-        HStack(spacing: Space.sm) {
-            nearbyChip
-            Spacer(minLength: 0)
-            accountOrb
-        }
-        .opacity(mapAppeared ? 1 : 0)
-        .offset(y: mapAppeared ? 0 : -24)
-        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.2), value: mapAppeared)
-    }
-
-    private var nearbyChip: some View {
-        HStack(spacing: 8) {
-            // Live indicator
-            ZStack {
-                Circle()
-                    .fill(Color.appSignal.opacity(0.2))
-                    .frame(width: 10, height: 10)
-                Circle()
-                    .fill(Color.appSignal)
-                    .frame(width: 6, height: 6)
-            }
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("NEARBY")
-                    .font(.system(size: 9, weight: .bold))
-                    .tracking(1.4)
-                    .foregroundStyle(Color.appSmoke)
-                Text("\(fb.braiders.count) braider\(fb.braiders.count == 1 ? "" : "s")")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.appInk)
-                    .contentTransition(.numericText())
-            }
-        }
-        .padding(.horizontal, 14)
-        .frame(height: 52)
-        .background(Color.glassTintStrong, in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
-        .overlay(
-            Capsule().stroke(
-                LinearGradient(
-                    colors: [
-                        Color.goldLight.opacity(0.35),
-                        Color.gold.opacity(0.10),
-                        Color.goldDeep.opacity(0.25)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                lineWidth: 0.8
-            )
-        )
-        .shadow(color: Color.black.opacity(0.15), radius: 20, y: 10)
-    }
-
-    private var accountOrb: some View {
-        Button {
-            Haptic.press()
-            haptics.play(.select)
-            showProfileSheet = true
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(Color.appInk)
-                    .frame(width: 52, height: 52)
-                    .overlay(gyroBorder(size: 52))
-                    .shadow(color: Color.black.opacity(0.25), radius: 20, y: 10)
-
-                if let url = userInfo?.avatarUrl, !url.isEmpty {
-                    RemoteImage(url: url)
-                        .frame(width: 44, height: 44)
-                        .clipShape(Circle())
-                } else {
-                    Text(userInitials)
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(Color.appInkInverse)
-                }
-            }
-        }
-        .buttonStyle(BMSquirclePressStyle())
-    }
-
-    private func gyroBorder(size: CGFloat) -> some View {
-        let angle = gyroTiltEnabled ? motion.angle : 0
-        return Circle()
-            .stroke(
-                AngularGradient(
-                    colors: [
-                        Color.goldLight.opacity(0.9),
-                        Color.gold.opacity(0.5),
-                        Color.goldDeep.opacity(0.2),
-                        Color.gold.opacity(0.5),
-                        Color.goldLight.opacity(0.9)
-                    ],
-                    center: .center,
-                    angle: .degrees(angle)
-                ),
-                lineWidth: 1.2
-            )
-            .frame(width: size - 1, height: size - 1)
-            .animation(.interactiveSpring(response: 0.4, dampingFraction: 0.7), value: angle)
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Bottom chrome
-
-    private var bottomChrome: some View {
-        HStack(alignment: .bottom) {
-            Spacer()
-            cityChip
-            Spacer()
-            zoomStack
+        HStack(spacing: Space.xs) {
+            searchBar
+            savedButton
+            profileButton
         }
         .padding(.horizontal, Space.md)
-        .padding(.bottom, safeAreaBottom() + Space.sm)
-        .opacity(mapAppeared ? 1 : 0)
-        .offset(y: mapAppeared ? 0 : 24)
-        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.3), value: mapAppeared)
     }
 
-    private var cityChip: some View {
+    private var searchBar: some View {
         Button {
             Haptic.press()
-            haptics.play(.cityTap)
             showCitySearch = true
         } label: {
             HStack(spacing: Space.sm) {
-                ZStack {
-                    Circle()
-                        .fill(Color.gold.opacity(0.18))
-                        .frame(width: 26, height: 26)
-                    Image(systemName: "location.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.gold)
-                }
+                Image(systemName: "mappin.and.ellipse")
+                    .font(.bmUI(15, weight: .semibold))
+                    .foregroundStyle(LinearGradient.bmGiltGradient)
+                    .frame(width: 32, height: 32)
+                    .background(Color.bmGilt.opacity(0.14), in: Circle())
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("EXPLORING")
-                        .font(.system(size: 8, weight: .bold))
-                        .tracking(1.6)
-                        .foregroundStyle(Color.appSmoke)
-                    Text(currentCity.name)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.appInk)
-                        .lineLimit(1)
+                    Text("Braiders in")
+                        .font(.bmUI(11, weight: .medium))
+                        .foregroundStyle(Color.bmTextDim)
+                    HStack(spacing: 4) {
+                        Text(currentCity.name)
+                            .font(.bmUI(15, weight: .bold))
+                            .foregroundStyle(Color.bmText)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.bmUI(9, weight: .bold))
+                            .foregroundStyle(Color.bmTextDim)
+                    }
                 }
 
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Color.appSmoke)
-                    .padding(.leading, 4)
+                Spacer(minLength: 0)
+
+                Text("\(visibleBraiders.count)")
+                    .font(.bmNum(13, weight: .bold))
+                    .foregroundStyle(Color.bmOnGilt)
+                    .contentTransition(.numericText())
+                    .frame(minWidth: 30, minHeight: 30)
+                    .background(LinearGradient.bmGiltGradient, in: Circle())
+                    .animation(Motion.press, value: visibleBraiders.count)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background {
-                RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
-                    .fill(Color.glassTint)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
-                            .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
-                            .stroke(
-                                LinearGradient(
-                                    colors: [
-                                        Color.goldLight.opacity(0.35),
-                                        Color.gold.opacity(0.10),
-                                        Color.goldDeep.opacity(0.25)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 0.8
-                            )
-                    )
-                    .shadow(color: Color.black.opacity(0.14), radius: 22, y: 10)
-            }
+            .padding(.horizontal, Space.sm)
+            .frame(height: 56)
+            .bmGlass(radius: 28, tint: Color.black.opacity(0.22))
+            .shadow(color: Color.black.opacity(0.35), radius: 16, y: 6)
         }
-        .buttonStyle(BMSquirclePressStyle())
+        .buttonStyle(BMPressStyle(scale: 0.985, dim: 0.02))
     }
 
-    private var zoomStack: some View {
-        VStack(spacing: Space.xs) {
-            zoomButton(icon: "plus") { adjustZoom(in: true) }
-            zoomButton(icon: "minus") { adjustZoom(in: false) }
-        }
-    }
-
-    private func zoomButton(icon: String, action: @escaping () -> Void) -> some View {
+    private var savedButton: some View {
         Button {
-            Haptic.rigid()
-            haptics.play(.zoom)
-            action()
+            Haptic.press()
+            showSaved = true
         } label: {
-            ZStack {
-                Circle()
-                    .fill(Color.glassTintStrong)
-                    .frame(width: 42, height: 42)
-                    .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
-                    .overlay(
-                        Circle().stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color.goldLight.opacity(0.35),
-                                    Color.goldDeep.opacity(0.15)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 0.8
-                        )
-                    )
-                    .shadow(color: Color.black.opacity(0.12), radius: 12, y: 6)
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: fb.savedBraiderIds.isEmpty ? "heart" : "heart.fill")
+                    .font(.bmUI(17, weight: .semibold))
+                    .foregroundStyle(fb.savedBraiderIds.isEmpty ? Color.bmText : Color.bmBad)
+                    .frame(width: 56, height: 56)
+                    .bmGlassCircle()
+                    .shadow(color: Color.black.opacity(0.35), radius: 16, y: 6)
 
-                Image(systemName: icon)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color.appInk)
+                if !fb.savedBraiderIds.isEmpty {
+                    Text("\(fb.savedBraiderIds.count)")
+                        .font(.bmNum(10, weight: .bold))
+                        .foregroundStyle(Color.bmOnGilt)
+                        .frame(minWidth: 18, minHeight: 18)
+                        .padding(.horizontal, 3)
+                        .background(LinearGradient.bmGiltGradient, in: Capsule())
+                        .offset(x: 3, y: -3)
+                        .transition(.scale.combined(with: .opacity))
+                }
             }
+            .animation(Motion.pop, value: fb.savedBraiderIds.count)
         }
         .buttonStyle(BMIconPressStyle())
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Pin tap — single spring, rotating + zooming together
-
-    private func handlePinTap(_ braider: Braider) {
-        Haptic.medium()
-        haptics.play(.pinTap)
-
-        // Shockwave
-        let wave = Shockwave(coordinate: braider.coordinate, startTime: Date())
-        shockwaves.append(wave)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [wave] in
-            shockwaves.removeAll { $0.id == wave.id }
-        }
-
-        cameraCenter = braider.coordinate
-        cameraDistance = 1200
-        cameraPitch = 26
-
-        let targetHeading: Double = braider.longitude > currentCity.longitude ? 10 : -10
-
-        // Single continuous spring — rotation and zoom together, one pace
-        withAnimation(.spring(response: 0.95, dampingFraction: 0.78)) {
-            cameraPosition = .camera(
-                MapCamera(
-                    centerCoordinate: braider.coordinate,
-                    distance: 1200,
-                    heading: targetHeading,
-                    pitch: 26
-                )
+    private var profileButton: some View {
+        Button {
+            Haptic.press()
+            showProfileSheet = true
+        } label: {
+            BMAvatar(
+                url: userInfo?.avatarUrl ?? "",
+                size: 52,
+                ringed: true,
+                initials: bmInitials(userInfo?.displayName ?? session.displayName ?? "")
             )
+            .frame(width: 58, height: 58)
+            .shadow(color: Color.black.opacity(0.35), radius: 16, y: 6)
         }
-
-        withAnimation(Motion.morph) {
-            expandedBraiderId = braider.id
-            previewBraider = braider
-        }
-
-        haptics.play(.pinExpand)
+        .buttonStyle(BMIconPressStyle())
     }
 
-    private func collapseExpanded() {
-        Haptic.light()
-        haptics.play(.dismiss)
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
-            expandedBraiderId = nil
-            previewBraider = nil
+    private var filterRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Space.xs) {
+                ForEach(BraiderFilter.allCases, id: \.self) { f in
+                    BMChip(title: f.rawValue, icon: f.icon, isSelected: filter == f) {
+                        withAnimation(Motion.sheet) {
+                            filter = f
+                            if let p = previewBraider, !visibleBraiders.contains(where: { $0.id == p.id }) {
+                                previewBraider = nil
+                                highlightedBraiderId = nil
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, Space.md)
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Simple transition
+    // MARK: - Preview card
 
-    private func startTransition(_ braider: Braider) {
-        guard !transitionActive else { return }
+    private func previewCard(_ braider: Braider) -> some View {
+        HStack(spacing: Space.sm) {
+            Button {
+                Haptic.select()
+                selectedBraider = braider
+            } label: {
+                HStack(spacing: Space.sm) {
+                    BMAvatar(
+                        url: braider.avatarUrl,
+                        size: 56,
+                        ringed: true,
+                        initials: bmInitials(braider.name)
+                    )
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 5) {
+                            Text(braider.name)
+                                .font(.bmUI(16, weight: .bold))
+                                .foregroundStyle(Color.bmText)
+                                .lineLimit(1)
+                            if braider.verified { VerifiedSeal() }
+                        }
+                        BMRatingLine(rating: braider.rating, count: braider.reviewCount, size: 12)
+                        Text("from £\(braider.priceFrom)")
+                            .font(.bmNum(13, weight: .bold))
+                            .foregroundStyle(Color.bmGilt)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "arrow.up.right")
+                        .font(.bmUI(14, weight: .bold))
+                        .foregroundStyle(Color.bmOnGilt)
+                        .frame(width: 44, height: 44)
+                        .background(LinearGradient.bmGiltGradient, in: Circle())
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(BMPressStyle(scale: 0.985, dim: 0.02))
 
-        Haptic.heavy()
-        haptics.play(.pinExpand)
-
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
-            expandedBraiderId = nil
+            Button {
+                Haptic.select()
+                withAnimation(Motion.sheet) {
+                    previewBraider = nil
+                    highlightedBraiderId = nil
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.bmUI(11, weight: .bold))
+                    .foregroundStyle(Color.bmTextDim)
+                    .frame(width: 30, height: 30)
+                    .background(Color.white.opacity(0.08), in: Circle())
+            }
+            .buttonStyle(BMIconPressStyle())
         }
+        .padding(Space.sm)
+        .bmGlass(radius: Radius.card, tint: Color.black.opacity(0.22))
+        .shadow(color: Color.black.opacity(0.4), radius: 22, y: 10)
+    }
 
-        transitionBraider = braider
+    // MARK: - Bottom sheet
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
-            withAnimation(.easeIn(duration: 0.20)) {
-                transitionActive = true
+    private func detentHeight(_ detent: SheetDetent, total: CGFloat) -> CGFloat {
+        switch detent {
+        case .collapsed: return 236
+        case .medium:    return total * 0.56
+        case .expanded:  return total * 0.92
+        }
+    }
+
+    private func currentSheetHeight(total: CGFloat) -> CGFloat {
+        let base = detentHeight(sheetDetent, total: total)
+        let lower = detentHeight(.collapsed, total: total) - 24
+        let upper = detentHeight(.expanded, total: total)
+        return min(max(base - dragOffset, lower), upper)
+    }
+
+    private func bottomSheet(height: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                grabber
+                if sheetDetent != .collapsed {
+                    sheetHeader
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(dragGesture(total: height))
+
+            Group {
+                switch sheetDetent {
+                case .collapsed: collapsedContent
+                case .medium:    mediumContent
+                case .expanded:  expandedContent
+                }
+            }
+            .transition(.opacity)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: currentSheetHeight(total: height), alignment: .top)
+        .background {
+            ZStack {
+                Rectangle().fill(.regularMaterial)
+                Color.bmBase.opacity(0.72)
+            }
+        }
+        .clipShape(
+            .rect(
+                topLeadingRadius: Radius.modal,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: Radius.modal
+            )
+        )
+        .overlay(alignment: .top) {
+            UnevenRoundedRectangle(
+                topLeadingRadius: Radius.modal,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: Radius.modal,
+                style: .continuous
+            )
+            .strokeBorder(
+                LinearGradient(
+                    colors: [Color.white.opacity(0.28), Color.white.opacity(0.0)],
+                    startPoint: .top,
+                    endPoint: .center
+                ),
+                lineWidth: 0.9
+            )
+            .allowsHitTesting(false)
+        }
+        .shadow(color: Color.black.opacity(0.5), radius: 30, y: -10)
+        .animation(Motion.sheet, value: sheetDetent)
+    }
+
+    private func dragGesture(total: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                dragOffset = value.translation.height
+            }
+            .onEnded { value in
+                let base = detentHeight(sheetDetent, total: total)
+                let projected = base - value.predictedEndTranslation.height
+                let target = nearestDetent(to: projected, total: total)
+                if target != sheetDetent { Haptic.press() }
+                withAnimation(Motion.sheet) {
+                    sheetDetent = target
+                    dragOffset = 0
+                }
+            }
+    }
+
+    private func nearestDetent(to height: CGFloat, total: CGFloat) -> SheetDetent {
+        var best: SheetDetent = .collapsed
+        var bestDistance = CGFloat.greatestFiniteMagnitude
+        for d in SheetDetent.allCases {
+            let dist = abs(detentHeight(d, total: total) - height)
+            if dist < bestDistance {
+                bestDistance = dist
+                best = d
+            }
+        }
+        return best
+    }
+
+    private var grabber: some View {
+        Capsule()
+            .fill(Color.white.opacity(0.28))
+            .frame(width: 40, height: 5)
+            .padding(.top, Space.sm)
+            .padding(.bottom, Space.sm)
+            .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Sheet content
+
+    private var collapsedContent: some View {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(alignment: .firstTextBaseline) {
+                if braidersLoading {
+                    BMSkeleton(height: 26, cornerRadius: 8).frame(width: 170)
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(firstName.isEmpty ? "Nearby braiders" : "Hi \(firstName)")
+                            .font(.bmDisplay(24, weight: .semibold))
+                            .foregroundStyle(Color.bmText)
+                        Text("\(visibleBraiders.count) available in \(currentCity.name)")
+                            .font(.bmUI(13))
+                            .foregroundStyle(Color.bmTextDim)
+                    }
+                }
+                Spacer()
+                if !visibleBraiders.isEmpty {
+                    Button {
+                        Haptic.press()
+                        withAnimation(Motion.sheet) { sheetDetent = .medium }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("See all")
+                                .font(.bmUI(13, weight: .bold))
+                            Image(systemName: "chevron.up")
+                                .font(.bmUI(10, weight: .bold))
+                        }
+                        .foregroundStyle(Color.bmGilt)
+                        .padding(.horizontal, Space.sm)
+                        .frame(height: 34)
+                        .background(Color.bmGilt.opacity(0.14), in: Capsule())
+                    }
+                    .buttonStyle(BMPressStyle(scale: 0.95))
+                }
+            }
+
+            if braidersLoading {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Space.sm) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            HStack(spacing: Space.sm) {
+                                BMSkeleton(height: 46, cornerRadius: 23).frame(width: 46)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    BMSkeleton(height: 12, cornerRadius: 4).frame(width: 90)
+                                    BMSkeleton(height: 10, cornerRadius: 4).frame(width: 56)
+                                }
+                            }
+                            .padding(Space.sm)
+                            .frame(width: 190, alignment: .leading)
+                            .bmCard(radius: Radius.card, fill: Color.bmSurface.opacity(0.8))
+                        }
+                    }
+                    .padding(.horizontal, Space.lg)
+                }
+                .padding(.horizontal, -Space.lg)
+            } else if visibleBraiders.isEmpty {
+                VStack(spacing: Space.xxs) {
+                    Text("No braiders match here yet")
+                        .font(.bmUI(14, weight: .semibold))
+                        .foregroundStyle(Color.bmText)
+                    Text("Try another filter or a different city.")
+                        .font(.bmUI(12))
+                        .foregroundStyle(Color.bmTextDim)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Space.md)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Space.sm) {
+                        ForEach(Array(visibleBraiders.prefix(8))) { braider in
+                            CompactBraiderCard(
+                                braider: braider,
+                                isHighlighted: highlightedBraiderId == braider.id
+                            ) {
+                                if highlightedBraiderId == braider.id {
+                                    Haptic.select()
+                                    selectedBraider = braider
+                                } else {
+                                    focus(on: braider)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, Space.lg)
+                }
+                .padding(.horizontal, -Space.lg)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.xxs)
+    }
+
+    private var mediumContent: some View {
+        Group {
+            if braidersLoading {
+                VStack(spacing: Space.md) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        HStack(spacing: Space.sm) {
+                            BMSkeleton(height: 62, cornerRadius: 31).frame(width: 62)
+                            VStack(alignment: .leading, spacing: 8) {
+                                BMSkeleton(height: 14, cornerRadius: 5).frame(width: 130)
+                                BMSkeleton(height: 10, cornerRadius: 4).frame(width: 90)
+                                BMSkeleton(height: 10, cornerRadius: 4).frame(width: 60)
+                            }
+                            Spacer()
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, Space.lg)
+                .padding(.top, Space.xs)
+            } else if visibleBraiders.isEmpty {
+                miniEmpty
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: Space.xxs) {
+                        ForEach(Array(visibleBraiders.enumerated()), id: \.element.id) { index, braider in
+                            BraiderCard(
+                                braider: braider,
+                                isHighlighted: highlightedBraiderId == braider.id
+                            ) {
+                                Haptic.select()
+                                previewBraider = braider
+                                highlightedBraiderId = braider.id
+                                selectedBraider = braider
+                            }
+                            .reveal(mapAppeared, delay: Motion.stagger(index), offset: 14, blur: 0)
+                        }
+                        Color.clear.frame(height: Space.xxl)
+                    }
+                    .padding(.horizontal, Space.md)
+                }
+                .refreshable {
+                    await fb.fetchBraidersFromFirestore()
+                }
             }
         }
     }
 
-    private func finishTransition() {
-        guard let braider = transitionBraider else {
-            transitionActive = false
-            return
-        }
-
-        selectedBraider = braider
-
-        DispatchQueue.main.async {
-            withAnimation(.easeOut(duration: 0.30)) {
-                transitionActive = false
+    private var expandedContent: some View {
+        Group {
+            if visibleBraiders.isEmpty {
+                miniEmpty
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: Space.md) {
+                        ForEach(visibleBraiders) { braider in
+                            BigBraiderRow(
+                                braider: braider,
+                                isSaved: fb.savedBraiderIds.contains(braider.id)
+                            ) {
+                                Haptic.select()
+                                selectedBraider = braider
+                            }
+                        }
+                        Color.clear.frame(height: Space.xxl)
+                    }
+                    .padding(.horizontal, Space.lg)
+                    .padding(.top, Space.xxs)
+                }
+                .refreshable {
+                    await fb.fetchBraidersFromFirestore()
+                }
             }
         }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            transitionBraider = nil
-        }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Zoom
-
-    private func adjustZoom(in closer: Bool) {
-        let factor: Double = closer ? 0.55 : 1.8
-        let newDistance = cameraDistance * factor
-        let clamped = max(200, min(newDistance, 80000))
-        cameraDistance = clamped
-
-        let newPitch: Double = {
-            let target = cameraPitch + (closer ? 4 : -4)
-            return max(0, min(target, 45))
-        }()
-        cameraPitch = newPitch
-
-        withAnimation(.spring(response: 0.65, dampingFraction: 0.72)) {
-            cameraPosition = .camera(
-                MapCamera(
-                    centerCoordinate: cameraCenter,
-                    distance: clamped,
-                    heading: 0,
-                    pitch: newPitch
-                )
-            )
+    private var miniEmpty: some View {
+        VStack(spacing: Space.xs) {
+            Image(systemName: "mappin.slash")
+                .font(.bmUI(26, weight: .light))
+                .foregroundStyle(LinearGradient.bmGiltGradient)
+            Text("No braiders here yet")
+                .font(.bmUI(15, weight: .semibold))
+                .foregroundStyle(Color.bmText)
+            Text("Try another filter or city from the search bar.")
+                .font(.bmUI(13))
+                .foregroundStyle(Color.bmTextDim)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Space.xl)
     }
 
-    private func flyTo(city: City) {
-        cameraCenter = city.coordinate
-        cameraDistance = 5000
-        cameraPitch = 12
-
-        withAnimation(.smooth(duration: 0.9)) {
-            cameraPosition = .camera(
-                MapCamera(
-                    centerCoordinate: city.coordinate,
-                    distance: 5000,
-                    heading: 0,
-                    pitch: 12
-                )
-            )
+    private var sheetHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Braiders near you")
+                    .font(.bmDisplay(24, weight: .semibold))
+                    .foregroundStyle(Color.bmText)
+                Text("\(visibleBraiders.count) in \(currentCity.name)")
+                    .font(.bmUI(13))
+                    .foregroundStyle(Color.bmTextDim)
+            }
+            Spacer()
+            Button {
+                Haptic.press()
+                withAnimation(Motion.sheet) {
+                    sheetDetent = (sheetDetent == .expanded) ? .medium : .collapsed
+                }
+            } label: {
+                Image(systemName: sheetDetent == .expanded ? "chevron.down" : "chevron.up")
+                    .font(.bmUI(13, weight: .bold))
+                    .foregroundStyle(Color.bmTextDim)
+                    .frame(width: 34, height: 34)
+                    .background(Color.white.opacity(0.08), in: Circle())
+            }
+            .buttonStyle(BMIconPressStyle())
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-            currentCity = city
-        }
+        .padding(.horizontal, Space.lg)
+        .padding(.bottom, Space.sm)
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - User initials
-
-    private var userInitials: String {
-        let name = userInfo?.displayName ?? session.displayName ?? ""
-        let parts = name.split(separator: " ")
-        let r = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
-        return r.isEmpty ? "·" : r.uppercased()
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     // MARK: - Lifecycle
 
     private func onAppear() {
         let uid = session.uid
-
-        if gyroTiltEnabled {
-            motion.start()
-        }
-        haptics.prepare()
 
         Task {
             await MainActor.run { braidersLoading = true }
@@ -654,16 +703,9 @@ struct MainTabView: View {
                    let stored = CityCatalog.all.first(where: { $0.name == cityName }) {
                     await MainActor.run {
                         currentCity = stored
-                        cameraCenter = stored.coordinate
-                        cameraDistance = 5500
-                        cameraPitch = 10
-                        cameraPosition = .camera(
-                            MapCamera(
-                                centerCoordinate: stored.coordinate,
-                                distance: 5500,
-                                heading: 0,
-                                pitch: 10
-                            )
+                        region = MKCoordinateRegion(
+                            center: stored.coordinate,
+                            span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
                         )
                     }
                 }
@@ -672,7 +714,7 @@ struct MainTabView: View {
             await MainActor.run { braidersLoading = false }
         }
 
-        withAnimation { mapAppeared = true }
+        withAnimation(Motion.navigation.delay(0.1)) { mapAppeared = true }
 
         if !fb.hasAskedForLocation {
             showLocationSheet = true
@@ -689,25 +731,17 @@ struct MainTabView: View {
 
     private func handleLocationDecision(_ allowed: Bool) {
         Haptic.press()
-        haptics.play(.select)
         fb.locationPermissionDecision = allowed ? "allowed" : "denied"
 
         if allowed {
             locationService.start()
             if let loc = locationService.lastLocation,
                let closest = CityCatalog.closest(to: loc) {
-                cameraCenter = closest.coordinate
-                cameraDistance = 5000
-                cameraPitch = 10
-                withAnimation(.smooth(duration: 0.9)) {
+                withAnimation(Motion.sheet) {
                     currentCity = closest
-                    cameraPosition = .camera(
-                        MapCamera(
-                            centerCoordinate: closest.coordinate,
-                            distance: 5000,
-                            heading: 0,
-                            pitch: 10
-                        )
+                    region = MKCoordinateRegion(
+                        center: closest.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
                     )
                 }
             }
@@ -732,541 +766,199 @@ struct MainTabView: View {
             }
         }
     }
-
-    private func safeAreaTop() -> CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }?
-            .safeAreaInsets.top ?? 44
-    }
-
-    private func safeAreaBottom() -> CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }?
-            .safeAreaInsets.bottom ?? 34
-    }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - StarOrbPin
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Map pin
 
-struct StarOrbPin: View {
+struct BraiderPin: View {
     let braider: Braider
+    let isSelected: Bool
     let onTap: () -> Void
 
-    @State private var breathe = false
-    @State private var appear = false
+    @State private var pulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var ratingTier: (color: Color, brightness: Double) {
-        let r = braider.rating
-        if r >= 4.8 { return (Color(hex: "#34D399"), 0.55) }
-        if r >= 4.5 { return (Color.goldLight, 0.5) }
-        if r >= 4.0 { return (Color.gold, 0.4) }
-        return (Color(hex: "#F59E0B"), 0.3)
-    }
+    private var size: CGFloat { isSelected ? 60 : 44 }
 
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 4) {
-                HStack(spacing: 3) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(Color.gold)
-
-                    Text(braider.ratingText)
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.white)
+            ZStack {
+                if isSelected {
+                    Circle()
+                        .stroke(Color.bmGilt.opacity(0.7), lineWidth: 2)
+                        .frame(width: size, height: size)
+                        .scaleEffect(pulse ? 2.1 : 1)
+                        .opacity(pulse ? 0 : 0.8)
                 }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3.5)
-                .background(
-                    Capsule()
-                        .fill(Color.appInk)
-                        .overlay(
-                            Capsule().stroke(
-                                LinearGradient(
-                                    colors: [
-                                        ratingTier.color,
-                                        ratingTier.color.opacity(0.4)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1
-                            )
-                        )
-                        .shadow(color: ratingTier.color.opacity(0.5), radius: 6, y: 2)
-                )
-                .scaleEffect(appear ? 1 : 0.4)
-                .opacity(appear ? 1 : 0)
 
-                ZStack {
-                    Circle()
-                        .stroke(ratingTier.color.opacity(ratingTier.brightness), lineWidth: 1.4)
-                        .frame(width: 32, height: 32)
-                        .scaleEffect(breathe ? 1.8 : 1)
-                        .opacity(breathe ? 0 : 0.85)
+                Circle()
+                    .fill(Color.bmBase)
+                    .frame(width: size + 8, height: size + 8)
+                    .shadow(
+                        color: isSelected ? Color.bmGilt.opacity(0.65) : Color.black.opacity(0.45),
+                        radius: isSelected ? 16 : 8,
+                        y: 4
+                    )
 
-                    Circle()
-                        .stroke(ratingTier.color.opacity(ratingTier.brightness * 0.5), lineWidth: 1)
-                        .frame(width: 32, height: 32)
-                        .scaleEffect(breathe ? 1.5 : 1)
-                        .opacity(breathe ? 0 : 0.55)
-
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [ratingTier.color.opacity(0.35), .clear],
-                                center: .center,
-                                startRadius: 0,
-                                endRadius: 22
-                            )
-                        )
-                        .frame(width: 44, height: 44)
-
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.goldLight, Color.gold, Color.goldDeep],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 18, height: 18)
-                        .overlay(
-                            Circle().stroke(Color.white.opacity(0.5), lineWidth: 1)
-                        )
-                        .shadow(color: ratingTier.color.opacity(0.7), radius: 10, y: 3)
-
-                    Circle()
-                        .fill(Color.white.opacity(0.7))
-                        .frame(width: 4.5, height: 4.5)
-                        .offset(x: -3, y: -3)
-                }
-            }
-            .scaleEffect(appear ? 1 : 0.1)
-            .opacity(appear ? 1 : 0)
-        }
-        .buttonStyle(OrbPinPressStyle())
-        .onAppear {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                appear = true
-            }
-            withAnimation(
-                .easeOut(duration: 2.4)
-                .repeatForever(autoreverses: false)
-            ) {
-                breathe = true
-            }
-        }
-    }
-}
-
-struct OrbPinPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 1.22 : 1)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - OrbCapsule — avatar + stars only, no price
-// ═══════════════════════════════════════════════════════════════════
-
-struct OrbCapsule: View {
-    let braider: Braider
-    let onTap: () -> Void
-    let onDismiss: () -> Void
-
-    @State private var appeared = false
-    @State private var shimmerOffset: CGFloat = -1
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                ZStack {
+                Group {
                     if braider.avatarUrl.isEmpty {
-                        Circle()
-                            .fill(Color.gold.opacity(0.18))
-                            .frame(width: 44, height: 44)
-                            .overlay(
-                                Text(braider.initials)
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundStyle(Color.gold)
-                            )
+                        Text(bmInitials(braider.name))
+                            .font(.bmDisplay(size * 0.38, weight: .semibold))
+                            .foregroundStyle(LinearGradient.bmGiltGradient)
+                            .frame(width: size, height: size)
+                            .background(Color.bmRaised, in: Circle())
                     } else {
                         RemoteImage(url: braider.avatarUrl)
-                            .frame(width: 44, height: 44)
+                            .frame(width: size, height: size)
                             .clipShape(Circle())
                     }
-
-                    Circle()
-                        .stroke(
-                            LinearGradient(
-                                colors: [Color.goldLight, Color.goldDeep],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1.8
-                        )
-                        .frame(width: 48, height: 48)
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 5) {
-                        Text(braider.name)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color.appInk)
-                            .lineLimit(1)
-                        if braider.verified {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(Color.gold)
-                        }
-                    }
+                Circle()
+                    .strokeBorder(
+                        isSelected
+                            ? AnyShapeStyle(AngularGradient(
+                                colors: [Color.bmGilt, Color.bmEmber, Color.bmOrchid, Color.bmGilt],
+                                center: .center
+                            ))
+                            : AnyShapeStyle(Color.white.opacity(0.85)),
+                        lineWidth: isSelected ? 3 : 2
+                    )
+                    .frame(width: size + 6, height: size + 6)
 
-                    // Stars only — no price
+                if isSelected {
                     HStack(spacing: 3) {
-                        ForEach(0..<5, id: \.self) { i in
-                            Image(systemName: Double(i) < braider.rating.rounded() ? "star.fill" : "star")
-                                .font(.system(size: 9))
-                                .foregroundStyle(Color.gold)
-                        }
-                        Text(braider.ratingText)
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Color.appAsh)
-                            .padding(.leading, 2)
+                        Image(systemName: "star.fill")
+                            .font(.bmUI(8, weight: .bold))
+                            .foregroundStyle(Color.bmGilt)
+                        Text(String(format: "%.1f", braider.rating))
+                            .font(.bmNum(11, weight: .bold))
+                            .foregroundStyle(Color.bmText)
                     }
-                }
-
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color.appInk)
-                    .frame(width: 30, height: 30)
-                    .background(Color.appBackground, in: Circle())
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background {
-                ZStack {
-                    RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
-                        .fill(Color.glassTintStrong)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
-                                .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.goldLight.opacity(0.6),
-                                            Color.gold.opacity(0.2),
-                                            Color.goldDeep.opacity(0.4)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1
-                                )
-                        )
-                        .shadow(color: Color.black.opacity(0.18), radius: 24, y: 10)
-
-                    GeometryReader { geo in
-                        LinearGradient(
-                            colors: [.clear, .white.opacity(0.35), .clear],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: geo.size.width * 0.5)
-                        .offset(x: shimmerOffset * geo.size.width * 1.5)
-                        .blendMode(.overlay)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.pill, style: .continuous))
+                    .padding(.horizontal, 8)
+                    .frame(height: 22)
+                    .background(Color.bmBase, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.bmGilt.opacity(0.6), lineWidth: 0.8))
+                    .offset(y: -(size / 2 + 22))
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
-            .scaleEffect(appeared ? 1 : 0.6)
-            .opacity(appeared ? 1 : 0)
+            .frame(width: 100, height: 100)
         }
-        .buttonStyle(BMSquirclePressStyle())
-        .simultaneousGesture(
-            TapGesture(count: 2).onEnded { onDismiss() }
-        )
-        .onAppear {
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.72).delay(0.05)) {
-                appeared = true
+        .buttonStyle(BMIconPressStyle())
+        .animation(Motion.pop, value: isSelected)
+        .onChange(of: isSelected) { _, nowSelected in
+            guard nowSelected, !reduceMotion else { pulse = false; return }
+            pulse = false
+            withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
+                pulse = true
             }
-            withAnimation(
-                .linear(duration: 2.4)
-                .repeatForever(autoreverses: false)
-                .delay(0.8)
-            ) {
-                shimmerOffset = 1.2
+        }
+        .onAppear {
+            guard isSelected, !reduceMotion else { return }
+            withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
+                pulse = true
             }
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Shockwave
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Compact card
 
-struct ShockwaveView: View {
-    let startTime: Date
-    @State private var progress: CGFloat = 0
-    @State private var opacity: Double = 0.9
+struct CompactBraiderCard: View {
+    let braider: Braider
+    var isHighlighted: Bool = false
+    let onTap: () -> Void
 
     var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.gold.opacity(opacity), lineWidth: 2)
-                .frame(width: 40 + progress * 160, height: 40 + progress * 160)
-                .blur(radius: progress * 6)
-
-            Circle()
-                .stroke(Color.goldLight.opacity(opacity * 0.6), lineWidth: 1)
-                .frame(width: 20 + progress * 120, height: 20 + progress * 120)
-                .blur(radius: progress * 3)
-        }
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.55)) {
-                progress = 1
-                opacity = 0
+        Button(action: onTap) {
+            HStack(spacing: Space.sm) {
+                BMAvatar(
+                    url: braider.avatarUrl,
+                    size: 46,
+                    ringed: isHighlighted,
+                    initials: bmInitials(braider.name)
+                )
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Text(braider.name)
+                            .font(.bmUI(14, weight: .bold))
+                            .foregroundStyle(Color.bmText)
+                            .lineLimit(1)
+                        if braider.verified { VerifiedSeal(size: 11) }
+                    }
+                    HStack(spacing: 8) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "star.fill")
+                                .font(.bmUI(9, weight: .bold))
+                                .foregroundStyle(Color.bmGilt)
+                            Text(String(format: "%.1f", braider.rating))
+                                .font(.bmNum(12, weight: .bold))
+                                .foregroundStyle(Color.bmText)
+                        }
+                        Text("£\(braider.priceFrom)")
+                            .font(.bmNum(12, weight: .bold))
+                            .foregroundStyle(Color.bmGilt)
+                    }
+                }
             }
+            .padding(Space.sm)
+            .frame(width: 214, alignment: .leading)
+            .bmCard(
+                radius: Radius.card,
+                fill: isHighlighted ? Color.bmRaised : Color.bmSurface.opacity(0.85)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                    .strokeBorder(isHighlighted ? Color.bmGilt.opacity(0.55) : Color.clear, lineWidth: 1)
+            )
         }
+        .buttonStyle(BMPressStyle(scale: 0.97, dim: 0.02))
+        .animation(Motion.press, value: isHighlighted)
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Motion Tracker
-// ═══════════════════════════════════════════════════════════════════
-
-final class MotionTracker: ObservableObject {
-    @Published var angle: Double = 0
-
-    private let motionManager = CMMotionManager()
-    private var isRunning = false
-
-    func start() {
-        guard motionManager.isDeviceMotionAvailable, !isRunning else { return }
-        motionManager.deviceMotionUpdateInterval = 1.0 / 30.0
-        motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
-            guard let motion = motion else { return }
-            let gx = motion.gravity.x
-            let gy = motion.gravity.y
-            let radians = atan2(gy, gx)
-            let degrees = radians * 180 / .pi
-            self?.angle = (self?.angle ?? 0) * 0.85 + degrees * 0.15
-        }
-        isRunning = true
-    }
-
-    func stop() {
-        motionManager.stopDeviceMotionUpdates()
-        isRunning = false
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Haptic Engine
-// ═══════════════════════════════════════════════════════════════════
-
-final class HapticEngine: ObservableObject {
-    enum Pattern {
-        case select
-        case tap
-        case pinTap
-        case pinExpand
-        case dismiss
-        case cityTap
-        case zoom
-    }
-
-    private var engine: CHHapticEngine?
-    private let supportsHaptics = CHHapticEngine.capabilitiesForHardware().supportsHaptics
-
-    func prepare() {
-        guard supportsHaptics else { return }
-        do {
-            engine = try CHHapticEngine()
-            engine?.stoppedHandler = { _ in }
-            engine?.resetHandler = { [weak self] in
-                try? self?.engine?.start()
-            }
-            try engine?.start()
-        } catch {
-            engine = nil
-        }
-    }
-
-    func play(_ pattern: Pattern) {
-        guard supportsHaptics, let engine = engine else {
-            fallback(pattern)
-            return
-        }
-        do {
-            let events = eventsFor(pattern)
-            let hapticPattern = try CHHapticPattern(events: events, parameters: [])
-            let player = try engine.makePlayer(with: hapticPattern)
-            try player.start(atTime: 0)
-        } catch {
-            fallback(pattern)
-        }
-    }
-
-    private func eventsFor(_ pattern: Pattern) -> [CHHapticEvent] {
-        switch pattern {
-        case .select:
-            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
-                .init(parameterID: .hapticIntensity, value: 0.4),
-                .init(parameterID: .hapticSharpness, value: 0.5)
-            ], relativeTime: 0)]
-        case .tap:
-            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
-                .init(parameterID: .hapticIntensity, value: 0.5),
-                .init(parameterID: .hapticSharpness, value: 0.7)
-            ], relativeTime: 0)]
-        case .pinTap:
-            return [
-                CHHapticEvent(eventType: .hapticTransient, parameters: [
-                    .init(parameterID: .hapticIntensity, value: 0.75),
-                    .init(parameterID: .hapticSharpness, value: 0.9)
-                ], relativeTime: 0),
-                CHHapticEvent(eventType: .hapticContinuous, parameters: [
-                    .init(parameterID: .hapticIntensity, value: 0.3),
-                    .init(parameterID: .hapticSharpness, value: 0.15)
-                ], relativeTime: 0.02, duration: 0.12)
-            ]
-        case .pinExpand:
-            return [
-                CHHapticEvent(eventType: .hapticContinuous, parameters: [
-                    .init(parameterID: .hapticIntensity, value: 0.4),
-                    .init(parameterID: .hapticSharpness, value: 0.25)
-                ], relativeTime: 0, duration: 0.25),
-                CHHapticEvent(eventType: .hapticTransient, parameters: [
-                    .init(parameterID: .hapticIntensity, value: 0.6),
-                    .init(parameterID: .hapticSharpness, value: 0.4)
-                ], relativeTime: 0.24)
-            ]
-        case .dismiss:
-            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
-                .init(parameterID: .hapticIntensity, value: 0.35),
-                .init(parameterID: .hapticSharpness, value: 0.2)
-            ], relativeTime: 0)]
-        case .cityTap:
-            return [
-                CHHapticEvent(eventType: .hapticTransient, parameters: [
-                    .init(parameterID: .hapticIntensity, value: 0.5),
-                    .init(parameterID: .hapticSharpness, value: 0.4)
-                ], relativeTime: 0),
-                CHHapticEvent(eventType: .hapticContinuous, parameters: [
-                    .init(parameterID: .hapticIntensity, value: 0.25),
-                    .init(parameterID: .hapticSharpness, value: 0.1)
-                ], relativeTime: 0.04, duration: 0.14)
-            ]
-        case .zoom:
-            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
-                .init(parameterID: .hapticIntensity, value: 0.55),
-                .init(parameterID: .hapticSharpness, value: 0.85)
-            ], relativeTime: 0)]
-        }
-    }
-
-    private func fallback(_ pattern: Pattern) {
-        switch pattern {
-        case .select, .dismiss:     Haptic.select()
-        case .tap, .cityTap:        Haptic.light()
-        case .pinTap, .pinExpand:   Haptic.medium()
-        case .zoom:                 Haptic.rigid()
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Location Permission Sheet
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Location permission sheet
 
 struct LocationPermissionSheet: View {
     let onDecision: (Bool) -> Void
 
     @State private var appeared = false
-    @State private var rings: [CGFloat] = [1, 1, 1]
-    @State private var opacities: [Double] = [0.6, 0.4, 0.2]
+    @State private var ripple = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
-            Color.appBackground.ignoresSafeArea()
-
-            RadialGradient(
-                colors: [Color.gold.opacity(0.14), .clear],
-                center: .top,
-                startRadius: 0,
-                endRadius: 420
-            )
-            .ignoresSafeArea()
+            AuroraBackground(intensity: 0.7)
 
             VStack(spacing: 0) {
-                Spacer().frame(height: Space.xl)
+                Spacer(minLength: Space.xl)
 
-                ZStack {
-                    ForEach(0..<3, id: \.self) { i in
-                        Circle()
-                            .stroke(Color.gold.opacity(opacities[i]), lineWidth: 1.5)
-                            .frame(width: 120 + CGFloat(i) * 30, height: 120 + CGFloat(i) * 30)
-                            .scaleEffect(rings[i])
-                    }
+                radar
+                    .frame(height: 190)
+                    .reveal(appeared, offset: 10, blur: 8)
 
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [Color.gold.opacity(0.20), Color.gold.opacity(0.08)],
-                                center: .center,
-                                startRadius: 0,
-                                endRadius: 70
-                            )
-                        )
-                        .frame(width: 120, height: 120)
+                Spacer().frame(height: Space.lg)
 
-                    Circle()
-                        .stroke(Color.gold.opacity(0.5), lineWidth: 1)
-                        .frame(width: 120, height: 120)
-
-                    Image(systemName: "location.fill")
-                        .font(.system(size: 44, weight: .medium))
-                        .foregroundStyle(Color.gold)
-                        .scaleEffect(appeared ? 1 : 0.5)
-                        .opacity(appeared ? 1 : 0)
-                }
-
-                Spacer().frame(height: Space.xl)
-
-                VStack(spacing: Space.sm) {
+                VStack(spacing: Space.xs) {
                     Text("Find braiders\nnear you")
-                        .font(.system(size: 34, weight: .bold, design: .serif))
-                        .tracking(-1)
-                        .foregroundStyle(Color.appInk)
+                        .font(.bmDisplay(34, weight: .semibold))
+                        .foregroundStyle(Color.bmText)
                         .multilineTextAlignment(.center)
                         .lineSpacing(-4)
-
-                    Text("We use your location to surface verified braiders in your city.")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Color.appAsh)
+                    Text("We use your location to show verified braiders in your city. You can change it any time.")
+                        .font(.bmUI(15))
+                        .foregroundStyle(Color.bmTextDim)
                         .multilineTextAlignment(.center)
-                        .lineSpacing(4)
+                        .lineSpacing(3)
                         .padding(.horizontal, Space.xl)
                 }
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 16)
+                .reveal(appeared, delay: 0.1)
 
                 Spacer()
 
                 VStack(spacing: Space.sm) {
-                    BMPrimaryButton(title: "Allow Location", icon: "location.fill") {
+                    BMPrimaryButton(title: "Allow location", icon: "location.fill") {
                         onDecision(true)
                     }
                     BMSecondaryButton(title: "Not now") {
@@ -1274,37 +966,56 @@ struct LocationPermissionSheet: View {
                     }
                 }
                 .padding(.horizontal, Space.lg)
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 24)
+                .reveal(appeared, delay: 0.2)
 
                 Spacer().frame(height: Space.lg)
             }
         }
         .onAppear {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.75)) {
-                appeared = true
+            appeared = true
+            guard !reduceMotion else { return }
+            withAnimation(.easeOut(duration: 2.4).repeatForever(autoreverses: false)) {
+                ripple = true
             }
-            animateRings()
         }
     }
 
-    private func animateRings() {
-        for i in 0..<3 {
-            withAnimation(
-                .easeOut(duration: 2.2)
-                .repeatForever(autoreverses: false)
-                .delay(Double(i) * 0.4)
-            ) {
-                rings[i] = 1.4
-                opacities[i] = 0
+    private var radar: some View {
+        ZStack {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .stroke(Color.bmGilt.opacity(0.55), lineWidth: 1.5)
+                    .frame(width: 100, height: 100)
+                    .scaleEffect(ripple ? 2.2 : 0.6)
+                    .opacity(ripple ? 0 : 0.7)
+                    .animation(
+                        .easeOut(duration: 2.4).repeatForever(autoreverses: false).delay(Double(i) * 0.8),
+                        value: ripple
+                    )
             }
+
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color.bmRaised, Color.bmSurface],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 92, height: 92)
+                .overlay(
+                    Circle().strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
+                )
+                .shadow(color: Color.bmGilt.opacity(0.4), radius: 24)
+
+            Image(systemName: "location.fill")
+                .font(.system(size: 34, weight: .medium))
+                .foregroundStyle(LinearGradient.bmGiltGradient)
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Location Service
-// ═══════════════════════════════════════════════════════════════════
+// MARK: - Location service
 
 final class LocationService: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()

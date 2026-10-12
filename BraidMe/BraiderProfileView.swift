@@ -1,15 +1,27 @@
 import SwiftUI
-import CoreMotion
-import CoreHaptics
-import UIKit
 
 // =============================================================================
-// BraiderProfileView — Editorial profile, rebuilt
-//
-// Zero gestures on portfolio cards — ScrollView owns all drags.
-// No shadows in scroll content. No noise. No ambient motes.
-// Single LazyVStack. GPU-accelerated scroll.
+// BraiderProfileView — stretchy parallax hero, fading glass nav, scroll-reactive
+// portfolio, animated review bars and a floating booking dock.
+// Booking, save, review and Firebase flows are unchanged.
 // =============================================================================
+
+private struct CountUpText: View {
+    let target: Int
+    var prefix: String = ""
+    @State private var shown = 0
+
+    var body: some View {
+        Text("\(prefix)\(shown)")
+            .contentTransition(.numericText(value: Double(shown)))
+            .onAppear {
+                withAnimation(.easeOut(duration: 1.0).delay(0.35)) { shown = target }
+            }
+            .onChange(of: target) { _, new in
+                withAnimation(.easeOut(duration: 0.6)) { shown = new }
+            }
+    }
+}
 
 struct BraiderProfileView: View {
     let braider: Braider
@@ -17,61 +29,74 @@ struct BraiderProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: SessionManager
     @StateObject private var fb = FirebaseManager.shared
-    @StateObject private var motion = ProfileMotion()
-    @StateObject private var haptics = ProfileHaptics()
 
     @State private var reviews: [Review] = []
     @State private var reviewsLoading = true
-    @State private var ambientPalette: Color? = nil
-
     @State private var showWriteReview = false
     @State private var showAllReviews = false
     @State private var showBooking = false
     @State private var showBookingForService: BraidService?
     @State private var selectedPortfolioItem: PortfolioItem?
-    @State private var selectedPortfolioIndex: Int = 0
+    @State private var scrollY: CGFloat = 0
+    @State private var appeared = false
+    @State private var barsIn = false
+    @State private var bioExpanded = false
 
-    @State private var heroAppeared = false
-    @State private var contentAppeared = false
-    @State private var savedPulse = false
-
-    @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Computed
+    private let heroHeight: CGFloat = 560
+    private let scrollSpace = "profileScroll"
 
     private var isSaved: Bool { fb.savedBraiderIds.contains(braider.id) }
 
-    private var ratingText: String {
-        reviews.isEmpty ? braider.ratingText :
-            String(format: "%.1f", RatingBreakdown.from(reviews).average)
+    private var firstName: String {
+        braider.name.split(separator: " ").first.map(String.init) ?? braider.name
     }
+
+    private var ratingValue: Double {
+        reviews.isEmpty ? braider.rating : RatingBreakdown.from(reviews).average
+    }
+
+    private var ratingText: String { String(format: "%.1f", ratingValue) }
 
     private var ratingCount: Int {
         reviews.isEmpty ? braider.reviewCount : reviews.count
     }
 
-    private var breakdown: RatingBreakdown {
-        RatingBreakdown.from(reviews)
+    private var navOpacity: Double {
+        let v = (-Double(scrollY) - 250.0) / 90.0
+        return min(max(v, 0), 1)
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Body
+    private var heroImageUrl: String {
+        if !braider.coverUrl.isEmpty { return braider.coverUrl }
+        return braider.portfolio.first?.imageUrl ?? ""
+    }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            LazyVStack(spacing: 0) {
-                hero
-                contentSections
+        ZStack(alignment: .top) {
+            Color.bmBase.ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    hero
+                    VStack(spacing: Space.xl) {
+                        statsCard
+                        aboutSection
+                        portfolioSection
+                        servicesSection
+                        reviewsSection
+                        footer
+                    }
+                    .padding(.top, Space.lg)
+                    .padding(.bottom, 120)
+                }
             }
-            .background(Color.appBackground)
+            .coordinateSpace(name: scrollSpace)
+            .onPreferenceChange(ScrollOffsetKey.self) { scrollY = $0 }
+            .ignoresSafeArea(edges: .top)
+
+            navBar
         }
-        .background(Color.appBackground)
-        .ignoresSafeArea(edges: .top)
         .toolbar(.hidden, for: .navigationBar)
-        .overlay(alignment: .top) {
-            topControls
-        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             bookingDock
         }
@@ -79,18 +104,22 @@ struct BraiderProfileView: View {
             WriteReviewSheet(braider: braider) {
                 Task { await loadReviews() }
             }
+            .presentationBackground(Color.bmBase)
+            .presentationCornerRadius(Radius.modal)
         }
         .sheet(isPresented: $showAllReviews) {
             AllReviewsSheet(
                 braider: braider,
                 reviews: reviews,
-                breakdown: breakdown,
+                breakdown: RatingBreakdown.from(reviews),
                 onWriteReview: {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         showWriteReview = true
                     }
                 }
             )
+            .presentationBackground(Color.bmBase)
+            .presentationCornerRadius(Radius.modal)
         }
         .fullScreenCover(isPresented: $showBooking) {
             BookingSelectionView(braider: braider)
@@ -98,1346 +127,817 @@ struct BraiderProfileView: View {
         .fullScreenCover(item: $showBookingForService) { service in
             BookingSelectionView(braider: braider, preselectServiceId: service.id)
         }
+        .fullScreenCover(item: $selectedPortfolioItem) { item in
+            PortfolioGallery(items: braider.portfolio, startItem: item, name: braider.name)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .bookingFlowFinished)) { _ in
             showBooking = false
             showBookingForService = nil
         }
-        .task {
-            await loadReviews()
-            haptics.prepare()
-            if gyroTiltEnabled { motion.start() }
-            withAnimation(.spring(response: 0.85, dampingFraction: 0.82)) { heroAppeared = true }
-            withAnimation(.spring(response: 0.85, dampingFraction: 0.85).delay(0.15)) { contentAppeared = true }
-        }
-        .onDisappear {
-            motion.stop()
-        }
+        .task { await loadReviews() }
+        .onAppear { appeared = true }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Hero
+    // MARK: - Nav bar
 
-    private var hero: some View {
-        ZStack(alignment: .bottom) {
-            Group {
-                if !braider.coverUrl.isEmpty {
-                    RemoteImage(url: braider.coverUrl, onPaletteReady: { color in
-                        ambientPalette = Color(uiColor: color)
-                    })
-                    .frame(height: 620)
-                    .clipped()
-                } else if let first = braider.portfolio.first {
-                    RemoteImage(url: first.imageUrl, onPaletteReady: { color in
-                        ambientPalette = Color(uiColor: color)
-                    })
-                    .frame(height: 620)
-                    .clipped()
-                } else {
-                    LinearGradient(
-                        colors: [Color.appSurfaceInverse, Color.appInk],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .frame(height: 620)
-                }
+    private var navBar: some View {
+        HStack(spacing: Space.sm) {
+            BMIconButton(icon: "chevron.left", size: 44, iconSize: 15) { dismiss() }
+                .accessibilityLabel("Go back")
+
+            Text(braider.name)
+                .font(.bmDisplay(19, weight: .semibold))
+                .foregroundStyle(Color.bmText)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .opacity(navOpacity)
+                .offset(y: (1 - navOpacity) * 6)
+
+            ShareLink(item: "Book \(braider.name) on BraidMe") {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.bmUI(15, weight: .semibold))
+                    .foregroundStyle(Color.bmText)
+                    .frame(width: 44, height: 44)
+                    .bmGlassCircle()
             }
-            .overlay(Color.heroVeil)
+            .buttonStyle(BMIconPressStyle())
 
-            heroContent
-                .padding(.horizontal, 24)
-                .padding(.bottom, 44)
-        }
-        .frame(height: 620)
-    }
-
-    private var heroContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Rectangle()
-                    .fill(Color.gold)
-                    .frame(width: 22, height: 1.5)
-
-                HStack(spacing: 6) {
-                    if braider.verified {
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.goldLight)
-                    }
-                    Text(braider.verified ? "VERIFIED ARTIST" : "INDEPENDENT BRAIDER")
-                        .font(.system(size: 10, weight: .bold))
-                        .tracking(3)
-                        .foregroundStyle(.white.opacity(0.92))
-                }
-            }
-            .opacity(heroAppeared ? 1 : 0)
-            .offset(y: heroAppeared ? 0 : 20)
-
-            HStack(alignment: .top, spacing: 12) {
-                Text(braider.name)
-                    .font(.system(size: 48, weight: .regular, design: .serif))
-                    .tracking(-1.8)
-                    .foregroundStyle(.white)
-                    .lineSpacing(-6)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
-
-                if braider.verified {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(Color.goldLight)
-                        .padding(.top, 12)
-                }
-            }
-            .opacity(heroAppeared ? 1 : 0)
-            .offset(y: heroAppeared ? 0 : 30)
-
-            if !braider.tagline.isEmpty {
-                Text(braider.tagline)
-                    .font(.system(size: 15, weight: .regular, design: .serif))
-                    .italic()
-                    .foregroundStyle(.white.opacity(0.88))
-                    .lineLimit(2)
-                    .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
-                    .opacity(heroAppeared ? 1 : 0)
-                    .offset(y: heroAppeared ? 0 : 30)
-            }
-
-            HStack(spacing: 8) {
-                metaPill(icon: "mappin.and.ellipse", text: braider.shortLocation)
-                metaPill(icon: "star.fill", text: ratingText, accent: true)
-                metaPill(icon: "text.bubble.fill", text: "\(ratingCount)")
-            }
-            .opacity(heroAppeared ? 1 : 0)
-            .offset(y: heroAppeared ? 0 : 30)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func metaPill(icon: String, text: String, accent: Bool = false) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(accent ? Color.goldLight : .white.opacity(0.85))
-            Text(text)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color.black.opacity(0.32), in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.22), lineWidth: 0.5))
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Top controls
-
-    private var topControls: some View {
-        HStack {
-            glassButton(icon: "chevron.left", tint: .white) {
+            Button {
                 Haptic.press()
-                haptics.play(.dismiss)
-                dismiss()
-            }
-
-            Spacer()
-
-            glassButton(
-                icon: isSaved ? "heart.fill" : "heart",
-                tint: isSaved ? Color.appAlert : .white
-            ) {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
-                    savedPulse = true
-                }
-                Haptic.press()
-                haptics.play(.select)
                 Task {
                     guard !session.uid.isEmpty else { return }
                     await fb.toggleSave(braiderId: braider.id, uid: session.uid)
-                    Haptic.success()
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
-                        savedPulse = false
-                    }
                 }
+            } label: {
+                Image(systemName: isSaved ? "heart.fill" : "heart")
+                    .font(.bmUI(16, weight: .semibold))
+                    .foregroundStyle(isSaved ? Color.bmBad : Color.bmText)
+                    .symbolEffect(.bounce, value: isSaved)
+                    .frame(width: 44, height: 44)
+                    .bmGlassCircle()
             }
-            .scaleEffect(savedPulse ? 1.2 : 1)
+            .buttonStyle(BMIconPressStyle())
+            .accessibilityLabel(isSaved ? "Remove from saved braiders" : "Save braider")
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 58)
-    }
-
-    private func glassButton(icon: String, tint: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 46, height: 46)
-                .background(Color.black.opacity(0.38), in: Circle())
-                .overlay(
-                    Circle().stroke(
-                        LinearGradient(
-                            colors: [.white.opacity(0.35), .white.opacity(0.1)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 0.8
-                    )
-                )
-        }
-        .buttonStyle(BMIconPressStyle())
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Content
-
-    private var contentSections: some View {
-        VStack(spacing: 0) {
-            metricsCard
-            bioSection
-            specialtiesMarquee
-            portfolioSection
-            servicesSection
-            reviewsSection
-            footerSection
-        }
-        .padding(.bottom, 120)
-    }
-
-    // ─── Metrics card ───
-
-    private var metricsCard: some View {
-        HStack(spacing: 0) {
-            metricCell(value: ratingText, label: "Rating", icon: "star.fill")
-            metricDivider
-            metricCell(value: "\(braider.yearsExperience)", label: "Years")
-            metricDivider
-            metricCell(value: "\(ratingCount)", label: "Reviews")
-            metricDivider
-            metricCell(value: "£\(braider.priceFrom)", label: "From")
-        }
-        .padding(.vertical, 24)
+        .padding(.horizontal, Space.md)
+        .padding(.bottom, Space.xs)
         .background {
-            RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous)
-                .fill(Color.appSurface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color.goldLight.opacity(0.35),
-                                    Color.gold.opacity(0.12),
-                                    Color.goldDeep.opacity(0.25)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 0.8
-                        )
-                )
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(Color.bmLine).frame(height: 0.6)
+                }
+                .opacity(navOpacity)
+                .ignoresSafeArea(edges: .top)
         }
-        .padding(.horizontal, 24)
-        .offset(y: -70)
-        .padding(.bottom, -70)
-        .opacity(contentAppeared ? 1 : 0)
-        .scaleEffect(contentAppeared ? 1 : 0.94)
     }
 
-    private func metricCell(value: String, label: String, icon: String? = nil) -> some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 4) {
-                if let icon {
-                    Image(systemName: icon)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.gold)
-                }
-                Text(value)
-                    .font(.system(size: 22, weight: .medium, design: .serif))
-                    .foregroundStyle(Color.appInk)
+    // MARK: - Hero
+
+    private var hero: some View {
+        ZStack(alignment: .bottomLeading) {
+            GeometryReader { geo in
+                let minY = geo.frame(in: .named(scrollSpace)).minY
+                let stretch = max(minY, 0)
+                let parallax = minY < 0 ? -minY * 0.35 : 0
+
+                heroMedia
+                    .frame(width: geo.size.width, height: heroHeight + stretch)
+                    .clipped()
+                    .scaleEffect(1 + stretch / 900, anchor: .bottom)
+                    .offset(y: -stretch + parallax)
+                    .preference(key: ScrollOffsetKey.self, value: minY)
             }
-            Text(label.uppercased())
-                .font(.system(size: 8, weight: .bold))
-                .tracking(1.5)
-                .foregroundStyle(Color.appAsh)
+
+            heroText
+        }
+        .frame(height: heroHeight)
+    }
+
+    private var heroMedia: some View {
+        ZStack {
+            if heroImageUrl.isEmpty {
+                LinearGradient(
+                    colors: [Color.bmRaised, Color.bmDeep],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                BraidMark(length: 260, thickness: 90, strand: 20, animated: true, speed: 0.5, edge: Color.bmRaised)
+                    .opacity(0.35)
+            } else {
+                RemoteImage(url: heroImageUrl)
+            }
+
+            LinearGradient(
+                stops: [
+                    .init(color: Color.black.opacity(0.5), location: 0),
+                    .init(color: Color.clear, location: 0.3),
+                    .init(color: Color.bmBase.opacity(0.35), location: 0.62),
+                    .init(color: Color.bmBase, location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+    }
+
+    private var heroText: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            HStack(spacing: 6) {
+                if braider.verified {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundStyle(LinearGradient.bmGiltGradient)
+                    Text("Verified braider")
+                } else {
+                    Image(systemName: "scissors")
+                        .foregroundStyle(Color.bmGilt)
+                    Text("Independent braider")
+                }
+            }
+            .font(.bmUI(12, weight: .bold))
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, Space.sm)
+            .frame(height: 30)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.7))
+            .reveal(appeared, delay: 0.05, offset: 12, blur: 0)
+
+            HStack(alignment: .bottom, spacing: Space.md) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(braider.name)
+                        .font(.bmDisplay(42, weight: .semibold))
+                        .foregroundStyle(Color.white)
+                        .lineSpacing(-4)
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(2)
+
+                    if !braider.tagline.isEmpty {
+                        Text(braider.tagline)
+                            .font(.bmUI(15, weight: .medium))
+                            .foregroundStyle(Color.white.opacity(0.85))
+                            .lineLimit(2)
+                    }
+
+                    HStack(spacing: Space.sm) {
+                        Label(braider.city, systemImage: "mappin.and.ellipse")
+                        HStack(spacing: 4) {
+                            Image(systemName: "star.fill")
+                                .foregroundStyle(Color.bmGilt)
+                            Text(ratingText).fontWeight(.bold)
+                            Text("(\(ratingCount))")
+                                .foregroundStyle(Color.white.opacity(0.7))
+                        }
+                    }
+                    .font(.bmUI(13, weight: .medium))
+                    .foregroundStyle(Color.white)
+                    .padding(.top, 2)
+                }
+                .reveal(appeared, delay: 0.12, offset: 20, blur: 8)
+
+                Spacer(minLength: 0)
+
+                if !braider.avatarUrl.isEmpty {
+                    BMAvatar(url: braider.avatarUrl, size: 64, ringed: true, initials: bmInitials(braider.name))
+                        .shadow(color: Color.black.opacity(0.4), radius: 16, y: 8)
+                        .reveal(appeared, delay: 0.2, offset: 10, blur: 0)
+                }
+            }
+        }
+        .padding(.horizontal, Space.lg)
+        .padding(.bottom, Space.lg)
+    }
+
+    // MARK: - Stats
+
+    private var statsCard: some View {
+        HStack(spacing: 0) {
+            metric(label: "Rating") {
+                HStack(spacing: 4) {
+                    Image(systemName: "star.fill")
+                        .font(.bmUI(13, weight: .bold))
+                        .foregroundStyle(Color.bmGilt)
+                    Text(ratingText)
+                }
+            }
+            metricDivider
+            metric(label: "Reviews") { CountUpText(target: ratingCount) }
+            metricDivider
+            metric(label: "Services") { CountUpText(target: braider.services.count) }
+            metricDivider
+            metric(label: "From") { CountUpText(target: braider.priceFrom, prefix: "£") }
+        }
+        .padding(.vertical, Space.md)
+        .bmCard(radius: Radius.card)
+        .padding(.horizontal, Space.lg)
+        .reveal(appeared, delay: 0.1, offset: 24, blur: 0)
+    }
+
+    private func metric<V: View>(label: String, @ViewBuilder value: () -> V) -> some View {
+        VStack(spacing: 4) {
+            value()
+                .font(.bmNum(21, weight: .bold))
+                .foregroundStyle(Color.bmText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(label)
+                .font(.bmUI(12, weight: .medium))
+                .foregroundStyle(Color.bmTextDim)
         }
         .frame(maxWidth: .infinity)
     }
 
     private var metricDivider: some View {
         Rectangle()
-            .fill(
+            .fill(Color.bmLine)
+            .frame(width: 0.6, height: 34)
+    }
+
+    // MARK: - About
+
+    private var aboutSection: some View {
+        VStack(alignment: .leading, spacing: Space.md) {
+            if !braider.bio.isEmpty {
+                BMSectionHeading(title: "About \(firstName)")
+
+                Text(braider.bio)
+                    .font(.bmUI(16))
+                    .foregroundStyle(Color.bmText.opacity(0.85))
+                    .lineSpacing(6)
+                    .lineLimit(bioExpanded ? nil : 5)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .animation(Motion.sheet, value: bioExpanded)
+
+                if braider.bio.count > 220 {
+                    Button {
+                        Haptic.select()
+                        bioExpanded.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(bioExpanded ? "Show less" : "Read more")
+                            Image(systemName: bioExpanded ? "chevron.up" : "chevron.down")
+                                .font(.bmUI(10, weight: .bold))
+                        }
+                        .font(.bmUI(14, weight: .bold))
+                        .foregroundStyle(Color.bmGilt)
+                    }
+                }
+            }
+
+            quickFacts
+
+            if !braider.specialties.isEmpty {
+                FlowLayout(spacing: Space.xs) {
+                    ForEach(braider.specialties, id: \.self) { specialty in
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(LinearGradient.bmBraidGradient)
+                                .frame(width: 6, height: 6)
+                            Text(specialty)
+                                .font(.bmUI(13, weight: .semibold))
+                                .foregroundStyle(Color.bmText)
+                        }
+                        .padding(.horizontal, Space.sm)
+                        .frame(height: 36)
+                        .bmGlass(radius: 18)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if !braider.story.isEmpty {
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    Image(systemName: "quote.opening")
+                        .font(.bmUI(18, weight: .bold))
+                        .foregroundStyle(LinearGradient.bmGiltGradient)
+                    Text(braider.story)
+                        .font(.bmDisplay(18, weight: .regular))
+                        .foregroundStyle(Color.bmText.opacity(0.9))
+                        .lineSpacing(5)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(Space.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .bmCard(radius: Radius.card)
+            }
+        }
+        .padding(.horizontal, Space.lg)
+    }
+
+    private var quickFacts: some View {
+        HStack(spacing: Space.sm) {
+            if braider.yearsExperience > 0 {
+                fact(icon: "scissors", text: "\(braider.yearsExperience) yr\(braider.yearsExperience == 1 ? "" : "s") experience", tint: Color.bmGilt)
+            }
+            if !braider.responseTime.isEmpty {
+                fact(icon: "bolt.fill", text: "Replies \(braider.responseTime)", tint: Color.bmOrchid)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func fact(icon: String, text: String, tint: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.bmUI(11, weight: .bold))
+            Text(text)
+                .font(.bmUI(12, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, Space.sm)
+        .frame(height: 32)
+        .background(tint.opacity(0.13), in: Capsule())
+    }
+
+    // MARK: - Portfolio
+
+    private var portfolioSection: some View {
+        VStack(alignment: .leading, spacing: Space.md) {
+            BMSectionHeading(
+                title: "Portfolio",
+                subtitle: braider.portfolio.isEmpty ? nil : "\(braider.portfolio.count) recent styles"
+            )
+            .padding(.horizontal, Space.lg)
+
+            if braider.portfolio.isEmpty {
+                emptyBlock(
+                    icon: "camera",
+                    title: "Portfolio coming soon",
+                    message: "New styles from \(firstName) will appear here."
+                )
+                .padding(.horizontal, Space.lg)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: Space.sm) {
+                        ForEach(braider.portfolio) { item in
+                            portfolioCard(item)
+                                .scrollTransition(axis: .horizontal) { content, phase in
+                                    content
+                                        .scaleEffect(phase.isIdentity ? 1 : 0.9)
+                                        .opacity(phase.isIdentity ? 1 : 0.55)
+                                        .blur(radius: phase.isIdentity ? 0 : 2)
+                                }
+                        }
+                    }
+                    .scrollTargetLayout()
+                    .padding(.horizontal, Space.lg)
+                }
+                .scrollTargetBehavior(.viewAligned)
+            }
+        }
+    }
+
+    private func portfolioCard(_ item: PortfolioItem) -> some View {
+        Button {
+            Haptic.select()
+            selectedPortfolioItem = item
+        } label: {
+            ZStack(alignment: .bottomLeading) {
+                RemoteImage(url: item.imageUrl)
+                    .frame(width: 236, height: 320)
+                    .clipped()
+
                 LinearGradient(
-                    colors: [
-                        Color.gold.opacity(0),
-                        Color.gold.opacity(0.35),
-                        Color.gold.opacity(0)
+                    stops: [
+                        .init(color: .clear, location: 0.45),
+                        .init(color: Color.black.opacity(0.8), location: 1)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    if !item.tag.isEmpty {
+                        Text(item.tag)
+                            .font(.bmUI(11, weight: .bold))
+                            .foregroundStyle(Color.bmOnGilt)
+                            .padding(.horizontal, 9)
+                            .frame(height: 22)
+                            .background(LinearGradient.bmGiltGradient, in: Capsule())
+                    }
+                    if !item.caption.isEmpty {
+                        Text(item.caption)
+                            .font(.bmDisplay(17, weight: .medium))
+                            .foregroundStyle(Color.white)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+                .padding(Space.md)
+            }
+            .frame(width: 236, height: 320)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
             )
-            .frame(width: 0.5, height: 40)
-    }
-
-    // ─── Bio ───
-
-    private var bioSection: some View {
-        Group {
-            if !braider.bio.isEmpty {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(spacing: 12) {
-                        Text("01")
-                            .font(.system(size: 42, weight: .regular, design: .serif))
-                            .foregroundStyle(Color.gold.opacity(0.35))
-                            .tracking(-2)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Rectangle()
-                                .fill(Color.gold)
-                                .frame(width: 24, height: 1.5)
-                            Text("THE ARTIST")
-                                .font(.system(size: 10, weight: .bold))
-                                .tracking(3)
-                                .foregroundStyle(Color.appAsh)
-                        }
-                        Spacer()
+            .overlay(alignment: .topTrailing) {
+                if item.likes > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "heart.fill")
+                            .font(.bmUI(10, weight: .bold))
+                            .foregroundStyle(Color.bmBad)
+                        Text("\(item.likes)")
+                            .font(.bmNum(11, weight: .bold))
+                            .foregroundStyle(Color.white)
                     }
-
-                    HStack(alignment: .top, spacing: 16) {
-                        Rectangle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.gold, Color.gold.opacity(0.15)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .frame(width: 3)
-                            .frame(maxHeight: .infinity)
-
-                        Text(braider.bio)
-                            .font(.system(size: 18, weight: .regular, design: .serif))
-                            .foregroundStyle(Color.appInk.opacity(0.92))
-                            .lineSpacing(9)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 24)
-                .padding(.top, 36)
-            }
-        }
-    }
-
-    // ─── Specialties marquee ───
-
-    private var specialtiesMarquee: some View {
-        Group {
-            if !braider.specialties.isEmpty {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 10) {
-                        Rectangle()
-                            .fill(Color.gold)
-                            .frame(width: 24, height: 1.5)
-                        Text("SIGNATURES")
-                            .font(.system(size: 10, weight: .bold))
-                            .tracking(3)
-                            .foregroundStyle(Color.appAsh)
-                    }
-                    .padding(.horizontal, 24)
-
-                    MarqueeView(items: braider.specialties, spacing: 10)
-                }
-                .padding(.top, 34)
-            }
-        }
-    }
-
-    // ─── Portfolio (redesigned, scroll works) ───
-
-    private var portfolioSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Rectangle()
-                        .fill(Color.gold)
-                        .frame(width: 24, height: 1.5)
-                    Text("SELECTED WORK")
-                        .font(.system(size: 10, weight: .bold))
-                        .tracking(3)
-                        .foregroundStyle(Color.appAsh)
-                }
-                Text("The portfolio")
-                    .font(.system(size: 34, weight: .regular, design: .serif))
-                    .tracking(-0.8)
-                    .foregroundStyle(Color.appInk)
-            }
-            .padding(.horizontal, 24)
-
-            if braider.portfolio.isEmpty {
-                portfolioEmpty
-                    .padding(.horizontal, 24)
-            } else {
-                portfolioCarousel
-            }
-        }
-        .padding(.top, 44)
-        .fullScreenCover(item: $selectedPortfolioItem) { item in
-            PortfolioLightbox(item: item, name: braider.name)
-        }
-    }
-
-    private var portfolioEmpty: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.gold.opacity(0.12))
-                    .frame(width: 48, height: 48)
-                Image(systemName: "camera")
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(Color.gold)
-            }
-            Text("Portfolio coming soon")
-                .font(.system(size: 20, weight: .regular, design: .serif))
-                .foregroundStyle(Color.appInk)
-            Text("New styles from \(braider.firstName) will appear here.")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.appAsh)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(24)
-        .background(Color.appSurface)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous)
-                .stroke(Color.appDivider, lineWidth: 0.5)
-        )
-    }
-
-    private var portfolioCarousel: some View {
-        VStack(spacing: 14) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 16) {
-                    ForEach(Array(braider.portfolio.enumerated()), id: \.element.id) { index, item in
-                        PortfolioCardClean(
-                            item: item,
-                            index: index,
-                            onTap: {
-                                Haptic.select()
-                                haptics.play(.select)
-                                selectedPortfolioItem = item
-                            }
-                        )
-                    }
-                }
-                .scrollTargetLayout()
-                .padding(.horizontal, 40)
-            }
-            .scrollTargetBehavior(.viewAligned)
-            .frame(height: 420)
-
-            // Page dots
-            HStack(spacing: 6) {
-                ForEach(0..<braider.portfolio.count, id: \.self) { i in
-                    Circle()
-                        .fill(i == selectedPortfolioIndex ? Color.gold : Color.appDivider)
-                        .frame(width: i == selectedPortfolioIndex ? 7 : 5,
-                               height: i == selectedPortfolioIndex ? 7 : 5)
-                        .animation(.spring(response: 0.35, dampingFraction: 0.65), value: selectedPortfolioIndex)
+                    .padding(.horizontal, 9)
+                    .frame(height: 26)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(Space.sm)
                 }
             }
         }
+        .buttonStyle(BMPressStyle(scale: 0.97, dim: 0.02))
     }
 
-    // ─── Services ───
+    // MARK: - Services
 
     private var servicesSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Rectangle()
-                        .fill(Color.gold)
-                        .frame(width: 24, height: 1.5)
-                    Text("CRAFTED SESSIONS")
-                        .font(.system(size: 10, weight: .bold))
-                        .tracking(3)
-                        .foregroundStyle(Color.appAsh)
-                }
-                Text("Services")
-                    .font(.system(size: 34, weight: .regular, design: .serif))
-                    .tracking(-0.8)
-                    .foregroundStyle(Color.appInk)
-            }
-            .padding(.horizontal, 24)
+        VStack(alignment: .leading, spacing: Space.md) {
+            BMSectionHeading(
+                title: "Services",
+                subtitle: braider.services.isEmpty ? nil : "Tap a style to book it"
+            )
+            .padding(.horizontal, Space.lg)
 
             if braider.services.isEmpty {
-                servicesEmpty
-                    .padding(.horizontal, 24)
+                emptyBlock(
+                    icon: "calendar",
+                    title: "Services coming soon",
+                    message: "Check back soon for available styles and appointments."
+                )
+                .padding(.horizontal, Space.lg)
             } else {
-                VStack(spacing: 14) {
-                    ForEach(Array(braider.services.enumerated()), id: \.element.id) { index, service in
-                        ServiceCardFull(
-                            service: service,
-                            onTap: {
-                                Haptic.press()
-                                haptics.play(.select)
-                                showBookingForService = service
-                            }
-                        )
-                        .opacity(contentAppeared ? 1 : 0)
-                        .offset(y: contentAppeared ? 0 : 20)
-                        .animation(
-                            .spring(response: 0.55, dampingFraction: 0.82)
-                                .delay(Double(index) * 0.05),
-                            value: contentAppeared
-                        )
+                VStack(spacing: Space.sm) {
+                    ForEach(braider.services) { service in
+                        serviceRow(service)
                     }
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, Space.lg)
             }
         }
-        .padding(.top, 44)
     }
 
-    private var servicesEmpty: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.gold.opacity(0.12))
-                    .frame(width: 48, height: 48)
-                Image(systemName: "calendar")
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(Color.gold)
+    private func serviceRow(_ service: BraidService) -> some View {
+        Button {
+            Haptic.select()
+            showBookingForService = service
+        } label: {
+            HStack(spacing: Space.md) {
+                ZStack {
+                    if service.imageUrl.isEmpty {
+                        LinearGradient(
+                            colors: [Color.bmRaised, Color.bmSurface],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        Image(systemName: "sparkles")
+                            .font(.bmUI(22, weight: .light))
+                            .foregroundStyle(LinearGradient.bmGiltGradient)
+                    } else {
+                        RemoteImage(url: service.imageUrl)
+                    }
+                }
+                .frame(width: 84, height: 96)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 6) {
+                    if service.popular {
+                        HStack(spacing: 4) {
+                            Image(systemName: "flame.fill")
+                            Text("Signature style")
+                        }
+                        .font(.bmUI(11, weight: .bold))
+                        .foregroundStyle(Color.bmEmber)
+                    }
+                    Text(service.name)
+                        .font(.bmDisplay(19, weight: .semibold))
+                        .foregroundStyle(Color.bmText)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+                    HStack(spacing: Space.sm) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock")
+                                .font(.bmUI(11, weight: .semibold))
+                            Text("\(service.durationMinutes / 60)h \(service.durationMinutes % 60)m")
+                                .font(.bmUI(12, weight: .medium))
+                        }
+                        .foregroundStyle(Color.bmTextDim)
+                        Text("from £\(service.priceFrom)")
+                            .font(.bmNum(14, weight: .bold))
+                            .foregroundStyle(Color.bmGilt)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "arrow.up.right")
+                    .font(.bmUI(13, weight: .bold))
+                    .foregroundStyle(Color.bmGilt)
+                    .frame(width: 38, height: 38)
+                    .background(Color.bmGilt.opacity(0.14), in: Circle())
             }
-            Text("Services coming soon")
-                .font(.system(size: 20, weight: .regular, design: .serif))
-                .foregroundStyle(Color.appInk)
-            Text("Check back soon for available styles and appointments.")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.appAsh)
-                .lineSpacing(4)
+            .padding(Space.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .bmCard(radius: Radius.card)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(24)
-        .background(Color.appSurface)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous)
-                .stroke(Color.appDivider, lineWidth: 0.5)
-        )
+        .buttonStyle(BMPressStyle(scale: 0.98, dim: 0.02))
     }
 
-    // ─── Reviews ───
+    // MARK: - Reviews
 
     private var reviewsSection: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        Rectangle()
-                            .fill(Color.gold)
-                            .frame(width: 24, height: 1.5)
-                        Text("THE RECORD")
-                            .font(.system(size: 10, weight: .bold))
-                            .tracking(3)
-                            .foregroundStyle(Color.appAsh)
-                    }
-                    Text("Kind words")
-                        .font(.system(size: 34, weight: .regular, design: .serif))
-                        .tracking(-0.8)
-                        .foregroundStyle(Color.appInk)
-                }
-                Spacer()
+        VStack(alignment: .leading, spacing: Space.md) {
+            BMSectionHeading(
+                title: "Reviews",
+                subtitle: reviews.isEmpty ? nil : "From verified clients"
+            ) {
                 if !reviews.isEmpty {
                     Button {
-                        Haptic.press()
-                        haptics.play(.select)
+                        Haptic.select()
                         showAllReviews = true
                     } label: {
-                        HStack(spacing: 5) {
-                            Text("All \(reviews.count)")
+                        HStack(spacing: 4) {
+                            Text("See all")
                             Image(systemName: "arrow.up.right")
+                                .font(.bmUI(10, weight: .bold))
                         }
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color.appInk)
+                        .font(.bmUI(13, weight: .bold))
+                        .foregroundStyle(Color.bmGilt)
                     }
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, Space.lg)
 
             if reviewsLoading {
-                ProgressView()
-                    .tint(Color.gold)
-                    .scaleEffect(1.1)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
+                VStack(spacing: Space.sm) {
+                    BMSkeleton(height: 120, cornerRadius: Radius.card)
+                    BMSkeleton(height: 90, cornerRadius: Radius.card)
+                }
+                .padding(.horizontal, Space.lg)
             } else if reviews.isEmpty {
-                reviewsEmpty
-                    .padding(.horizontal, 24)
-            } else {
-                RatingSummaryBlock(
-                    ratingText: ratingText,
-                    reviewCount: reviews.count,
-                    breakdown: breakdown
+                emptyBlock(
+                    icon: "quote.opening",
+                    title: "The first word is yours",
+                    message: "No reviews yet. Book an appointment and share your experience."
                 )
-                .padding(.horizontal, 24)
+                .padding(.horizontal, Space.lg)
+            } else {
+                ratingSummary
+                    .padding(.horizontal, Space.lg)
 
-                VStack(spacing: 0) {
-                    ForEach(Array(reviews.prefix(3).enumerated()), id: \.element.id) { index, review in
-                        EditorialReviewCard(review: review)
-                            .padding(.horizontal, 24)
-
-                        if index < min(reviews.count, 3) - 1 {
-                            Rectangle()
-                                .fill(Color.appDivider)
-                                .frame(height: 0.5)
-                                .padding(.horizontal, 24)
-                        }
+                VStack(spacing: Space.sm) {
+                    ForEach(Array(reviews.prefix(3))) { review in
+                        SheetReviewRow(review: review)
+                            .bmCard(radius: Radius.card)
                     }
                 }
+                .padding(.horizontal, Space.lg)
 
                 if reviews.count > 3 {
-                    Button {
-                        Haptic.press()
-                        haptics.play(.select)
+                    BMSecondaryButton(title: "Read all \(reviews.count) reviews", icon: "text.bubble") {
                         showAllReviews = true
-                    } label: {
-                        HStack {
-                            Text("Read all \(reviews.count) reviews")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color.appInk)
-                            Spacer()
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(Color.appInk)
-                        }
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 20)
                     }
+                    .padding(.horizontal, Space.lg)
                 }
             }
 
             Button {
                 Haptic.press()
-                haptics.play(.select)
                 showWriteReview = true
             } label: {
-                HStack(spacing: 10) {
+                HStack(spacing: Space.xs) {
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 14, weight: .semibold))
-                    Text("Write about your visit")
-                        .font(.system(size: 14, weight: .semibold))
+                    Text("Share your experience")
                 }
-                .foregroundStyle(Color.goldInk)
+                .font(.bmUI(15, weight: .bold))
+                .foregroundStyle(Color.bmGilt)
                 .frame(maxWidth: .infinity)
-                .frame(height: 56)
-                .background(Color.gold.opacity(0.10))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(height: 54)
+                .background(Color.bmGilt.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.gold.opacity(0.5), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                        .strokeBorder(Color.bmGilt.opacity(0.35), lineWidth: 1)
                 )
             }
-            .buttonStyle(BMSquirclePressStyle())
-            .padding(.horizontal, 24)
+            .buttonStyle(BMPressStyle())
+            .padding(.horizontal, Space.lg)
         }
-        .padding(.top, 44)
     }
 
-    private var reviewsEmpty: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.gold.opacity(0.12))
-                    .frame(width: 48, height: 48)
-                Image(systemName: "quote.opening")
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(Color.gold)
+    private var ratingSummary: some View {
+        let breakdown = RatingBreakdown.from(reviews)
+        return HStack(alignment: .center, spacing: Space.lg) {
+            VStack(spacing: 6) {
+                Text(ratingText)
+                    .font(.bmDisplay(54, weight: .semibold))
+                    .foregroundStyle(LinearGradient.bmGiltGradient)
+                BMStars(rating: ratingValue, size: 12)
+                Text("\(reviews.count) review\(reviews.count == 1 ? "" : "s")")
+                    .font(.bmUI(12, weight: .medium))
+                    .foregroundStyle(Color.bmTextDim)
             }
-            Text("The first word is yours")
-                .font(.system(size: 20, weight: .regular, design: .serif))
-                .foregroundStyle(Color.appInk)
-            Text("There are no reviews yet. Book an appointment and share your experience.")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.appAsh)
-                .lineSpacing(4)
+            .frame(width: 112)
+
+            VStack(spacing: 8) {
+                ForEach([5, 4, 3, 2, 1], id: \.self) { star in
+                    ratingBar(star: star, count: breakdownCount(star, breakdown), total: breakdown.total)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(24)
-        .background(Color.appSurface)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous)
-                .stroke(Color.appDivider, lineWidth: 0.5)
-        )
+        .padding(Space.md)
+        .bmCard(radius: Radius.card)
     }
 
-    private var footerSection: some View {
-        VStack(spacing: 8) {
-            Text("BRAIDME")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(4)
-                .foregroundStyle(Color.appAsh)
+    private func ratingBar(star: Int, count: Int, total: Int) -> some View {
+        let ratio: CGFloat = total > 0 ? CGFloat(count) / CGFloat(total) : 0
+        return HStack(spacing: Space.xs) {
+            Text("\(star)")
+                .font(.bmNum(11, weight: .semibold))
+                .foregroundStyle(Color.bmTextDim)
+                .frame(width: 10)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.08))
+                    Capsule()
+                        .fill(LinearGradient.bmBraidGradient)
+                        .frame(width: geo.size.width * (barsIn ? ratio : 0))
+                        .animation(
+                            Motion.reveal.delay(Double(5 - star) * 0.07),
+                            value: barsIn
+                        )
+                }
+            }
+            .frame(height: 6)
+            Text("\(count)")
+                .font(.bmNum(11, weight: .medium))
+                .foregroundStyle(Color.bmTextDim)
+                .frame(width: 22, alignment: .trailing)
+        }
+    }
+
+    private func breakdownCount(_ stars: Int, _ b: RatingBreakdown) -> Int {
+        switch stars {
+        case 5: return b.five
+        case 4: return b.four
+        case 3: return b.three
+        case 2: return b.two
+        default: return b.one
+        }
+    }
+
+    // MARK: - Shared
+
+    private func emptyBlock(icon: String, title: String, message: String) -> some View {
+        HStack(alignment: .top, spacing: Space.md) {
+            Image(systemName: icon)
+                .font(.bmUI(18, weight: .medium))
+                .foregroundStyle(LinearGradient.bmGiltGradient)
+                .frame(width: 42, height: 42)
+                .background(Color.bmGilt.opacity(0.12), in: Circle())
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.bmDisplay(18, weight: .semibold))
+                    .foregroundStyle(Color.bmText)
+                Text(message)
+                    .font(.bmUI(13))
+                    .foregroundStyle(Color.bmTextDim)
+                    .lineSpacing(3)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bmCard(radius: Radius.card)
+    }
+
+    private var footer: some View {
+        VStack(spacing: Space.xs) {
+            BraidMark(length: 60, thickness: 26, strand: 6, horizontal: true, cycles: 1.4)
             Text("Good hair. Great feeling.")
-                .font(.system(size: 12, weight: .regular, design: .serif))
+                .font(.bmDisplay(14, weight: .regular))
                 .italic()
-                .foregroundStyle(Color.appAsh)
+                .foregroundStyle(Color.bmTextFaint)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 60)
-        .padding(.bottom, 30)
+        .padding(.top, Space.md)
     }
 
-    // ═══════════════════════════════════════════════════════════════
     // MARK: - Booking dock
 
     private var bookingDock: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("FROM")
-                    .font(.system(size: 8, weight: .bold))
-                    .tracking(1.8)
-                    .foregroundStyle(Color.appAsh)
+        HStack(spacing: Space.md) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Starting from")
+                    .font(.bmUI(12, weight: .medium))
+                    .foregroundStyle(Color.bmTextDim)
                 Text("£\(braider.priceFrom)")
-                    .font(.system(size: 28, weight: .regular, design: .serif))
-                    .tracking(-0.5)
-                    .foregroundStyle(Color.appInk)
+                    .font(.bmNum(28, weight: .bold))
+                    .foregroundStyle(Color.bmText)
             }
-            Spacer()
-
+            Spacer(minLength: 0)
             Button {
                 Haptic.press()
-                haptics.play(.pinExpand)
                 showBooking = true
             } label: {
-                HStack(spacing: 10) {
-                    Text("Book now")
-                        .font(.system(size: 14, weight: .semibold))
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 12, weight: .bold))
+                HStack(spacing: Space.xs) {
+                    Text("Book appointment")
+                        .font(.bmUI(15, weight: .bold))
+                    Image(systemName: "arrow.right")
+                        .font(.bmUI(13, weight: .bold))
                 }
-                .foregroundStyle(Color.goldLight)
-                .padding(.horizontal, 24)
-                .frame(height: 56)
-                .background(Color.appInk)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color.goldLight.opacity(0.6),
-                                    Color.gold.opacity(0.3),
-                                    Color.goldDeep.opacity(0.5)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                )
+                .foregroundStyle(Color.bmOnGilt)
+                .padding(.horizontal, Space.lg)
+                .frame(height: 54)
+                .background(LinearGradient.bmGiltGradient, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.4), lineWidth: 0.8))
+                .shadow(color: Color.bmGilt.opacity(0.35), radius: 14, y: 6)
             }
-            .buttonStyle(BMSquirclePressStyle())
+            .buttonStyle(BMPressStyle())
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 14)
-        .padding(.bottom, 10)
-        .background {
-            ZStack {
-                Color.glassTintStrong.ignoresSafeArea()
-                VStack {
-                    Rectangle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.clear,
-                                    Color.gold.opacity(0.4),
-                                    Color.clear
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(height: 0.8)
-                    Spacer()
-                }
-                .ignoresSafeArea()
-            }
-        }
+        .padding(.leading, Space.lg)
+        .padding(.trailing, Space.sm)
+        .padding(.vertical, Space.sm)
+        .bmGlass(radius: 40, tint: Color.black.opacity(0.28))
+        .shadow(color: Color.black.opacity(0.4), radius: 24, y: 10)
+        .padding(.horizontal, Space.md)
+        .padding(.bottom, Space.xs)
     }
 
-    // ═══════════════════════════════════════════════════════════════
     // MARK: - Data
 
     private func loadReviews() async {
-        await MainActor.run { reviewsLoading = true }
+        await MainActor.run {
+            reviewsLoading = true
+            barsIn = false
+        }
         let fetched = await FirebaseManager.shared.fetchReviews(braiderId: braider.id)
         await MainActor.run {
             reviews = fetched
             reviewsLoading = false
         }
+        try? await Task.sleep(nanoseconds: 250_000_000)
+        await MainActor.run { barsIn = true }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Portfolio Card — zero gestures, scroll works
-// ═══════════════════════════════════════════════════════════════════
+// =============================================================================
+// MARK: - Review row
+// =============================================================================
 
-struct PortfolioCardClean: View {
-    let item: PortfolioItem
-    let index: Int
-    let onTap: () -> Void
-
-    private let cardWidth: CGFloat = 300
-    private let cardHeight: CGFloat = 400
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ZStack(alignment: .topLeading) {
-                // Image
-                RemoteImage(url: item.imageUrl)
-                    .frame(width: cardWidth, height: cardHeight)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-                // Gradient
-                LinearGradient(
-                    colors: [.clear, .clear, .black.opacity(0.55)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .allowsHitTesting(false)
-
-                // Number
-                Text(String(format: "%02d", index + 1))
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .padding(16)
-                    .allowsHitTesting(false)
-
-                // Gold border
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.goldLight.opacity(0.55),
-                                Color.gold.opacity(0.15),
-                                Color.goldDeep.opacity(0.4)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-                    .allowsHitTesting(false)
-            }
-            .frame(width: cardWidth, height: cardHeight)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                onTap()
-            }
-
-            // Caption below
-            VStack(alignment: .leading, spacing: 5) {
-                if !item.tag.isEmpty {
-                    Text(item.tag.uppercased())
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(1.5)
-                        .foregroundStyle(Color.gold)
-                }
-                if !item.caption.isEmpty {
-                    Text(item.caption)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color.appInk)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                }
-            }
-            .frame(width: cardWidth, alignment: .leading)
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Service Card — full bleed
-// ═══════════════════════════════════════════════════════════════════
-
-struct ServiceCardFull: View {
-    let service: BraidService
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 0) {
-                ZStack(alignment: .topTrailing) {
-                    Group {
-                        if !service.imageUrl.isEmpty {
-                            RemoteImage(url: service.imageUrl)
-                                .frame(height: 200)
-                                .frame(maxWidth: .infinity)
-                                .clipped()
-                        } else {
-                            LinearGradient(
-                                colors: [
-                                    Color.gold.opacity(0.18),
-                                    Color.goldDeep.opacity(0.10)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                            .frame(height: 200)
-                        }
-                    }
-                    .overlay(
-                        LinearGradient(
-                            colors: [.clear, .black.opacity(0.75)],
-                            startPoint: .center,
-                            endPoint: .bottom
-                        )
-                    )
-
-                    if service.popular {
-                        Text("SIGNATURE")
-                            .font(.system(size: 9, weight: .bold))
-                            .tracking(2)
-                            .foregroundStyle(Color.goldInk)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                LinearGradient(
-                                    colors: [Color.goldLight, Color.gold],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                ),
-                                in: Capsule()
-                            )
-                            .overlay(Capsule().stroke(.white.opacity(0.3), lineWidth: 0.5))
-                            .padding(12)
-                    }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Spacer()
-                        Text(service.name)
-                            .font(.system(size: 24, weight: .medium, design: .serif))
-                            .foregroundStyle(.white)
-                        HStack(spacing: 12) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "clock")
-                                    .font(.system(size: 9))
-                                Text(service.durationText)
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .foregroundStyle(.white.opacity(0.85))
-
-                            Text("·").foregroundStyle(.white.opacity(0.5))
-
-                            Text("£\(service.priceFrom)")
-                                .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(Color.goldLight)
-                        }
-                    }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .clipShape(
-                    .rect(
-                        topLeadingRadius: 16,
-                        bottomLeadingRadius: 0,
-                        bottomTrailingRadius: 0,
-                        topTrailingRadius: 16
-                    )
-                )
-
-                if !service.includes.isEmpty {
-                    HStack(spacing: 14) {
-                        ForEach(service.includes.prefix(3), id: \.self) { item in
-                            HStack(spacing: 4) {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(Color.gold)
-                                Text(item)
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundStyle(Color.appInkSecondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Color.appInk)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color.appSurface)
-                }
-            }
-            .background(Color.appSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.goldLight.opacity(0.35),
-                                Color.gold.opacity(0.10),
-                                Color.goldDeep.opacity(0.25)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 0.8
-                    )
-            )
-        }
-        .buttonStyle(BMSquirclePressStyle())
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Rating Summary
-// ═══════════════════════════════════════════════════════════════════
-
-struct RatingSummaryBlock: View {
-    let ratingText: String
-    let reviewCount: Int
-    let breakdown: RatingBreakdown
-
-    @State private var barAppeared = false
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 26) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(ratingText)
-                    .font(.system(size: 72, weight: .regular, design: .serif))
-                    .tracking(-3)
-                    .foregroundStyle(Color.appInk)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-
-                HStack(spacing: 3) {
-                    ForEach(0..<5, id: \.self) { i in
-                        Image(systemName: Double(i) < breakdown.average.rounded() ? "star.fill" : "star")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Color.gold)
-                    }
-                }
-
-                Text("\(reviewCount) verified")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.appAsh)
-                    .padding(.top, 4)
-            }
-            .frame(width: 150, alignment: .leading)
-
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.gold.opacity(0),
-                            Color.gold.opacity(0.4),
-                            Color.gold.opacity(0)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(width: 0.5, height: 100)
-
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach([5, 4, 3, 2, 1], id: \.self) { star in
-                    HStack(spacing: 10) {
-                        Text("\(star)")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundStyle(Color.appAsh)
-                            .frame(width: 8)
-
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(Color.appDivider)
-                                Capsule()
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [Color.gold, Color.goldDeep],
-                                            startPoint: .leading,
-                                            endPoint: .trailing
-                                        )
-                                    )
-                                    .frame(
-                                        width: geo.size.width * (barAppeared ? breakdown.ratio(for: star) : 0)
-                                    )
-                            }
-                        }
-                        .frame(height: 5)
-
-                        Text("\(breakdown.count(for: star))")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(Color.appAsh)
-                            .frame(width: 22, alignment: .trailing)
-                    }
-                }
-            }
-        }
-        .padding(24)
-        .background(Color.appSurface)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.squircle, style: .continuous)
-                .stroke(Color.appDivider, lineWidth: 0.5)
-        )
-        .onAppear {
-            withAnimation(.spring(response: 0.9, dampingFraction: 0.85).delay(0.2)) {
-                barAppeared = true
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Editorial Review Card
-// ═══════════════════════════════════════════════════════════════════
-
-struct EditorialReviewCard: View {
+struct SheetReviewRow: View {
     let review: Review
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                if review.userAvatar.isEmpty {
-                    Circle()
-                        .fill(Color.gold.opacity(0.15))
-                        .frame(width: 44, height: 44)
-                        .overlay(
-                            Text(review.initials)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color.gold)
-                        )
-                } else {
-                    RemoteImage(url: review.userAvatar)
-                        .frame(width: 44, height: 44)
-                        .clipShape(Circle())
-                }
-
-                VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            HStack(spacing: Space.sm) {
+                BMAvatar(url: review.userAvatar, size: 42, initials: bmInitials(review.userName))
+                VStack(alignment: .leading, spacing: 4) {
                     Text(review.userName)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color.appInk)
+                        .font(.bmUI(15, weight: .bold))
+                        .foregroundStyle(Color.bmText)
                         .lineLimit(1)
-
-                    HStack(spacing: 8) {
-                        HStack(spacing: 2) {
-                            ForEach(0..<5, id: \.self) { i in
-                                Image(systemName: Double(i) < review.rating.rounded() ? "star.fill" : "star")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(Color.gold)
-                            }
-                        }
+                    HStack(spacing: Space.xs) {
+                        BMStars(rating: review.rating, size: 10, spacing: 1)
                         Text(review.dateString)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.appAsh)
+                            .font(.bmUI(12))
+                            .foregroundStyle(Color.bmTextDim)
                     }
                 }
-                Spacer()
+                Spacer(minLength: 0)
             }
 
             Text(review.text)
-                .font(.system(size: 16, weight: .regular, design: .serif))
-                .foregroundStyle(Color.appInk.opacity(0.92))
-                .lineSpacing(8)
+                .font(.bmUI(15))
+                .foregroundStyle(Color.bmText.opacity(0.88))
+                .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if !review.styleDone.isEmpty {
-                HStack(spacing: 5) {
-                    Image(systemName: "scissors")
-                        .font(.system(size: 9, weight: .semibold))
-                    Text(review.styleDone)
-                        .font(.system(size: 10, weight: .semibold))
-                        .tracking(0.5)
-                        .lineLimit(1)
+            HStack(spacing: Space.xs) {
+                if !review.styleDone.isEmpty {
+                    BMTag(text: review.styleDone, icon: "scissors")
                 }
-                .foregroundStyle(Color.goldInk)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.gold.opacity(0.14), in: Capsule())
-                .overlay(Capsule().stroke(Color.gold.opacity(0.4), lineWidth: 0.5))
+                Spacer(minLength: 0)
+                if review.helpful > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "hand.thumbsup.fill")
+                            .font(.bmUI(10, weight: .bold))
+                        Text("\(review.helpful) found this helpful")
+                            .font(.bmUI(11, weight: .medium))
+                    }
+                    .foregroundStyle(Color.bmTextDim)
+                }
             }
         }
-        .padding(.vertical, 20)
+        .padding(Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Marquee
-// ═══════════════════════════════════════════════════════════════════
-
-struct MarqueeView: View {
-    let items: [String]
-    let spacing: CGFloat
-
-    @State private var offset: CGFloat = 0
-    @State private var contentWidth: CGFloat = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        GeometryReader { _ in
-            HStack(spacing: spacing) {
-                ForEach(0..<2, id: \.self) { _ in
-                    HStack(spacing: spacing) {
-                        ForEach(items, id: \.self) { item in
-                            chipView(item)
-                        }
-                    }
-                    .background(
-                        GeometryReader { inner in
-                            Color.clear.preference(
-                                key: MarqueeWidthKey.self,
-                                value: inner.size.width
-                            )
-                        }
-                    )
-                }
-            }
-            .offset(x: offset)
-            .onPreferenceChange(MarqueeWidthKey.self) { width in
-                contentWidth = width
-            }
-            .onAppear {
-                guard !reduceMotion else { return }
-                startMarquee()
-            }
-        }
-        .frame(height: 40)
-        .clipped()
-    }
-
-    private func chipView(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 13, weight: .medium, design: .serif))
-            .foregroundStyle(Color.appInk)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(Color.appSurface, in: Capsule())
-            .overlay(Capsule().stroke(Color.appDivider, lineWidth: 0.8))
-    }
-
-    private func startMarquee() {
-        guard contentWidth > 0 else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { startMarquee() }
-            return
-        }
-        let totalWidth = contentWidth / 2 + spacing
-        let duration = Double(totalWidth) / 40.0
-        offset = 0
-        withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
-            offset = -totalWidth
-        }
-    }
-}
-
-private struct MarqueeWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Portfolio Lightbox
-// ═══════════════════════════════════════════════════════════════════
-
-struct PortfolioLightbox: View {
-    let item: PortfolioItem
-    let name: String
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var appeared = false
-    @State private var dragOffset: CGSize = .zero
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                HStack {
-                    Button {
-                        Haptic.press()
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 44, height: 44)
-                            .background(Color.white.opacity(0.10), in: Circle())
-                            .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 0.8))
-                    }
-
-                    Spacer()
-                    Text(name.uppercased())
-                        .font(.system(size: 10, weight: .bold))
-                        .tracking(2.5)
-                        .foregroundStyle(.white.opacity(0.75))
-                    Spacer()
-                    Color.clear.frame(width: 44, height: 44)
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 14)
-                .opacity(appeared ? 1 : 0)
-
-                Spacer(minLength: 20)
-
-                RemoteImage(url: item.imageUrl)
-                    .frame(maxWidth: .infinity)
-                    .frame(maxHeight: 620)
-                    .clipped()
-                    .offset(y: dragOffset.height)
-                    .opacity(appeared ? 1 : 0)
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                dragOffset = value.translation
-                            }
-                            .onEnded { value in
-                                if abs(value.translation.height) > 100 {
-                                    dismiss()
-                                } else {
-                                    withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
-                                        dragOffset = .zero
-                                    }
-                                }
-                            }
-                    )
-
-                Spacer(minLength: 20)
-
-                VStack(spacing: 10) {
-                    if !item.tag.isEmpty {
-                        Text(item.tag.uppercased())
-                            .font(.system(size: 9, weight: .bold))
-                            .tracking(2.5)
-                            .foregroundStyle(Color.goldLight)
-                    }
-                    if !item.caption.isEmpty {
-                        Text(item.caption)
-                            .font(.system(size: 24, weight: .regular, design: .serif))
-                            .foregroundStyle(.white)
-                            .multilineTextAlignment(.center)
-                    }
-                }
-                .padding(.horizontal, 28)
-                .padding(.bottom, 38)
-                .opacity(appeared ? 1 : 0)
-            }
-        }
-        .statusBarHidden()
-        .onAppear {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.82)) {
-                appeared = true
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - All Reviews Sheet
-// ═══════════════════════════════════════════════════════════════════
+// =============================================================================
+// MARK: - All reviews sheet
+// =============================================================================
 
 struct AllReviewsSheet: View {
     let braider: Braider
@@ -1446,166 +946,187 @@ struct AllReviewsSheet: View {
     let onWriteReview: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var appeared = false
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.appBackground.ignoresSafeArea()
+        ZStack {
+            AuroraBackground(intensity: 0.4)
+
+            VStack(spacing: 0) {
+                BMSheetBar(
+                    title: "Reviews",
+                    subtitle: "\(String(format: "%.1f", breakdown.average)) average from \(reviews.count) client\(reviews.count == 1 ? "" : "s")"
+                ) {
+                    dismiss()
+                }
 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        ForEach(Array(reviews.enumerated()), id: \.element.id) { index, r in
-                            EditorialReviewCard(review: r)
-                                .padding(.horizontal, 24)
-
-                            if index < reviews.count - 1 {
-                                Rectangle()
-                                    .fill(Color.appDivider)
-                                    .frame(height: 0.5)
-                                    .padding(.horizontal, 24)
+                    VStack(spacing: Space.sm) {
+                        BMPrimaryButton(title: "Write a review", icon: "square.and.pencil", shine: false) {
+                            dismiss()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                onWriteReview()
                             }
                         }
-                        Color.clear.frame(height: 40)
-                    }
-                    .padding(.top, 12)
-                }
-            }
-            .navigationTitle("Reviews")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Done") { dismiss() }
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Color.appInk)
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        Haptic.press()
-                        dismiss()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            onWriteReview()
+                        .padding(.bottom, Space.xs)
+
+                        ForEach(Array(reviews.enumerated()), id: \.element.id) { index, review in
+                            SheetReviewRow(review: review)
+                                .bmCard(radius: Radius.card)
+                                .reveal(appeared, delay: Motion.stagger(index), offset: 22, blur: 0)
                         }
-                    } label: {
-                        Text("Write")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color.gold)
                     }
+                    .padding(.horizontal, Space.lg)
+                    .padding(.bottom, Space.xl)
                 }
             }
         }
+        .onAppear { appeared = true }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Profile Motion
-// ═══════════════════════════════════════════════════════════════════
+// =============================================================================
+// MARK: - Portfolio gallery
+// =============================================================================
 
-final class ProfileMotion: ObservableObject {
-    @Published var tiltX: Double = 0
-    @Published var tiltY: Double = 0
+struct PortfolioGallery: View {
+    let items: [PortfolioItem]
+    let startItem: PortfolioItem
+    let name: String
 
-    private let motionManager = CMMotionManager()
-    private var isRunning = false
+    @Environment(\.dismiss) private var dismiss
+    @State private var index: Int
+    @State private var dragY: CGFloat = 0
+    @State private var appeared = false
 
-    func start() {
-        guard motionManager.isDeviceMotionAvailable, !isRunning else { return }
-        motionManager.deviceMotionUpdateInterval = 1.0 / 30.0
-        motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
-            guard let motion = motion else { return }
-            let targetX = -motion.gravity.y * 6
-            let targetY = motion.gravity.x * 6
-            self?.tiltX = (self?.tiltX ?? 0) * 0.85 + targetX * 0.15
-            self?.tiltY = (self?.tiltY ?? 0) * 0.85 + targetY * 0.15
-        }
-        isRunning = true
+    init(items: [PortfolioItem], startItem: PortfolioItem, name: String) {
+        self.items = items
+        self.startItem = startItem
+        self.name = name
+        _index = State(initialValue: items.firstIndex(where: { $0.id == startItem.id }) ?? 0)
     }
 
-    func stop() {
-        motionManager.stopDeviceMotionUpdates()
-        isRunning = false
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - Profile Haptics
-// ═══════════════════════════════════════════════════════════════════
-
-final class ProfileHaptics: ObservableObject {
-    enum Pattern {
-        case select
-        case tap
-        case pinExpand
-        case dismiss
+    private var current: PortfolioItem? {
+        items.indices.contains(index) ? items[index] : nil
     }
 
-    private var engine: CHHapticEngine?
-    private let supportsHaptics = CHHapticEngine.capabilitiesForHardware().supportsHaptics
+    private var dismissProgress: CGFloat { min(max(dragY / 320, 0), 1) }
 
-    func prepare() {
-        guard supportsHaptics else { return }
-        do {
-            engine = try CHHapticEngine()
-            engine?.stoppedHandler = { _ in }
-            engine?.resetHandler = { [weak self] in
-                try? self?.engine?.start()
+    var body: some View {
+        ZStack {
+            Color.black
+                .opacity(1 - Double(dismissProgress) * 0.7)
+                .ignoresSafeArea()
+
+            TabView(selection: $index) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
+                    RemoteImage(url: item.imageUrl, contentMode: .fit, backdrop: Color.black)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .tag(i)
+                }
             }
-            try engine?.start()
-        } catch {
-            engine = nil
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea()
+            .scaleEffect(1 - dismissProgress * 0.12)
+            .offset(y: dragY)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 12)
+                    .onChanged { value in
+                        let vertical = abs(value.translation.height) > abs(value.translation.width)
+                        if vertical && value.translation.height > 0 {
+                            dragY = value.translation.height
+                        }
+                    }
+                    .onEnded { value in
+                        if dragY > 140 || value.predictedEndTranslation.height > 420 {
+                            Haptic.select()
+                            dismiss()
+                        } else {
+                            withAnimation(Motion.sheet) { dragY = 0 }
+                        }
+                    }
+            )
+
+            VStack {
+                topBar
+                Spacer()
+                bottomInfo
+            }
+            .opacity(1 - Double(dismissProgress) * 1.5)
+            .opacity(appeared ? 1 : 0)
+            .animation(Motion.subtle, value: appeared)
         }
+        .statusBarHidden()
+        .onAppear { appeared = true }
     }
 
-    func play(_ pattern: Pattern) {
-        guard supportsHaptics, let engine = engine else {
-            fallback(pattern)
-            return
+    private var topBar: some View {
+        HStack {
+            BMIconButton(icon: "xmark", size: 44, iconSize: 14) { dismiss() }
+            Spacer()
+            VStack(spacing: 2) {
+                Text(name)
+                    .font(.bmDisplay(16, weight: .semibold))
+                    .foregroundStyle(Color.white)
+                Text("\(index + 1) of \(items.count)")
+                    .font(.bmNum(12, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.65))
+                    .contentTransition(.numericText())
+                    .animation(Motion.press, value: index)
+            }
+            Spacer()
+            Color.clear.frame(width: 44, height: 44)
         }
-        do {
-            let events = eventsFor(pattern)
-            let hapticPattern = try CHHapticPattern(events: events, parameters: [])
-            let player = try engine.makePlayer(with: hapticPattern)
-            try player.start(atTime: 0)
-        } catch {
-            fallback(pattern)
-        }
+        .padding(.horizontal, Space.md)
+        .padding(.top, Space.xs)
     }
 
-    private func eventsFor(_ pattern: Pattern) -> [CHHapticEvent] {
-        switch pattern {
-        case .select:
-            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
-                .init(parameterID: .hapticIntensity, value: 0.4),
-                .init(parameterID: .hapticSharpness, value: 0.5)
-            ], relativeTime: 0)]
-        case .tap:
-            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
-                .init(parameterID: .hapticIntensity, value: 0.5),
-                .init(parameterID: .hapticSharpness, value: 0.65)
-            ], relativeTime: 0)]
-        case .pinExpand:
-            return [
-                CHHapticEvent(eventType: .hapticContinuous, parameters: [
-                    .init(parameterID: .hapticIntensity, value: 0.4),
-                    .init(parameterID: .hapticSharpness, value: 0.25)
-                ], relativeTime: 0, duration: 0.22),
-                CHHapticEvent(eventType: .hapticTransient, parameters: [
-                    .init(parameterID: .hapticIntensity, value: 0.55),
-                    .init(parameterID: .hapticSharpness, value: 0.5)
-                ], relativeTime: 0.22)
-            ]
-        case .dismiss:
-            return [CHHapticEvent(eventType: .hapticTransient, parameters: [
-                .init(parameterID: .hapticIntensity, value: 0.35),
-                .init(parameterID: .hapticSharpness, value: 0.2)
-            ], relativeTime: 0)]
-        }
-    }
+    private var bottomInfo: some View {
+        VStack(spacing: Space.sm) {
+            if let item = current {
+                if !item.tag.isEmpty {
+                    Text(item.tag)
+                        .font(.bmUI(12, weight: .bold))
+                        .foregroundStyle(Color.bmOnGilt)
+                        .padding(.horizontal, 10)
+                        .frame(height: 24)
+                        .background(LinearGradient.bmGiltGradient, in: Capsule())
+                }
+                if !item.caption.isEmpty {
+                    Text(item.caption)
+                        .font(.bmDisplay(24, weight: .regular))
+                        .foregroundStyle(Color.white)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if item.likes > 0 {
+                    Label("\(item.likes)", systemImage: "heart.fill")
+                        .font(.bmUI(12, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.75))
+                }
+            }
 
-    private func fallback(_ pattern: Pattern) {
-        switch pattern {
-        case .select, .dismiss:    Haptic.select()
-        case .tap:                 Haptic.light()
-        case .pinExpand:           Haptic.medium()
+            HStack(spacing: 6) {
+                ForEach(0..<items.count, id: \.self) { i in
+                    Capsule()
+                        .fill(i == index ? Color.bmGilt : Color.white.opacity(0.3))
+                        .frame(width: i == index ? 22 : 6, height: 6)
+                        .animation(Motion.press, value: index)
+                }
+            }
+            .padding(.top, Space.xs)
         }
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.xl)
+        .padding(.bottom, Space.lg)
+        .frame(maxWidth: .infinity)
+        .background(
+            LinearGradient(
+                colors: [Color.black.opacity(0), Color.black.opacity(0.85)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea(edges: .bottom)
+        )
     }
 }
