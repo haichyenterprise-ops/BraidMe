@@ -22,10 +22,12 @@ struct MainTabView: View {
     @StateObject private var haptics = HapticEngine()
 
     // ─── Camera ───
-    @State private var cameraPosition: MapCameraPosition = .region(
-        MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: 52.4862, longitude: -1.8904),
-            span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+    @State private var cameraPosition: MapCameraPosition = .camera(
+        MapCamera(
+            centerCoordinate: CLLocationCoordinate2D(latitude: 52.4862, longitude: -1.8904),
+            distance: 5500,
+            heading: 0,
+            pitch: 12
         )
     )
     @State private var currentCity: City = CityCatalog.all[0]
@@ -40,8 +42,6 @@ struct MainTabView: View {
     @State private var showLocationSheet = false
     @State private var showProfileSheet = false
     @State private var showCitySearch = false
-    @State private var showBookings = false
-    @State private var showSaved = false
     @State private var showSettings = false
 
     // ─── Data ───
@@ -51,8 +51,11 @@ struct MainTabView: View {
     // ─── Shockwaves ───
     @State private var shockwaves: [Shockwave] = []
 
-    // ─── Gyro tilt enabled (gated by settings) ───
+    // ─── Gyro tilt gate ───
     @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Shockwave model
 
     struct Shockwave: Identifiable, Equatable {
         let id = UUID()
@@ -71,31 +74,25 @@ struct MainTabView: View {
         NavigationStack {
             GeometryReader { geo in
                 ZStack {
-                    // Layer 1: Living map
+                    // Layer 1: Living map (pins + shockwaves as annotations)
                     mapCanvas(size: geo.size)
 
-                    // Layer 2: Shockwaves
-                    shockwaveLayer
-
-                    // Layer 3: Pins (overlay on map)
-                    pinLayer
-
-                    // Layer 4: Film grain over everything
+                    // Layer 2: Film grain
                     NoiseTexture(opacity: 0.035, seed: 937)
                         .blendMode(.overlay)
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
 
-                    // Layer 5: Radial vignette
+                    // Layer 3: Vignette + scrims
                     vignetteLayer
 
-                    // Layer 6: Top chrome
+                    // Layer 4: Top chrome
                     VStack(spacing: 0) {
                         topChrome
                         Spacer()
                     }
 
-                    // Layer 7: Bottom chrome
+                    // Layer 5: Bottom chrome
                     VStack(spacing: 0) {
                         Spacer()
                         bottomChrome
@@ -108,12 +105,6 @@ struct MainTabView: View {
             }
             .sheet(isPresented: $showProfileSheet) {
                 UserInfoSheet()
-            }
-            .sheet(isPresented: $showBookings) {
-                BookingsListView().environmentObject(session)
-            }
-            .sheet(isPresented: $showSaved) {
-                SavedBraidersView().environmentObject(session)
             }
             .sheet(isPresented: $showSettings) {
                 SettingsSheet(gyroTiltEnabled: $gyroTiltEnabled)
@@ -146,7 +137,56 @@ struct MainTabView: View {
 
     private func mapCanvas(size: CGSize) -> some View {
         Map(position: $cameraPosition, interactionModes: [.pan, .zoom]) {
-            // Empty — pins rendered as overlay (see pinLayer) for morphing
+            // ── Braider orbs ──
+            ForEach(fb.braiders) { braider in
+                Annotation(
+                    "",
+                    coordinate: braider.coordinate,
+                    anchor: .center
+                ) {
+                    Group {
+                        if expandedBraiderId == braider.id {
+                            OrbCapsule(
+                                braider: braider,
+                                onTap: {
+                                    Haptic.press()
+                                    haptics.play(.tap)
+                                    selectedBraider = braider
+                                },
+                                onDismiss: { collapseExpanded() }
+                            )
+                            .matchedGeometryEffect(
+                                id: "orb-\(braider.id)",
+                                in: orbNamespace,
+                                isSource: true
+                            )
+                        } else {
+                            OrbPin(
+                                braider: braider,
+                                onTap: { handlePinTap(braider) }
+                            )
+                            .matchedGeometryEffect(
+                                id: "orb-\(braider.id)",
+                                in: orbNamespace,
+                                isSource: false
+                            )
+                            .opacity(mapAppeared ? 1 : 0)
+                        }
+                    }
+                }
+            }
+
+            // ── Shockwaves ──
+            ForEach(shockwaves) { wave in
+                Annotation(
+                    "",
+                    coordinate: wave.coordinate,
+                    anchor: .center
+                ) {
+                    ShockwaveView(startTime: wave.startTime)
+                        .allowsHitTesting(false)
+                }
+            }
         }
         .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll))
         .mapControlVisibility(.hidden)
@@ -157,111 +197,10 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Layer 3: Pins (overlay so they can morph)
-
-    private var pinLayer: some View {
-        GeometryReader { geo in
-            ZStack {
-                ForEach(fb.braiders) { braider in
-                    if expandedBraiderId != braider.id {
-                        // ── Idle dot ──
-                        OrbPin(
-                            braider: braider,
-                            isExpanded: false,
-                            onTap: { handlePinTap(braider) }
-                        )
-                        .matchedGeometryEffect(
-                            id: "orb-\(braider.id)",
-                            in: orbNamespace,
-                            isSource: expandedBraiderId != braider.id
-                        )
-                        .position(screenPoint(for: braider.coordinate, in: geo.size))
-                        .opacity(mapAppeared ? 1 : 0)
-                        .animation(.spring(response: 0.5, dampingFraction: 0.75), value: expandedBraiderId)
-                    }
-                }
-            }
-            .overlay {
-                // Expanded capsule rendered on top
-                ForEach(fb.braiders) { braider in
-                    if expandedBraiderId == braider.id {
-                        OrbCapsule(
-                            braider: braider,
-                            onTap: {
-                                Haptic.press()
-                                haptics.play(.tap)
-                                selectedBraider = braider
-                            },
-                            onDismiss: { collapseExpanded() }
-                        )
-                        .matchedGeometryEffect(
-                            id: "orb-\(braider.id)",
-                            in: orbNamespace,
-                            isSource: expandedBraiderId == braider.id
-                        )
-                        .position(screenPoint(for: braider.coordinate, in: geo.size))
-                        .transition(.identity)
-                    }
-                }
-            }
-        }
-        .allowsHitTesting(expandedBraiderId == nil ? true : true)
-    }
-
-    /// Approximate screen position from coordinate via MapProxy-free math.
-    /// We compute using the current region center + span.
-    private func screenPoint(for coordinate: CLLocationCoordinate2D, in size: CGSize) -> CGPoint {
-        let center = currentRegion.center
-        let span = currentRegion.span
-
-        let latDelta = coordinate.latitude - center.latitude
-        let lonDelta = coordinate.longitude - center.longitude
-
-        let xRatio = (lonDelta / span.longitudeDelta) + 0.5
-        let yRatio = 0.5 - (latDelta / span.latitudeDelta)
-
-        let x = size.width * xRatio
-        let y = size.height * yRatio
-
-        // Clamp to safe area so off-screen pins don't render wildly
-        let clampedX = max(-100, min(size.width + 100, x))
-        let clampedY = max(-100, min(size.height + 100, y))
-
-        return CGPoint(x: clampedX, y: clampedY)
-    }
-
-    private var currentRegion: MKCoordinateRegion {
-        if case .region(let r) = cameraPosition.region.map({ $0 }) ?? nil {
-            return r
-        }
-        // Fallback: use braider bounds or default
-        return MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: 52.4862, longitude: -1.8904),
-            span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
-        )
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Layer 2: Shockwaves
-
-    private var shockwaveLayer: some View {
-        GeometryReader { geo in
-            ZStack {
-                ForEach(shockwaves) { wave in
-                    ShockwaveView(startTime: wave.startTime)
-                        .position(screenPoint(for: wave.coordinate, in: geo.size))
-                }
-            }
-        }
-        .allowsHitTesting(false)
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Layer 5: Vignette
+    // MARK: - Layer 3: Vignette
 
     private var vignetteLayer: some View {
         ZStack {
-            // Radial focus pull
             RadialGradient(
                 colors: [
                     .clear,
@@ -274,7 +213,6 @@ struct MainTabView: View {
             .ignoresSafeArea()
             .allowsHitTesting(false)
 
-            // Top scrim so orbs read cleanly
             LinearGradient(
                 colors: [
                     Color.appBackground.opacity(0.75),
@@ -289,7 +227,6 @@ struct MainTabView: View {
             .ignoresSafeArea(edges: .top)
             .allowsHitTesting(false)
 
-            // Bottom scrim
             LinearGradient(
                 colors: [
                     .clear,
@@ -403,13 +340,8 @@ struct MainTabView: View {
     private var bottomChrome: some View {
         HStack(alignment: .bottom) {
             Spacer()
-
-            // City chip — centered
             cityChip
-
             Spacer()
-
-            // Zoom stack — bottom right
             zoomStack
         }
         .padding(.horizontal, Space.md)
@@ -541,14 +473,12 @@ struct MainTabView: View {
         Haptic.medium()
         haptics.play(.pinTap)
 
-        // Add shockwave
         let wave = Shockwave(coordinate: braider.coordinate, startTime: Date())
         shockwaves.append(wave)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [wave] in
             shockwaves.removeAll { $0.id == wave.id }
         }
 
-        // Fly camera to pin with pitch
         withAnimation(Motion.cameraFly) {
             cameraPosition = .camera(
                 MapCamera(
@@ -560,12 +490,10 @@ struct MainTabView: View {
             )
         }
 
-        // Expand capsule
         withAnimation(Motion.morph) {
             expandedBraiderId = braider.id
         }
 
-        // Haptic: soft + warm resonance
         haptics.play(.pinExpand)
     }
 
@@ -581,16 +509,37 @@ struct MainTabView: View {
     // MARK: - Zoom Logic
 
     private func adjustZoom(in closer: Bool) {
-        guard let region = cameraPosition.region else { return }
-        let factor: CGFloat = closer ? 0.6 : 1.6
-        let newSpan = MKCoordinateSpan(
-            latitudeDelta: region.span.latitudeDelta * factor,
-            longitudeDelta: region.span.longitudeDelta * factor
-        )
-        let newRegion = MKCoordinateRegion(center: region.center, span: newSpan)
+        // Get current camera distance, adjust it, keep center
+        let center = currentCameraCenter()
+        let currentDistance: Double = {
+            if case .camera(let cam) = cameraPosition.camera {
+                return Double(cam.distance)
+            }
+            return 5500
+        }()
+        let newDistance = closer ? currentDistance * 0.6 : currentDistance * 1.6
+        let clamped = max(300, min(newDistance, 60000))
+
         withAnimation(.smooth(duration: 0.4)) {
-            cameraPosition = .region(newRegion)
+            cameraPosition = .camera(
+                MapCamera(
+                    centerCoordinate: center,
+                    distance: clamped,
+                    heading: 0,
+                    pitch: 12
+                )
+            )
         }
+    }
+
+    private func currentCameraCenter() -> CLLocationCoordinate2D {
+        if case .camera(let cam) = cameraPosition.camera {
+            return cam.centerCoordinate
+        }
+        if case .region(let region) = cameraPosition.region {
+            return region.center
+        }
+        return currentCity.coordinate
     }
 
     private func flyTo(city: City) {
@@ -625,12 +574,9 @@ struct MainTabView: View {
     private func onAppear() {
         let uid = session.uid
 
-        // Start gyro tracking
         if gyroTiltEnabled {
             motion.start()
         }
-
-        // Prepare haptic engine
         haptics.prepare()
 
         Task {
@@ -744,7 +690,6 @@ struct MainTabView: View {
 
 struct OrbPin: View {
     let braider: Braider
-    let isExpanded: Bool
     let onTap: () -> Void
 
     @State private var breathe = false
@@ -840,7 +785,6 @@ struct OrbCapsule: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                // Avatar
                 ZStack {
                     if braider.avatarUrl.isEmpty {
                         Circle()
@@ -994,12 +938,10 @@ final class MotionTracker: ObservableObject {
         motionManager.deviceMotionUpdateInterval = 1.0 / 30.0
         motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let motion = motion else { return }
-            // Map gravity.x (landscape) and gravity.y (portrait) to a 0-360 angle
             let gx = motion.gravity.x
             let gy = motion.gravity.y
             let radians = atan2(gy, gx)
             let degrees = radians * 180 / .pi
-            // Smooth via low-pass
             self?.angle = (self?.angle ?? 0) * 0.85 + degrees * 0.15
         }
         isRunning = true
@@ -1084,7 +1026,6 @@ final class HapticEngine: ObservableObject {
             ]
 
         case .pinTap:
-            // Sharp tick then soft resonance
             return [
                 CHHapticEvent(
                     eventType: .hapticTransient,
@@ -1106,7 +1047,6 @@ final class HapticEngine: ObservableObject {
             ]
 
         case .pinExpand:
-            // Soft rising intensity — feels like something opening
             return [
                 CHHapticEvent(
                     eventType: .hapticContinuous,
@@ -1140,7 +1080,6 @@ final class HapticEngine: ObservableObject {
             ]
 
         case .cityTap:
-            // Warm tick + resonance
             return [
                 CHHapticEvent(
                     eventType: .hapticTransient,
@@ -1187,7 +1126,6 @@ struct SettingsSheet: View {
 
                 ScrollView {
                     VStack(spacing: Space.md) {
-                        // Header
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 8) {
                                 Rectangle()
@@ -1207,7 +1145,6 @@ struct SettingsSheet: View {
                         .padding(.top, Space.sm)
                         .padding(.bottom, Space.md)
 
-                        // Gyro tilt
                         settingRow(
                             icon: "gyroscope",
                             title: "Gyro-tilted elements",
