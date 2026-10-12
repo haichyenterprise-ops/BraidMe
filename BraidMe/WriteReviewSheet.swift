@@ -1,5 +1,10 @@
 import SwiftUI
 
+// =============================================================================
+// WriteReviewSheet — Review composer, upgraded
+// Oversized glowing stars, live rating label, spring validation, gold accents.
+// =============================================================================
+
 struct WriteReviewSheet: View {
     let braider: Braider
     let onSubmitted: () -> Void
@@ -14,7 +19,6 @@ struct WriteReviewSheet: View {
     @State private var errorMessage: String?
     @State private var showSuccess = false
     @State private var appeared = false
-    @State private var successPulse = false
 
     private var canSubmit: Bool {
         rating > 0 && text.trimmingCharacters(in: .whitespaces).count >= 5
@@ -31,8 +35,9 @@ struct WriteReviewSheet: View {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
 
+                // Ambient gradient
                 RadialGradient(
-                    colors: [Color.appAccent.opacity(0.08), .clear],
+                    colors: [Color.gold.opacity(0.08), .clear],
                     center: .top,
                     startRadius: 0,
                     endRadius: 400
@@ -56,7 +61,7 @@ struct WriteReviewSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
-                        .font(.bmUI(15, weight: .medium))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(Color.appAsh)
                 }
             }
@@ -78,24 +83,43 @@ struct WriteReviewSheet: View {
             }
         }
         .onAppear {
-            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
+            withAnimation(.spring(response: 0.75, dampingFraction: 0.85).delay(0.1)) {
+                appeared = true
+            }
             if let first = braider.services.first {
                 styleDone = first.name
             }
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Header
+
     private var header: some View {
         HStack(spacing: Space.md) {
-            BMAvatar(url: braider.avatarUrl, size: 56, initials: initials, ringed: braider.verified)
+            if braider.avatarUrl.isEmpty {
+                Circle()
+                    .fill(Color.gold.opacity(0.18))
+                    .frame(width: 56, height: 56)
+                    .overlay(
+                        Text(initials)
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(Color.gold)
+                    )
+            } else {
+                RemoteImage(url: braider.avatarUrl)
+                    .frame(width: 56, height: 56)
+                    .clipShape(Circle())
+            }
+
             VStack(alignment: .leading, spacing: 4) {
                 Text("Review \(braider.name)")
-                    .font(.bmDisplay(22, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold, design: .serif))
                     .foregroundStyle(Color.appInk)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 Text("Your honest feedback helps others.")
-                    .font(.bmUI(13))
+                    .font(.system(size: 13))
                     .foregroundStyle(Color.appAsh)
             }
             Spacer(minLength: 0)
@@ -110,25 +134,37 @@ struct WriteReviewSheet: View {
         return r.isEmpty ? "·" : r.uppercased()
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Stars picker
+
     private var starsPicker: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            BMSectionLabel(text: "Your rating")
+            HStack(spacing: Space.xs) {
+                Rectangle()
+                    .fill(Color.gold)
+                    .frame(width: 20, height: 1.5)
+                Text("YOUR RATING")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.5)
+                    .foregroundStyle(Color.appAsh)
+            }
 
             HStack(spacing: Space.sm) {
                 ForEach(1...5, id: \.self) { i in
                     Button {
                         Haptic.medium()
-                        withAnimation(Motion.bouncy) { rating = i }
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) {
+                            rating = i
+                        }
                     } label: {
                         Image(systemName: i <= rating ? "star.fill" : "star")
-                            .font(.bmUI(36))
-                            .foregroundStyle(i <= rating ? Color.appAccent : Color.appSmoke)
+                            .font(.system(size: 36))
+                            .foregroundStyle(i <= rating ? Color.gold : Color.appSmoke)
                             .scaleEffect(i == rating ? 1.15 : 1)
                             .shadow(
-                                color: i <= rating ? Color.appAccent.opacity(0.3) : .clear,
+                                color: i <= rating ? Color.gold.opacity(0.3) : .clear,
                                 radius: i == rating ? 12 : 0
                             )
-                            .animation(Motion.bouncy, value: rating)
                     }
                     .buttonStyle(BMPressStyle(scale: 0.9))
                 }
@@ -136,8 +172,8 @@ struct WriteReviewSheet: View {
             }
 
             Text(ratingLabel)
-                .font(.bmUI(14, weight: .semibold))
-                .foregroundStyle(Color.appAccent)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.gold)
                 .transition(.opacity.combined(with: .move(edge: .top)))
                 .id(rating)
         }
@@ -148,10 +184,10 @@ struct WriteReviewSheet: View {
             RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .stroke(Color.appDivider, lineWidth: 0.5)
         )
-        .shadow(color: Color.appInk.opacity(0.06), radius: 16, y: 8)
+        .shadow(color: Color.black.opacity(0.06), radius: 16, y: 8)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 16)
-        .animate(Motion.heroReveal.delay(0.15), value: appeared)
+        .animation(.spring(response: 0.65, dampingFraction: 0.85).delay(0.15), value: appeared)
     }
 
     private var ratingLabel: String {
@@ -164,21 +200,32 @@ struct WriteReviewSheet: View {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Text block
+
     private var textBlock: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            BMSectionLabel(text: "Your review")
+            HStack(spacing: Space.xs) {
+                Rectangle()
+                    .fill(Color.gold)
+                    .frame(width: 20, height: 1.5)
+                Text("YOUR REVIEW")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.5)
+                    .foregroundStyle(Color.appAsh)
+            }
 
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
                     Text("Tell others about your experience — quality, timing, how you felt afterwards…")
-                        .font(.bmUI(15))
+                        .font(.system(size: 15))
                         .foregroundStyle(Color.appSmoke)
                         .padding(.horizontal, Space.md)
                         .padding(.vertical, Space.md)
                         .allowsHitTesting(false)
                 }
                 TextEditor(text: $text)
-                    .font(.bmUI(15))
+                    .font(.system(size: 15))
                     .foregroundStyle(Color.appInk)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
@@ -195,28 +242,39 @@ struct WriteReviewSheet: View {
 
             HStack {
                 Text("\(text.count) characters")
-                    .font(.bmUI(11, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color.appSmoke)
                 Spacer()
                 if text.trimmingCharacters(in: .whitespaces).count < 5 && !text.isEmpty {
                     Text("A few more words please")
-                        .font(.bmUI(11, weight: .semibold))
-                        .foregroundStyle(Color.appAccent)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.gold)
                 }
             }
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 16)
-        .animate(Motion.heroReveal.delay(0.2), value: appeared)
+        .animation(.spring(response: 0.65, dampingFraction: 0.85).delay(0.20), value: appeared)
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Style block
 
     private var styleBlock: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            BMSectionLabel(text: "Which service?")
+            HStack(spacing: Space.xs) {
+                Rectangle()
+                    .fill(Color.gold)
+                    .frame(width: 20, height: 1.5)
+                Text("WHICH SERVICE?")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.5)
+                    .foregroundStyle(Color.appAsh)
+            }
 
             if braider.services.isEmpty {
                 Text("No services listed")
-                    .font(.bmUI(14))
+                    .font(.system(size: 14))
                     .foregroundStyle(Color.appAsh)
                     .italic()
             } else {
@@ -225,10 +283,12 @@ struct WriteReviewSheet: View {
                         ForEach(braider.services) { service in
                             Button {
                                 Haptic.select()
-                                withAnimation(Motion.bouncy) { styleDone = service.name }
+                                withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
+                                    styleDone = service.name
+                                }
                             } label: {
                                 Text(service.name)
-                                    .font(.bmUI(13, weight: .semibold))
+                                    .font(.system(size: 13, weight: .semibold))
                                     .foregroundStyle(styleDone == service.name ? Color.appInkInverse : Color.appInk)
                                     .padding(.horizontal, Space.md)
                                     .frame(minHeight: 38)
@@ -253,17 +313,20 @@ struct WriteReviewSheet: View {
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 16)
-        .animate(Motion.heroReveal.delay(0.25), value: appeared)
+        .animation(.spring(response: 0.65, dampingFraction: 0.85).delay(0.25), value: appeared)
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Submit
 
     private var submitArea: some View {
         VStack(spacing: Space.sm) {
             if let hint = disabledHint {
                 HStack(spacing: 6) {
                     Image(systemName: "info.circle.fill")
-                        .font(.bmUI(11))
+                        .font(.system(size: 11))
                     Text(hint)
-                        .font(.bmUI(12, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                 }
                 .foregroundStyle(Color.appAsh)
                 .transition(.opacity)
@@ -281,8 +344,8 @@ struct WriteReviewSheet: View {
         .padding(.top, Space.xs)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 16)
-        .animate(Motion.heroReveal.delay(0.3), value: appeared)
-        .animation(Motion.subtle, value: canSubmit)
+        .animation(.spring(response: 0.65, dampingFraction: 0.85).delay(0.30), value: appeared)
+        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: canSubmit)
     }
 
     private func submit() {

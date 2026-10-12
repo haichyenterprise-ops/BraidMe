@@ -1,5 +1,10 @@
 import SwiftUI
 
+// =============================================================================
+// PaymentView — Step 3: confirm + add-ons, upgraded
+// Glass confirm bar, animated total counter, toggle rows with fill animation.
+// =============================================================================
+
 struct PaymentView: View {
     let braider: Braider
     let service: BraidService
@@ -60,29 +65,34 @@ struct PaymentView: View {
             Text(errorMessage ?? "")
         }
         .task {
-            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
+            withAnimation(.spring(response: 0.85, dampingFraction: 0.85).delay(0.1)) {
+                appeared = true
+            }
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Header
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack(spacing: Space.xs) {
                 Rectangle()
-                    .fill(Color.appAccent)
+                    .fill(Color.gold)
                     .frame(width: 20, height: 2)
                 Text("STEP 3 OF 3")
-                    .font(.bmUI(10, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .tracking(2)
-                    .foregroundStyle(Color.appAccent)
+                    .foregroundStyle(Color.gold)
             }
 
             Text("Confirm")
-                .font(.bmHero(34))
-                .foregroundStyle(Color.appInk)
+                .font(.system(size: 34, weight: .bold, design: .serif))
                 .lineSpacing(-4)
+                .foregroundStyle(Color.appInk)
 
             Text("Review your booking details")
-                .font(.bmUI(14))
+                .font(.system(size: 14))
                 .foregroundStyle(Color.appAsh)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -92,9 +102,11 @@ struct PaymentView: View {
         .offset(y: appeared ? 0 : 20)
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Summary card
+
     private var summaryCard: some View {
         VStack(spacing: 0) {
-            // Service header
             HStack(spacing: Space.md) {
                 if !service.imageUrl.isEmpty {
                     RemoteImage(url: service.imageUrl)
@@ -103,10 +115,10 @@ struct PaymentView: View {
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(service.name)
-                        .font(.bmUI(16, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Color.appInk)
                     Text(braider.name)
-                        .font(.bmUI(13))
+                        .font(.system(size: 13))
                         .foregroundStyle(Color.appAsh)
                 }
                 Spacer()
@@ -128,29 +140,29 @@ struct PaymentView: View {
             RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .stroke(Color.appDivider, lineWidth: 0.5)
         )
-        .shadow(color: Color.appInk.opacity(0.06), radius: 16, y: 8)
+        .shadow(color: Color.black.opacity(0.06), radius: 16, y: 8)
         .padding(.horizontal, Space.lg)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 20)
-        .animate(Motion.reveal.delay(0.15), value: appeared)
+        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.15), value: appeared)
     }
 
     private func summaryRow(icon: String, label: String, value: String) -> some View {
         HStack(spacing: Space.md) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.appAccentTint)
+                    .fill(Color.gold.opacity(0.12))
                     .frame(width: 32, height: 32)
                 Image(systemName: icon)
-                    .font(.bmUI(13, weight: .semibold))
-                    .foregroundStyle(Color.appAccent)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.gold)
             }
             Text(label)
-                .font(.bmUI(13))
+                .font(.system(size: 13))
                 .foregroundStyle(Color.appAsh)
             Spacer()
             Text(value)
-                .font(.bmUI(13, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color.appInk)
                 .multilineTextAlignment(.trailing)
         }
@@ -158,10 +170,21 @@ struct PaymentView: View {
         .padding(.vertical, Space.sm)
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Add-ons
+
     private var addOnsCard: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            BMSectionLabel(text: "Add-ons")
-                .padding(.horizontal, Space.lg)
+            HStack(spacing: Space.xs) {
+                Rectangle()
+                    .fill(Color.gold)
+                    .frame(width: 20, height: 1.5)
+                Text("ADD-ONS")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.5)
+                    .foregroundStyle(Color.appAsh)
+            }
+            .padding(.horizontal, Space.lg)
 
             VStack(spacing: 0) {
                 toggleRow(icon: "scissors", title: "Hair included",
@@ -176,37 +199,37 @@ struct PaymentView: View {
                 RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                     .stroke(Color.appDivider, lineWidth: 0.5)
             )
-            .shadow(color: Color.appInk.opacity(0.06), radius: 16, y: 8)
+            .shadow(color: Color.black.opacity(0.06), radius: 16, y: 8)
             .padding(.horizontal, Space.lg)
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 20)
-        .animate(Motion.reveal.delay(0.2), value: appeared)
+        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.20), value: appeared)
     }
 
     private func toggleRow(icon: String, title: String, subtitle: String, price: Int, isOn: Binding<Bool>) -> some View {
         HStack(spacing: Space.md) {
             ZStack {
                 Circle()
-                    .fill(isOn.wrappedValue ? Color.appAccentTint : Color.appBackground)
+                    .fill(isOn.wrappedValue ? Color.gold.opacity(0.14) : Color.appBackground)
                     .frame(width: 40, height: 40)
                 Image(systemName: icon)
-                    .font(.bmUI(15, weight: .medium))
-                    .foregroundStyle(isOn.wrappedValue ? Color.appAccent : Color.appAsh)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(isOn.wrappedValue ? Color.gold : Color.appAsh)
             }
-            .animation(Motion.bouncy, value: isOn.wrappedValue)
+            .animation(.spring(response: 0.4, dampingFraction: 0.65), value: isOn.wrappedValue)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.bmUI(14, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color.appInk)
                 HStack(spacing: Space.xs) {
                     Text(subtitle)
-                        .font(.bmUI(12))
+                        .font(.system(size: 12))
                         .foregroundStyle(Color.appAsh)
                     Text("+£\(price)")
-                        .font(.bmMono(11, weight: .semibold))
-                        .foregroundStyle(Color.appAccent)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color.gold)
                 }
             }
 
@@ -214,44 +237,50 @@ struct PaymentView: View {
 
             Toggle("", isOn: isOn)
                 .labelsHidden()
-                .tint(Color.appAccent)
+                .tint(Color.gold)
                 .onChange(of: isOn.wrappedValue) { _, _ in Haptic.select() }
         }
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.sm)
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Policy note
+
     private var policyNote: some View {
         HStack(alignment: .top, spacing: Space.md) {
             ZStack {
                 Circle()
-                    .fill(Color.appAccent.opacity(0.15))
+                    .fill(Color.gold.opacity(0.15))
                     .frame(width: 32, height: 32)
                 Image(systemName: "info.circle.fill")
-                    .font(.bmUI(14))
-                    .foregroundStyle(Color.appAccent)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.gold)
             }
             Text("Free cancellation up to 24 hours before your appointment.")
-                .font(.bmUI(12))
+                .font(.system(size: 12))
                 .foregroundStyle(Color.appInkSecondary)
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(Space.md)
-        .background(Color.appAccentTint)
+        .background(Color.gold.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: Radius.button))
         .padding(.horizontal, Space.lg)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 20)
-        .animate(Motion.reveal.delay(0.25), value: appeared)
+        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.25), value: appeared)
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Confirm bar
 
     private var confirmBar: some View {
         VStack(spacing: 0) {
             Rectangle()
                 .fill(
                     LinearGradient(
-                        colors: [Color.appDivider.opacity(0), Color.appDivider, Color.appDivider.opacity(0)],
+                        colors: [Color.clear, Color.gold.opacity(0.5), Color.clear],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
@@ -261,14 +290,14 @@ struct PaymentView: View {
             VStack(spacing: Space.md) {
                 HStack {
                     Text("Total")
-                        .font(.bmUI(14))
+                        .font(.system(size: 14))
                         .foregroundStyle(Color.appAsh)
                     Spacer()
                     Text("£\(total)")
-                        .font(.bmDisplay(30, weight: .semibold))
+                        .font(.system(size: 30, weight: .bold, design: .serif))
                         .foregroundStyle(Color.appInk)
                         .contentTransition(.numericText())
-                        .animation(Motion.bouncy, value: total)
+                        .animation(.spring(response: 0.4, dampingFraction: 0.65), value: total)
                 }
 
                 BMPrimaryButton(
@@ -283,9 +312,12 @@ struct PaymentView: View {
             .padding(.horizontal, Space.lg)
             .padding(.top, Space.md)
             .padding(.bottom, Space.xl)
-            .background(.ultraThinMaterial)
+            .background(Color.glassTintStrong)
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Confirm
 
     private func confirm() {
         let uid = session.uid

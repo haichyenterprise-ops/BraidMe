@@ -1,5 +1,10 @@
 import SwiftUI
 
+// =============================================================================
+// BookingSelectionView — Step 1: choose a service, upgraded
+// Shimmer progress bars, expandable cards with spring, ambient gradient.
+// =============================================================================
+
 struct BookingSelectionView: View {
     let braider: Braider
     var preselectServiceId: String? = nil
@@ -23,7 +28,7 @@ struct BookingSelectionView: View {
 
                 // Ambient gradient
                 RadialGradient(
-                    colors: [Color.appAccent.opacity(0.06), .clear],
+                    colors: [Color.gold.opacity(0.06), .clear],
                     center: .top,
                     startRadius: 0,
                     endRadius: 400
@@ -46,8 +51,16 @@ struct BookingSelectionView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    BMGlassIconButton(icon: "xmark", size: 40, iconSize: 14, tint: .appInk) {
+                    Button {
+                        Haptic.press()
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.appInk)
+                            .frame(width: 40, height: 40)
+                            .background(Color.appSurface, in: Circle())
+                            .overlay(Circle().stroke(Color.appDivider, lineWidth: 0.5))
                     }
                 }
             }
@@ -60,34 +73,52 @@ struct BookingSelectionView: View {
             }
         }
         .task {
-            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
+            withAnimation(.spring(response: 0.85, dampingFraction: 0.85).delay(0.1)) {
+                appeared = true
+            }
             if let preselect = preselectServiceId {
                 selectedId = preselect
             }
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Header
+
     private var header: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack(spacing: Space.xs) {
                 Rectangle()
-                    .fill(Color.appAccent)
+                    .fill(Color.gold)
                     .frame(width: 20, height: 2)
                 Text("STEP 1 OF 3")
-                    .font(.bmUI(10, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .tracking(2)
-                    .foregroundStyle(Color.appAccent)
+                    .foregroundStyle(Color.gold)
             }
 
             Text("Choose a service")
-                .font(.bmHero(34))
-                .foregroundStyle(Color.appInk)
+                .font(.system(size: 34, weight: .bold, design: .serif))
                 .lineSpacing(-4)
+                .foregroundStyle(Color.appInk)
 
             HStack(spacing: Space.xs) {
-                BMAvatar(url: braider.avatarUrl, size: 24, initials: "")
+                if braider.avatarUrl.isEmpty {
+                    Circle()
+                        .fill(Color.gold.opacity(0.18))
+                        .frame(width: 24, height: 24)
+                        .overlay(
+                            Text(braider.initials)
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(Color.gold)
+                        )
+                } else {
+                    RemoteImage(url: braider.avatarUrl)
+                        .frame(width: 24, height: 24)
+                        .clipShape(Circle())
+                }
                 Text("with \(braider.name)")
-                    .font(.bmUI(14))
+                    .font(.system(size: 14))
                     .foregroundStyle(Color.appAsh)
             }
         }
@@ -99,6 +130,9 @@ struct BookingSelectionView: View {
         .offset(y: appeared ? 0 : 20)
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - List
+
     private var list: some View {
         ScrollView(showsIndicators: true) {
             VStack(spacing: Space.sm) {
@@ -108,14 +142,18 @@ struct BookingSelectionView: View {
                         isSelected: selectedId == service.id,
                         onTap: {
                             Haptic.select()
-                            withAnimation(Motion.bouncy) {
+                            withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
                                 selectedId = selectedId == service.id ? nil : service.id
                             }
                         }
                     )
                     .opacity(appeared ? 1 : 0)
                     .offset(y: appeared ? 0 : 20)
-                    .animate(Motion.reveal.delay(0.15 + Motion.stagger(index)), value: appeared)
+                    .animation(
+                        .spring(response: 0.6, dampingFraction: 0.85)
+                            .delay(0.15 + Double(index) * 0.06),
+                        value: appeared
+                    )
                 }
             }
             .padding(.horizontal, Space.lg)
@@ -123,12 +161,16 @@ struct BookingSelectionView: View {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Continue bar
+
     private func continueBar(service: BraidService) -> some View {
         VStack(spacing: 0) {
+            // Gold hairline
             Rectangle()
                 .fill(
                     LinearGradient(
-                        colors: [Color.appDivider.opacity(0), Color.appDivider, Color.appDivider.opacity(0)],
+                        colors: [Color.clear, Color.gold.opacity(0.5), Color.clear],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
@@ -138,11 +180,11 @@ struct BookingSelectionView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(service.name)
-                        .font(.bmUI(15, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Color.appInk)
                     Text("from £\(service.priceFrom)")
-                        .font(.bmMono(13, weight: .semibold))
-                        .foregroundStyle(Color.appAccent)
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color.gold)
                 }
                 Spacer()
                 Button {
@@ -151,9 +193,9 @@ struct BookingSelectionView: View {
                 } label: {
                     HStack(spacing: Space.xs) {
                         Text("Continue")
-                            .font(.bmUI(15, weight: .semibold))
+                            .font(.system(size: 15, weight: .semibold))
                         Image(systemName: "arrow.right")
-                            .font(.bmUI(12, weight: .bold))
+                            .font(.system(size: 12, weight: .bold))
                     }
                     .foregroundStyle(Color.appInkInverse)
                     .padding(.horizontal, Space.lg)
@@ -165,16 +207,20 @@ struct BookingSelectionView: View {
             }
             .padding(.horizontal, Space.lg)
             .padding(.vertical, Space.md)
-            .background(.ultraThinMaterial)
+            .background(Color.glassTintStrong)
         }
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Progress Header
+// ═══════════════════════════════════════════════════════════════════
 
 struct BookingProgressHeader: View {
     let step: Int
     var total: Int = 3
+
+    @State private var shimmerPosition: CGFloat = -1
 
     var body: some View {
         HStack(spacing: Space.xs) {
@@ -185,19 +231,48 @@ struct BookingProgressHeader: View {
                         .frame(height: 4)
                     if i < step {
                         Capsule()
-                            .fill(Color.appAccent)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.goldLight, Color.gold, Color.goldDeep],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
                             .frame(height: 4)
+                            .overlay(
+                                GeometryReader { geo in
+                                    Capsule()
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [.clear, .white.opacity(0.6), .clear],
+                                                startPoint: .leading,
+                                                endPoint: .trailing
+                                            )
+                                        )
+                                        .frame(width: geo.size.width * 0.4)
+                                        .offset(x: shimmerPosition * geo.size.width * 1.4)
+                                        .blendMode(.overlay)
+                                }
+                                .clipShape(Capsule())
+                            )
                     }
                 }
-                .animation(Motion.smooth, value: step)
+                .animation(.spring(response: 0.5, dampingFraction: 0.85), value: step)
             }
         }
         .padding(.horizontal, Space.lg)
         .padding(.top, Space.sm)
+        .onAppear {
+            withAnimation(.linear(duration: 2.2).repeatForever(autoreverses: false)) {
+                shimmerPosition = 1
+            }
+        }
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Service Selectable Card
+// ═══════════════════════════════════════════════════════════════════
 
 struct ServiceSelectableCard: View {
     let service: BraidService
@@ -208,13 +283,14 @@ struct ServiceSelectableCard: View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top, spacing: Space.md) {
+                    // Thumbnail
                     ZStack {
                         if service.imageUrl.isEmpty {
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .fill(Color.appSurfaceElevated)
                                 .frame(width: 80, height: 80)
                             Image(systemName: "photo")
-                                .font(.bmUI(24))
+                                .font(.system(size: 24))
                                 .foregroundStyle(Color.appSmoke)
                         } else {
                             RemoteImage(url: service.imageUrl)
@@ -226,50 +302,53 @@ struct ServiceSelectableCard: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: Space.xs) {
                             Text(service.name)
-                                .font(.bmUI(16, weight: .semibold))
+                                .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(Color.appInk)
                                 .lineLimit(1)
                             if service.popular {
                                 Image(systemName: "flame.fill")
-                                    .font(.bmUI(11))
-                                    .foregroundStyle(Color.appAccent)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Color.gold)
                             }
                         }
                         HStack(spacing: Space.xs) {
                             Text("£\(service.priceFrom)")
-                                .font(.bmMono(15, weight: .semibold))
-                                .foregroundStyle(Color.appAccent)
+                                .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(Color.gold)
                             Text("·")
                                 .foregroundStyle(Color.appSmoke)
                             Text("\(service.durationMinutes / 60)h \(service.durationMinutes % 60)m")
-                                .font(.bmUI(13))
+                                .font(.system(size: 13))
                                 .foregroundStyle(Color.appAsh)
                         }
                     }
 
                     Spacer(minLength: 0)
 
+                    // Selection circle
                     ZStack {
                         Circle()
-                            .stroke(isSelected ? Color.appAccent : Color.appDivider, lineWidth: 2)
+                            .stroke(isSelected ? Color.gold : Color.appDivider, lineWidth: 2)
                             .frame(width: 26, height: 26)
                         if isSelected {
                             Circle()
-                                .fill(Color.appAccent)
+                                .fill(Color.gold)
                                 .frame(width: 26, height: 26)
                             Image(systemName: "checkmark")
-                                .font(.bmUI(11, weight: .bold))
+                                .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(Color.appInkInverse)
                         }
                     }
-                    .animation(Motion.bouncy, value: isSelected)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.65), value: isSelected)
                 }
 
+                // Expanded content
                 if isSelected && !service.description.isEmpty {
                     VStack(alignment: .leading, spacing: Space.sm) {
                         BMDivider().padding(.top, Space.md)
+
                         Text(service.description)
-                            .font(.bmUI(14))
+                            .font(.system(size: 14))
                             .foregroundStyle(Color.appAsh)
                             .lineSpacing(5)
                             .fixedSize(horizontal: false, vertical: true)
@@ -279,16 +358,16 @@ struct ServiceSelectableCard: View {
                                 ForEach(service.includes, id: \.self) { item in
                                     HStack(spacing: 4) {
                                         Image(systemName: "checkmark")
-                                            .font(.bmUI(9, weight: .bold))
-                                            .foregroundStyle(Color.appAccent)
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundStyle(Color.gold)
                                         Text(item)
-                                            .font(.bmUI(11, weight: .medium))
+                                            .font(.system(size: 11, weight: .medium))
                                             .foregroundStyle(Color.appInk)
                                     }
                                     .padding(.horizontal, Space.xs)
                                     .frame(minHeight: 26)
                                     .padding(.vertical, 4)
-                                    .background(Color.appAccentTint, in: Capsule())
+                                    .background(Color.gold.opacity(0.12), in: Capsule())
                                 }
                             }
                         }
@@ -302,16 +381,15 @@ struct ServiceSelectableCard: View {
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                     .stroke(
-                        isSelected ? Color.appAccent : Color.appDivider,
+                        isSelected ? Color.gold : Color.appDivider,
                         lineWidth: isSelected ? 1.5 : 0.5
                     )
             )
             .shadow(
-                color: isSelected ? Color.appAccent.opacity(0.15) : Color.appInk.opacity(0.04),
+                color: isSelected ? Color.gold.opacity(0.15) : Color.black.opacity(0.04),
                 radius: isSelected ? 16 : 8,
                 y: isSelected ? 6 : 2
             )
-            .animation(Motion.bouncy, value: isSelected)
         }
         .buttonStyle(BMPressStyle(scale: 0.99))
     }

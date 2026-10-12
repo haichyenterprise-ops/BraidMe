@@ -1,191 +1,140 @@
 import SwiftUI
 
-// MARK: - Standard Row
+// =============================================================================
+// SheetReviewRow — Reviews in sheets, upgraded
+// Gradient ring avatar, staggered star materialization, gold left-rail.
+// =============================================================================
 
-struct BraiderCard: View {
-    let braider: Braider
-    var isHighlighted: Bool = false
-    let onTap: () -> Void
+struct SheetReviewRow: View {
+    let review: Review
+
+    @State private var appeared = false
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: Space.md) {
-                ZStack {
-                    BMAvatar(url: braider.avatarUrl, size: 64, initials: initials, ringed: braider.verified)
-                }
+        HStack(alignment: .top, spacing: Space.sm) {
+            // Gold left rail
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color.gold.opacity(0.9), Color.gold.opacity(0.1)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: 2)
+                .frame(maxHeight: .infinity)
+                .opacity(appeared ? 1 : 0)
+                .animation(.easeOut(duration: 0.5), value: appeared)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: Space.xs) {
-                        Text(braider.name)
-                            .font(.bmUI(16, weight: .semibold))
+            VStack(alignment: .leading, spacing: Space.sm) {
+                HStack(spacing: Space.sm) {
+                    avatarWithRing
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(review.userName)
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(Color.appInk)
                             .lineLimit(1)
-                        if braider.verified {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.bmUI(11))
-                                .foregroundStyle(Color.appAccent)
-                        }
-                    }
 
-                    BMRatingLine(rating: braider.rating, count: braider.reviewCount, size: 12)
-
-                    HStack(spacing: Space.xs) {
-                        Text("from")
-                            .font(.bmUI(11))
-                            .foregroundStyle(Color.appSmoke)
-                        Text("£\(braider.priceFrom)")
-                            .font(.bmMono(13, weight: .semibold))
-                            .foregroundStyle(Color.appAccent)
-                        if !braider.city.isEmpty {
-                            Text("·").foregroundStyle(Color.appSmoke)
-                            Text(braider.city)
-                                .font(.bmUI(11))
+                        HStack(spacing: Space.xxs) {
+                            HStack(spacing: 1) {
+                                ForEach(0..<5, id: \.self) { i in
+                                    Image(systemName: Double(i) < review.rating.rounded() ? "star.fill" : "star")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(Color.gold)
+                                        .opacity(appeared ? 1 : 0)
+                                        .scaleEffect(appeared ? 1 : 0.5)
+                                        .animation(
+                                            .spring(response: 0.4, dampingFraction: 0.6)
+                                                .delay(0.1 + Double(i) * 0.04),
+                                            value: appeared
+                                        )
+                                }
+                            }
+                            Text(review.dateString)
+                                .font(.system(size: 11))
                                 .foregroundStyle(Color.appAsh)
-                                .lineLimit(1)
+                                .opacity(appeared ? 1 : 0)
+                                .animation(.easeOut(duration: 0.4).delay(0.3), value: appeared)
                         }
                     }
+                    Spacer(minLength: 0)
                 }
 
-                Spacer(minLength: 0)
+                Text(review.text)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.appInk.opacity(0.9))
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 8)
+                    .animation(.easeOut(duration: 0.5).delay(0.2), value: appeared)
 
-                ZStack {
-                    Circle()
-                        .fill(Color.appBackground)
-                        .frame(width: 32, height: 32)
-                    Image(systemName: "chevron.right")
-                        .font(.bmUI(11, weight: .bold))
-                        .foregroundStyle(Color.appAsh)
+                if !review.styleDone.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "scissors")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text(review.styleDone)
+                            .font(.system(size: 10, weight: .semibold))
+                            .tracking(0.3)
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(Color.goldInk)
+                    .padding(.horizontal, Space.xs)
+                    .padding(.vertical, 4)
+                    .background(Color.gold.opacity(0.12), in: Capsule())
+                    .overlay(Capsule().stroke(Color.gold.opacity(0.3), lineWidth: 0.5))
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 6)
+                    .animation(.easeOut(duration: 0.45).delay(0.35), value: appeared)
                 }
             }
-            .padding(.vertical, Space.md)
-            .padding(.horizontal, isHighlighted ? Space.sm : 0)
-            .background(
-                Group {
-                    if isHighlighted {
-                        RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                            .fill(Color.appAccentTint)
-                    }
-                }
-            )
-            .contentShape(Rectangle())
         }
-        .buttonStyle(BMPressStyle(scale: 0.99))
-        .animate(Motion.press, value: isHighlighted)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .onAppear {
+            withAnimation { appeared = true }
+        }
     }
 
-    private var initials: String {
-        let parts = braider.name.split(separator: " ")
+    private var avatarWithRing: some View {
+        ZStack {
+            Circle()
+                .stroke(
+                    AngularGradient(
+                        colors: [
+                            Color.gold.opacity(0.9),
+                            Color.goldLight.opacity(0.6),
+                            Color.goldDeep.opacity(0.4),
+                            Color.gold.opacity(0.9)
+                        ],
+                        center: .center,
+                        angle: .degrees(0)
+                    ),
+                    lineWidth: 1.5
+                )
+                .frame(width: 44, height: 44)
+
+            if review.userAvatar.isEmpty {
+                Circle()
+                    .fill(Color.gold.opacity(0.14))
+                    .frame(width: 38, height: 38)
+                    .overlay(
+                        Text(userInitials)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color.gold)
+                    )
+            } else {
+                RemoteImage(url: review.userAvatar)
+                    .frame(width: 38, height: 38)
+                    .clipShape(Circle())
+            }
+        }
+    }
+
+    private var userInitials: String {
+        let parts = review.userName.split(separator: " ")
         let r = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
         return r.isEmpty ? "·" : r.uppercased()
-    }
-}
-
-// MARK: - Big Row (Expanded)
-
-struct BigBraiderRow: View {
-    let braider: Braider
-    let onTap: () -> Void
-
-    @State private var imageLoaded = false
-
-    var body: some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 0) {
-                if !braider.coverUrl.isEmpty {
-                    ZStack(alignment: .topTrailing) {
-                        RemoteImage(url: braider.coverUrl)
-                            .frame(height: 200)
-                            .frame(maxWidth: .infinity)
-                            .clipped()
-                            .overlay(
-                                LinearGradient(
-                                    colors: [.clear, .black.opacity(0.3)],
-                                    startPoint: .center,
-                                    endPoint: .bottom
-                                )
-                            )
-
-                        // Rating badge
-                        HStack(spacing: 4) {
-                            Image(systemName: "star.fill")
-                                .font(.bmUI(10))
-                                .foregroundStyle(Color.appAccent)
-                            Text(String(format: "%.1f", braider.rating))
-                                .font(.bmMono(12, weight: .bold))
-                                .foregroundStyle(Color.appInk)
-                        }
-                        .padding(.horizontal, Space.sm)
-                        .padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay(Capsule().stroke(.white.opacity(0.2), lineWidth: 0.5))
-                        .padding(Space.sm)
-                    }
-                    .clipShape(
-                        .rect(
-                            topLeadingRadius: Radius.card,
-                            bottomLeadingRadius: 0,
-                            bottomTrailingRadius: 0,
-                            topTrailingRadius: Radius.card
-                        )
-                    )
-                }
-
-                HStack(spacing: Space.md) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: Space.xs) {
-                            Text(braider.name)
-                                .font(.bmDisplay(20, weight: .semibold))
-                                .foregroundStyle(Color.appInk)
-                            if braider.verified {
-                                Image(systemName: "checkmark.seal.fill")
-                                    .font(.bmUI(13))
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        if !braider.tagline.isEmpty {
-                            Text(braider.tagline)
-                                .font(.bmUI(14))
-                                .foregroundStyle(Color.appAsh)
-                                .lineLimit(1)
-                        }
-
-                        HStack(spacing: Space.md) {
-                            BMPriceTag(price: braider.priceFrom)
-                            if !braider.responseTime.isEmpty {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "clock")
-                                        .font(.bmUI(10))
-                                    Text(braider.responseTime)
-                                        .font(.bmMono(11, weight: .medium))
-                                }
-                                .foregroundStyle(Color.appAsh)
-                            }
-                        }
-                        .padding(.top, 2)
-                    }
-
-                    Spacer()
-
-                    ZStack {
-                        Circle()
-                            .fill(Color.appInk)
-                            .frame(width: 40, height: 40)
-                        Image(systemName: "arrow.up.right")
-                            .font(.bmUI(14, weight: .bold))
-                            .foregroundStyle(Color.appInkInverse)
-                    }
-                }
-                .padding(Space.md)
-            }
-            .background(Color.appSurface)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                    .stroke(Color.appDivider, lineWidth: 0.5)
-            )
-            .shadow(color: Color.appInk.opacity(0.06), radius: 16, y: 8)
-        }
-        .buttonStyle(BMPressStyle(scale: 0.99))
     }
 }

@@ -1,5 +1,10 @@
 import SwiftUI
 
+// =============================================================================
+// ProfileSetupView — Onboarding step 2, rebuilt
+// Massive age numeral with numeric transitions, ambient gradient, staggered reveal.
+// =============================================================================
+
 struct ProfileSetupView: View {
     let uid: String
     let displayName: String
@@ -28,7 +33,7 @@ struct ProfileSetupView: View {
 
             // Ambient gradient
             RadialGradient(
-                colors: [Color.appAccent.opacity(0.1), .clear],
+                colors: [Color.gold.opacity(0.10), .clear],
                 center: .top,
                 startRadius: 0,
                 endRadius: 500
@@ -51,13 +56,15 @@ struct ProfileSetupView: View {
                     Spacer().frame(height: Space.lg)
 
                     footer.padding(.horizontal, Space.lg)
-                    Spacer().frame(height: Space.xl)
+                    Spacer().frame(height: Space.xxl)
                 }
             }
         }
         .onAppear {
             if !needsName && name.isEmpty { name = displayName }
-            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
+            withAnimation(.spring(response: 0.85, dampingFraction: 0.85).delay(0.1)) {
+                appeared = true
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 if needsName { nameFocused = true }
             }
@@ -76,16 +83,16 @@ struct ProfileSetupView: View {
         VStack(alignment: .leading, spacing: Space.md) {
             HStack(spacing: Space.xs) {
                 Rectangle()
-                    .fill(Color.appAccent)
+                    .fill(Color.gold)
                     .frame(width: 24, height: 2)
                 Text("SETUP · STEP 2 OF 2")
-                    .font(.bmUI(11, weight: .bold))
+                    .font(.system(size: 11, weight: .bold))
                     .tracking(2.5)
-                    .foregroundStyle(Color.appAccent)
+                    .foregroundStyle(Color.gold)
             }
 
             Text(needsName ? "A little\nabout you." : "How old\nare you?")
-                .font(.bmHero(42))
+                .font(.system(size: 42, weight: .bold, design: .serif))
                 .lineSpacing(-6)
                 .foregroundStyle(Color.appInk)
                 .minimumScaleFactor(0.7)
@@ -94,7 +101,7 @@ struct ProfileSetupView: View {
             Text(needsName
                  ? "We'll use this to personalise your feed and match you with the right braiders."
                  : "This helps us keep BraidMe safe and shows age-appropriate styles.")
-                .font(.bmUI(15))
+                .font(.system(size: 15))
                 .foregroundStyle(Color.appAsh)
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
@@ -106,7 +113,15 @@ struct ProfileSetupView: View {
 
     private var nameField: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            BMSectionLabel(text: "Your name")
+            HStack(spacing: Space.xs) {
+                Rectangle()
+                    .fill(Color.gold)
+                    .frame(width: 20, height: 1.5)
+                Text("YOUR NAME")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(2)
+                    .foregroundStyle(Color.appAsh)
+            }
             BMFieldRow(
                 icon: "person",
                 placeholder: "First and last name",
@@ -118,39 +133,48 @@ struct ProfileSetupView: View {
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 24)
-        .animate(Motion.heroReveal.delay(0.15), value: appeared)
+        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.15), value: appeared)
     }
 
     private var agePicker: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            BMSectionLabel(text: "Your age")
+            HStack(spacing: Space.xs) {
+                Rectangle()
+                    .fill(Color.gold)
+                    .frame(width: 20, height: 1.5)
+                Text("YOUR AGE")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(2)
+                    .foregroundStyle(Color.appAsh)
+            }
 
             VStack(spacing: Space.md) {
+                // Giant numeral
                 HStack(alignment: .lastTextBaseline, spacing: Space.sm) {
                     Text("\(age)")
-                        .font(.bmHero(88))
+                        .font(.system(size: 88, weight: .bold, design: .serif))
                         .foregroundStyle(Color.appInk)
-                        .contentTransition(.numericText())
-                        .animation(Motion.bouncy, value: age)
+                        .contentTransition(.numericText(countsDown: false))
+                        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: age)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
 
                     Text("years")
-                        .font(.bmUI(18, weight: .medium))
+                        .font(.system(size: 18, weight: .medium))
                         .foregroundStyle(Color.appAsh)
                         .padding(.bottom, 16)
                 }
 
                 ZStack {
                     RoundedRectangle(cornerRadius: Radius.button)
-                        .fill(Color.appAccentTint)
+                        .fill(Color.gold.opacity(0.10))
                         .frame(height: 44)
                         .padding(.horizontal, Space.xl)
 
                     Picker("Age", selection: $age) {
                         ForEach(range, id: \.self) { n in
                             Text("\(n)").tag(n)
-                                .font(.bmUI(22, weight: .semibold))
+                                .font(.system(size: 22, weight: .semibold))
                                 .foregroundStyle(Color.appInk)
                         }
                     }
@@ -168,11 +192,11 @@ struct ProfileSetupView: View {
                 RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                     .stroke(Color.appDivider, lineWidth: 0.5)
             )
-            .shadow(color: Color.appInk.opacity(0.06), radius: 16, y: 8)
+            .shadow(color: Color.black.opacity(0.06), radius: 16, y: 8)
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 24)
-        .animate(Motion.heroReveal.delay(0.2), value: appeared)
+        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.20), value: appeared)
     }
 
     private var footer: some View {
@@ -180,9 +204,9 @@ struct ProfileSetupView: View {
             if !isValid && !name.isEmpty {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.bmUI(11))
+                        .font(.system(size: 11))
                     Text("You must be at least 13 to continue.")
-                        .font(.bmUI(13, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                 }
                 .foregroundStyle(Color.appAlert)
                 .padding(.horizontal, Space.md)
@@ -203,8 +227,8 @@ struct ProfileSetupView: View {
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 24)
-        .animate(Motion.heroReveal.delay(0.25), value: appeared)
-        .animation(Motion.bouncy, value: isValid)
+        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.25), value: appeared)
+        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isValid)
     }
 
     private func save() {

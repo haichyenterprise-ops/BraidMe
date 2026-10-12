@@ -3,40 +3,52 @@ import UIKit
 
 // =============================================================================
 // BraidMe Design System — "Obsidian Couture"
+//
+// Foundation for the entire app. Every color, font, spacing token, motion
+// curve, haptic pattern, and shared modifier lives here. Waves 1–6 were
+// built against this exact API surface.
 // =============================================================================
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Color Palette
+// ═══════════════════════════════════════════════════════════════════
 
 extension Color {
     fileprivate enum Palette {
+        // ─── Light neutrals ───
         static let cream        = Color(hex: "#FAF8F5")
         static let pearl        = Color(hex: "#F2EEE8")
         static let linen        = Color(hex: "#E8E2D9")
         static let sand         = Color(hex: "#D4CCC0")
 
+        // ─── Dark neutrals ───
         static let onyx         = Color(hex: "#121218")
         static let graphite     = Color(hex: "#1A1A22")
         static let slate        = Color(hex: "#252530")
         static let steel        = Color(hex: "#3A3A48")
         static let void         = Color(hex: "#050507")
 
+        // ─── Text hierarchy ───
         static let ink          = Color(hex: "#0F0F12")
         static let charcoal     = Color(hex: "#2A2A32")
         static let pewter       = Color(hex: "#6B6B78")
         static let fog          = Color(hex: "#9A9AA5")
 
+        // ─── Gold scale ───
         static let goldSoft     = Color(hex: "#F2DFA0")
         static let goldLight    = Color(hex: "#E8C84A")
         static let gold         = Color(hex: "#C9A227")
         static let goldDeep     = Color(hex: "#8B7119")
         static let goldInk      = Color(hex: "#5C4A15")
 
+        // ─── Semantic ───
         static let emerald      = Color(hex: "#34D399")
         static let ruby         = Color(hex: "#F87171")
         static let sapphire     = Color(hex: "#60A5FA")
         static let amethyst     = Color(hex: "#A78BFA")
     }
 
+    // ─── Adaptive surfaces ───
     static var appBackground: Color {
         Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.onyx) : UIColor(Palette.cream) })
     }
@@ -48,6 +60,7 @@ extension Color {
     }
     static var appSurfaceInverse: Color { Palette.onyx }
 
+    // ─── Adaptive text ───
     static var appInk: Color {
         Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.cream) : UIColor(Palette.ink) })
     }
@@ -61,10 +74,12 @@ extension Color {
         Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.slate) : UIColor(Palette.linen) })
     }
 
+    // ─── Legacy aliases ───
     static var appAsh: Color { appInkSecondary }
     static var appSmoke: Color { appInkTertiary }
     static var appInkInverse: Color { Palette.cream }
 
+    // ─── Gold accent system ───
     static var appAccent: Color { Palette.gold }
     static var appAccentSoft: Color { Palette.goldLight }
     static var appAccentDeep: Color { Palette.goldDeep }
@@ -79,16 +94,39 @@ extension Color {
             : UIColor(Palette.gold).withAlphaComponent(0.25) })
     }
 
+    // ─── Semantic shortcuts ───
     static var appSignal: Color { Palette.emerald }
     static var appAlert: Color { Palette.ruby }
     static var appInfo: Color { Palette.sapphire }
     static var appPremium: Color { Palette.amethyst }
 
+    // ─── Direct gold accessors ───
     static var goldSoft: Color { Palette.goldSoft }
     static var goldLight: Color { Palette.goldLight }
     static var gold: Color { Palette.gold }
     static var goldDeep: Color { Palette.goldDeep }
     static var goldInk: Color { Palette.goldInk }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Blur-free glass tints (performance)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// Cheap alternative to `.ultraThinMaterial` — same visual, no GPU blur cost.
+    static var glassTint: Color {
+        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
+            ? UIColor(Palette.graphite).withAlphaComponent(0.72)
+            : UIColor.white.withAlphaComponent(0.82) })
+    }
+    /// Cheap alternative to `.regularMaterial`.
+    static var glassTintStrong: Color {
+        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
+            ? UIColor(Palette.slate).withAlphaComponent(0.88)
+            : UIColor.white.withAlphaComponent(0.94) })
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Gradients
+    // ═══════════════════════════════════════════════════════════════
 
     static var accentGradient: LinearGradient {
         LinearGradient(
@@ -98,6 +136,7 @@ extension Color {
         )
     }
 
+    /// Gold hairline for section dividers — bright in center, transparent at edges.
     static var goldHairline: LinearGradient {
         LinearGradient(
             colors: [Palette.gold.opacity(0), Palette.gold, Palette.gold.opacity(0)],
@@ -106,11 +145,25 @@ extension Color {
         )
     }
 
+    /// Gold rim for outlined cards.
     static var goldRim: LinearGradient {
         LinearGradient(
             colors: [Palette.goldLight.opacity(0.9), Palette.gold.opacity(0.2)],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
+        )
+    }
+
+    /// Moving gold sheen — used on shimmer overlays.
+    static var goldSweep: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: Palette.gold.opacity(0), location: 0.0),
+                .init(color: Palette.goldLight.opacity(0.6), location: 0.5),
+                .init(color: Palette.gold.opacity(0), location: 1.0)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
         )
     }
 
@@ -133,6 +186,25 @@ extension Color {
         )
     }
 
+    /// 5-stop cinematic veil used on hero images.
+    static var heroVeil: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: .black.opacity(0.55), location: 0.00),
+                .init(color: .clear,                location: 0.30),
+                .init(color: .black.opacity(0.10), location: 0.55),
+                .init(color: .black.opacity(0.78), location: 0.85),
+                .init(color: .black.opacity(0.98), location: 1.00)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Hex init
+    // ═══════════════════════════════════════════════════════════════
+
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
@@ -152,7 +224,9 @@ extension Color {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Typography
+// ═══════════════════════════════════════════════════════════════════
 
 extension Font {
     static func bmDisplay(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
@@ -175,7 +249,9 @@ extension Font {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Spacing
+// ═══════════════════════════════════════════════════════════════════
 
 enum Space {
     static let xxs: CGFloat = 4
@@ -189,24 +265,30 @@ enum Space {
     static let huge: CGFloat = 96
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Radius
+// ═══════════════════════════════════════════════════════════════════
 
 enum Radius {
-    static let chip:   CGFloat = 10
-    static let button: CGFloat = 16
-    static let card:   CGFloat = 24
-    static let modal:  CGFloat = 36
-    static let pill:   CGFloat = 999
-    static let hero:   CGFloat = 32
+    static let chip:     CGFloat = 10
+    static let button:   CGFloat = 16
+    static let card:     CGFloat = 24
+    static let modal:    CGFloat = 36
+    static let pill:     CGFloat = 999
+    static let hero:     CGFloat = 32
     static let squircle: CGFloat = 20
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Motion
+// ═══════════════════════════════════════════════════════════════════
 
 enum Motion {
+    // Navigation & sheets
     static let navigation = Animation.spring(response: 0.45, dampingFraction: 0.86)
     static let sheet      = Animation.spring(response: 0.42, dampingFraction: 0.88)
 
+    // Interactions
     static let press      = Animation.spring(response: 0.25, dampingFraction: 0.75)
     static let reveal     = Animation.spring(response: 0.55, dampingFraction: 0.82)
     static let subtle     = Animation.easeOut(duration: 0.22)
@@ -214,26 +296,32 @@ enum Motion {
     static let bouncy     = Animation.spring(response: 0.35, dampingFraction: 0.65)
     static let slow       = Animation.easeInOut(duration: 0.6)
 
+    // Physical dynamics
     static let morph      = Animation.spring(response: 0.5, dampingFraction: 0.75)
     static let expand     = Animation.spring(response: 0.38, dampingFraction: 0.65)
     static let collapse   = Animation.spring(response: 0.42, dampingFraction: 0.78)
     static let cardDrop   = Animation.spring(response: 0.5, dampingFraction: 0.78)
     static let cardMorph  = Animation.spring(response: 0.55, dampingFraction: 0.72)
 
+    // Hero
     static let heroReveal = Animation.spring(response: 0.8, dampingFraction: 0.75)
     static let cameraFly  = Animation.smooth(duration: 0.9)
 
+    // Loops
     static let shimmer    = Animation.linear(duration: 2.5).repeatForever(autoreverses: false)
     static let pulse      = Animation.easeInOut(duration: 2.0).repeatForever(autoreverses: true)
     static let breathe    = Animation.easeInOut(duration: 2.4).repeatForever(autoreverses: true)
     static let marquee    = Animation.linear(duration: 30).repeatForever(autoreverses: false)
     static let sheenLoop  = Animation.linear(duration: 2.5).repeatForever(autoreverses: false)
 
+    // Stagger
     static let staggerStep: Double = 0.05
     static func stagger(_ index: Int) -> Double { Double(index) * staggerStep }
 }
 
-// MARK: - Adaptive Animation
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Adaptive Animation Modifier
+// ═══════════════════════════════════════════════════════════════════
 
 struct AdaptiveAnimation<V: Equatable>: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -250,52 +338,9 @@ extension View {
     }
 }
 
-// MARK: - Button Styles
-
-struct BMPressStyle: ButtonStyle {
-    var scale: CGFloat = 0.97
-    var dim: Double = 0.04
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? scale : 1)
-            .brightness(configuration.isPressed ? -dim : 0)
-            .animation(Motion.press, value: configuration.isPressed)
-    }
-}
-
-struct BMIconPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.90 : 1)
-            .animation(Motion.press, value: configuration.isPressed)
-    }
-}
-
-struct BMGlowPressStyle: ButtonStyle {
-    var glowColor: Color = .appAccent
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .shadow(
-                color: glowColor.opacity(configuration.isPressed ? 0.5 : 0.3),
-                radius: configuration.isPressed ? 8 : 16,
-                y: configuration.isPressed ? 2 : 6
-            )
-            .animation(Motion.press, value: configuration.isPressed)
-    }
-}
-
-struct BMSquirclePressStyle: ButtonStyle {
-    var scale: CGFloat = 0.965
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? scale : 1)
-            .opacity(configuration.isPressed ? 0.96 : 1)
-            .animation(Motion.expand, value: configuration.isPressed)
-    }
-}
-
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Haptics
+// ═══════════════════════════════════════════════════════════════════
 
 enum Haptic {
     static func select()  { UISelectionFeedbackGenerator().selectionChanged() }
@@ -309,7 +354,9 @@ enum Haptic {
     static func error()   { UINotificationFeedbackGenerator().notificationOccurred(.error) }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Dual-Layer Glass Stroke
+// ═══════════════════════════════════════════════════════════════════
 
 struct DualLayerGlassStroke: ViewModifier {
     var cornerRadius: CGFloat = Radius.card
@@ -341,44 +388,9 @@ extension View {
     }
 }
 
-// MARK: - FlowLayout
-
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-        return CGSize(width: maxWidth, height: y + rowHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x: CGFloat = bounds.minX, y: CGFloat = bounds.minY, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-    }
-}
-
-// MARK: - Shimmer
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Shimmer Modifier
+// ═══════════════════════════════════════════════════════════════════
 
 struct ShimmerModifier: ViewModifier {
     @State private var phase: CGFloat = -1
@@ -413,7 +425,9 @@ extension View {
     }
 }
 
-// MARK: - Glow
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Glow Modifier
+// ═══════════════════════════════════════════════════════════════════
 
 struct GlowModifier: ViewModifier {
     var color: Color
@@ -433,7 +447,9 @@ extension View {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Noise Texture
+// ═══════════════════════════════════════════════════════════════════
 
 struct NoiseTexture: View {
     var opacity: Double = 0.03
@@ -454,6 +470,11 @@ struct NoiseTexture: View {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Seeded RNG
+// ═══════════════════════════════════════════════════════════════════
+
+/// Deterministic RNG so noise and star fields are stable across re-renders.
 struct SeededRNG: RandomNumberGenerator {
     private var state: UInt64
     init(seed: UInt64) { self.state = seed == 0 ? 0x9E3779B97F4A7C15 : seed }
@@ -465,7 +486,9 @@ struct SeededRNG: RandomNumberGenerator {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Animated Gradient Border
+// ═══════════════════════════════════════════════════════════════════
 
 struct AnimatedGradientBorder: View {
     var cornerRadius: CGFloat = Radius.card
@@ -496,7 +519,9 @@ struct AnimatedGradientBorder: View {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Pulse Ring
+// ═══════════════════════════════════════════════════════════════════
 
 struct PulseRing: View {
     var color: Color = .gold
@@ -520,19 +545,9 @@ struct PulseRing: View {
     }
 }
 
-// MARK: - Check Shape
-
-struct CheckShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.width * 0.15, y: rect.height * 0.55))
-        path.addLine(to: CGPoint(x: rect.width * 0.42, y: rect.height * 0.80))
-        path.addLine(to: CGPoint(x: rect.width * 0.88, y: rect.height * 0.20))
-        return path
-    }
-}
-
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Glass Background
+// ═══════════════════════════════════════════════════════════════════
 
 struct GlassBackground: View {
     var cornerRadius: CGFloat = Radius.card
@@ -558,7 +573,9 @@ struct GlassBackground: View {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Squircle Convenience
+// ═══════════════════════════════════════════════════════════════════
 
 extension View {
     func bmSquircle(_ radius: CGFloat = Radius.card) -> some View {

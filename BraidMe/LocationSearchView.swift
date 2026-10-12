@@ -1,6 +1,11 @@
 import SwiftUI
 import CoreLocation
 
+// =============================================================================
+// LocationSearchView — City picker, upgraded
+// Editorial "Where to?" header, animated search field, staggered city rows.
+// =============================================================================
+
 struct City: Identifiable, Hashable {
     let id: String
     let name: String
@@ -67,6 +72,15 @@ struct LocationSearchView: View {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
 
+                // Ambient gradient
+                RadialGradient(
+                    colors: [Color.gold.opacity(0.06), .clear],
+                    center: .top,
+                    startRadius: 0,
+                    endRadius: 400
+                )
+                .ignoresSafeArea()
+
                 VStack(spacing: 0) {
                     header
 
@@ -75,7 +89,7 @@ struct LocationSearchView: View {
                         .padding(.bottom, Space.md)
                         .opacity(appeared ? 1 : 0)
                         .offset(y: appeared ? 0 : 12)
-                        .animate(Motion.heroReveal.delay(0.15), value: appeared)
+                        .animation(.spring(response: 0.65, dampingFraction: 0.85).delay(0.15), value: appeared)
 
                     ScrollView(showsIndicators: false) {
                         LazyVStack(spacing: 0) {
@@ -99,11 +113,7 @@ struct LocationSearchView: View {
                             }
 
                             if filtered.isEmpty {
-                                BMEmptyState(
-                                    icon: "magnifyingglass",
-                                    title: "No cities found",
-                                    message: "Try a different city or region."
-                                )
+                                emptySearchResult
                             }
 
                             Color.clear.frame(height: Space.xl)
@@ -115,40 +125,53 @@ struct LocationSearchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    BMGlassIconButton(icon: "xmark", size: 40, iconSize: 14, tint: .appInk) {
+                    Button {
+                        Haptic.press()
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.appInk)
+                            .frame(width: 40, height: 40)
+                            .background(Color.appSurface, in: Circle())
+                            .overlay(Circle().stroke(Color.appDivider, lineWidth: 0.5))
                     }
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
         }
         .onAppear {
-            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
+            withAnimation(.spring(response: 0.75, dampingFraction: 0.85).delay(0.1)) {
+                appeared = true
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 searchFocused = true
             }
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Header
+
     private var header: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack(spacing: Space.xs) {
                 Rectangle()
-                    .fill(Color.appAccent)
+                    .fill(Color.gold)
                     .frame(width: 20, height: 2)
                 Text("EXPLORE")
-                    .font(.bmUI(10, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .tracking(2)
-                    .foregroundStyle(Color.appAccent)
+                    .foregroundStyle(Color.gold)
             }
 
             Text("Where to?")
-                .font(.bmHero(34))
-                .foregroundStyle(Color.appInk)
+                .font(.system(size: 34, weight: .bold, design: .serif))
                 .lineSpacing(-4)
+                .foregroundStyle(Color.appInk)
 
             Text("Pick a city to discover braiders nearby.")
-                .font(.bmUI(14))
+                .font(.system(size: 14))
                 .foregroundStyle(Color.appAsh)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -157,23 +180,25 @@ struct LocationSearchView: View {
         .padding(.bottom, Space.md)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 16)
-        .animate(Motion.heroReveal, value: appeared)
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Search field
 
     private var searchField: some View {
         HStack(spacing: Space.md) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(searchFocused ? Color.appAccentTint : Color.appBackground)
+                    .fill(searchFocused ? Color.gold.opacity(0.12) : Color.appBackground)
                     .frame(width: 36, height: 36)
                 Image(systemName: "magnifyingglass")
-                    .font(.bmUI(14, weight: .semibold))
-                    .foregroundStyle(searchFocused ? Color.appAccent : Color.appAsh)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(searchFocused ? Color.gold : Color.appAsh)
             }
-            .animation(Motion.subtle, value: searchFocused)
+            .animation(.easeOut(duration: 0.2), value: searchFocused)
 
             TextField("Search city or region", text: $query)
-                .font(.bmUI(16, weight: .medium))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Color.appInk)
                 .focused($searchFocused)
                 .autocorrectionDisabled()
@@ -185,7 +210,7 @@ struct LocationSearchView: View {
                     query = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.bmUI(16))
+                        .font(.system(size: 16))
                         .foregroundStyle(Color.appSmoke)
                 }
                 .transition(.scale.combined(with: .opacity))
@@ -198,23 +223,26 @@ struct LocationSearchView: View {
         .overlay(
             RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
                 .stroke(
-                    searchFocused ? Color.appAccent.opacity(0.5) : Color.appDivider,
+                    searchFocused ? Color.gold.opacity(0.5) : Color.appDivider,
                     lineWidth: searchFocused ? 1.5 : 0.5
                 )
         )
-        .shadow(color: searchFocused ? Color.appAccent.opacity(0.1) : .clear, radius: 8, y: 2)
-        .animation(Motion.subtle, value: searchFocused)
-        .animation(Motion.subtle, value: query.isEmpty)
+        .shadow(color: searchFocused ? Color.gold.opacity(0.1) : .clear, radius: 8, y: 2)
+        .animation(.easeOut(duration: 0.2), value: searchFocused)
+        .animation(.easeOut(duration: 0.2), value: query.isEmpty)
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Section header
 
     private func sectionHeader(_ text: String) -> some View {
         HStack {
             HStack(spacing: Space.xs) {
                 Rectangle()
-                    .fill(Color.appAccent)
+                    .fill(Color.gold)
                     .frame(width: 12, height: 2)
                 Text(text)
-                    .font(.bmUI(10, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .tracking(1.5)
                     .foregroundStyle(Color.appAsh)
             }
@@ -222,6 +250,9 @@ struct LocationSearchView: View {
         }
         .padding(.vertical, Space.sm)
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - City row
 
     private func cityRow(_ city: City) -> some View {
         Button {
@@ -232,34 +263,34 @@ struct LocationSearchView: View {
             HStack(spacing: Space.md) {
                 ZStack {
                     Circle()
-                        .fill(city.id == initialCity.id ? Color.appAccentTint : Color.appBackground)
+                        .fill(city.id == initialCity.id ? Color.gold.opacity(0.14) : Color.appBackground)
                         .frame(width: 44, height: 44)
                     Image(systemName: city.id == initialCity.id ? "location.fill" : "mappin")
-                        .font(.bmUI(15, weight: .semibold))
-                        .foregroundStyle(city.id == initialCity.id ? Color.appAccent : Color.appAsh)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(city.id == initialCity.id ? Color.gold : Color.appAsh)
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(city.name)
-                        .font(.bmUI(15, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Color.appInk)
                     Text(city.region)
-                        .font(.bmUI(12))
+                        .font(.system(size: 12))
                         .foregroundStyle(Color.appAsh)
                 }
                 Spacer()
 
                 if city.id == initialCity.id {
                     Text("Current")
-                        .font(.bmUI(10, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                         .tracking(0.6)
-                        .foregroundStyle(Color.appAccent)
+                        .foregroundStyle(Color.gold)
                         .padding(.horizontal, Space.xs)
                         .padding(.vertical, 5)
-                        .background(Color.appAccentTint, in: Capsule())
+                        .background(Color.gold.opacity(0.12), in: Capsule())
                 } else {
                     Image(systemName: "arrow.up.right")
-                        .font(.bmUI(12, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color.appSmoke)
                         .frame(width: 32, height: 32)
                         .background(Color.appBackground, in: Circle())
@@ -269,5 +300,29 @@ struct LocationSearchView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(BMPressStyle(scale: 0.99))
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Empty state
+
+    private var emptySearchResult: some View {
+        VStack(spacing: Space.sm) {
+            ZStack {
+                Circle()
+                    .fill(Color.gold.opacity(0.12))
+                    .frame(width: 64, height: 64)
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 26, weight: .light))
+                    .foregroundStyle(Color.gold)
+            }
+            Text("No cities found")
+                .font(.system(size: 20, weight: .semibold, design: .serif))
+                .foregroundStyle(Color.appInk)
+            Text("Try a different city or region.")
+                .font(.system(size: 14))
+                .foregroundStyle(Color.appAsh)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Space.xxl)
     }
 }

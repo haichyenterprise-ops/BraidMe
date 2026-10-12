@@ -4,7 +4,7 @@ import CoreHaptics
 import UIKit
 
 // =============================================================================
-// BraiderProfileView — Lag-free editorial profile.
+// BraiderProfileView — Editorial profile, zero-lag, magazine-quality
 // =============================================================================
 
 struct BraiderProfileView: View {
@@ -29,8 +29,6 @@ struct BraiderProfileView: View {
     @State private var heroAppeared = false
     @State private var contentAppeared = false
     @State private var savedPulse = false
-
-    @State private var portfolioIndex: Int = 0
 
     @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
 
@@ -112,8 +110,15 @@ struct BraiderProfileView: View {
     // MARK: - Hero
 
     private var hero: some View {
-        GeometryReader { geo in            let minY = geo.frame(in: .named("profile-scroll")).minY
+        GeometryReader { geo in
+            let minY = geo.frame(in: .named("profile-scroll")).minY
             let stretch = max(0, minY)
+            let scrolled = -minY
+            let heroScale: CGFloat = {
+                guard minY < 0 else { return 1.0 }
+                let progress = min(scrolled / 400, 1)
+                return 1.0 + progress * 0.18
+            }()
             let parallax = minY * 0.4
 
             ZStack(alignment: .bottom) {
@@ -139,22 +144,12 @@ struct BraiderProfileView: View {
                         .frame(width: geo.size.width, height: geo.size.height + 120)
                     }
                 }
+                .scaleEffect(heroScale, anchor: .bottom)
                 .offset(y: -parallax)
                 .frame(width: geo.size.width, height: geo.size.height + stretch)
                 .clipped()
 
-                // Gradient veil
-                LinearGradient(
-                    stops: [
-                        .init(color: .black.opacity(0.55), location: 0.00),
-                        .init(color: .clear,                location: 0.30),
-                        .init(color: .black.opacity(0.10), location: 0.55),
-                        .init(color: .black.opacity(0.78), location: 0.85),
-                        .init(color: .black.opacity(0.98), location: 1.00)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+                Color.heroVeil
 
                 heroContent
                     .padding(.horizontal, 24)
@@ -238,7 +233,7 @@ struct BraiderProfileView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(.ultraThinMaterial, in: Capsule())
+        .background(Color.black.opacity(0.32), in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.22), lineWidth: 0.5))
     }
 
@@ -285,7 +280,7 @@ struct BraiderProfileView: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: 46, height: 46)
-                .background(.ultraThinMaterial, in: Circle())
+                .background(Color.black.opacity(0.38), in: Circle())
                 .overlay(
                     Circle().stroke(
                         LinearGradient(
@@ -465,7 +460,6 @@ struct BraiderProfileView: View {
                 )
                 .padding(.horizontal, 24)
             } else {
-                // Simple horizontal scroll — cards freely swipeable
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 16) {
                         ForEach(Array(braider.portfolio.enumerated()), id: \.element.id) { index, item in
@@ -478,6 +472,16 @@ struct BraiderProfileView: View {
                                     selectedPortfolioItem = item
                                 }
                             )
+                            .scrollTransition(.interactive, axis: .horizontal) { content, phase in
+                                content
+                                    .scaleEffect(phase.isIdentity ? 1.0 : 0.92)
+                                    .rotation3DEffect(
+                                        .degrees(phase.value * -12),
+                                        axis: (x: 0, y: 1, z: 0),
+                                        perspective: 0.6
+                                    )
+                                    .opacity(phase.isIdentity ? 1.0 : 0.72)
+                            }
                         }
                     }
                     .scrollTargetLayout()
@@ -514,12 +518,19 @@ struct BraiderProfileView: View {
                 .padding(.horizontal, 24)
             } else {
                 VStack(spacing: 14) {
-                    ForEach(braider.services) { service in
+                    ForEach(Array(braider.services.enumerated()), id: \.element.id) { index, service in
                         ServiceRowCard(service: service) {
                             Haptic.press()
                             haptics.play(.select)
                             showBookingForService = service
                         }
+                        .opacity(contentAppeared ? 1 : 0)
+                        .offset(y: contentAppeared ? 0 : 20)
+                        .animation(
+                            .spring(response: 0.6, dampingFraction: 0.82)
+                                .delay(Double(index) * 0.06),
+                            value: contentAppeared
+                        )
                     }
                 }
                 .padding(.horizontal, 24)
@@ -755,7 +766,7 @@ struct BraiderProfileView: View {
         .padding(.bottom, 10)
         .background {
             ZStack {
-                Rectangle().fill(.regularMaterial)
+                Color.glassTintStrong.ignoresSafeArea()
                 VStack {
                     Rectangle()
                         .fill(
@@ -772,8 +783,8 @@ struct BraiderProfileView: View {
                         .frame(height: 0.8)
                     Spacer()
                 }
+                .ignoresSafeArea()
             }
-            .ignoresSafeArea()
         }
     }
 
@@ -791,7 +802,7 @@ struct BraiderProfileView: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Portfolio Card (working swipe + magnifier)
+// MARK: - Portfolio Card — scroll-friendly + long-press-only magnifier
 // ═══════════════════════════════════════════════════════════════════
 
 struct PortfolioCardView: View {
@@ -858,27 +869,35 @@ struct PortfolioCardView: View {
             }
         }
         .frame(width: cardWidth, height: cardHeight)
-        .contentShape(Rectangle())
+        // ─── Tap → lightbox ───
         .onTapGesture {
             onTap()
         }
-        .onLongPressGesture(minimumDuration: 0.25, pressing: { pressing in
-            if pressing {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    magnifierActive = true
-                }
-                Haptic.medium()
-            } else {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    magnifierActive = false
-                }
-            }
-        }, perform: {})
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
+        // ─── Long-press + drag → magnifier (scroll passes through otherwise) ───
+        .gesture(
+            LongPressGesture(minimumDuration: 0.28)
+                .sequenced(before: DragGesture(minimumDistance: 0))
                 .onChanged { value in
-                    if magnifierActive {
-                        magnifierLocation = value.location
+                    switch value {
+                    case .first(true):
+                        // Long press recognized — activate magnifier
+                        if !magnifierActive {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                magnifierActive = true
+                            }
+                            Haptic.medium()
+                        }
+                    case .second(true, let drag):
+                        if let drag = drag {
+                            magnifierLocation = drag.location
+                        }
+                    default:
+                        break
+                    }
+                }
+                .onEnded { _ in
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        magnifierActive = false
                     }
                 }
         )
@@ -1354,7 +1373,7 @@ struct PortfolioLightbox: View {
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
                             .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
+                            .background(Color.white.opacity(0.10), in: Circle())
                             .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 0.8))
                     }
 
@@ -1444,7 +1463,6 @@ struct AllReviewsSheet: View {
     let onWriteReview: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var appeared = false
 
     var body: some View {
         NavigationStack {
@@ -1491,7 +1509,6 @@ struct AllReviewsSheet: View {
                     }
                 }
             }
-            .onAppear { appeared = true }
         }
     }
 }

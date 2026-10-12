@@ -1,6 +1,11 @@
 import SwiftUI
 import FirebaseDatabase
 
+// =============================================================================
+// ChatView — Real-time messaging, upgraded
+// Glass toolbar, animated bubbles, online indicator, glass input bar.
+// =============================================================================
+
 struct ChatView: View {
     let booking: Booking
     let currentUserId: String
@@ -13,6 +18,7 @@ struct ChatView: View {
     @State private var observerHandle: DatabaseHandle?
     @State private var sending = false
     @State private var appeared = false
+    @State private var typingDots = false
 
     @FocusState private var inputFocused: Bool
 
@@ -33,21 +39,29 @@ struct ChatView: View {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 2) {
                         Text(booking.braiderName)
-                            .font(.bmUI(15, weight: .semibold))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(Color.appInk)
                         HStack(spacing: 4) {
                             Circle()
                                 .fill(Color.appSignal)
                                 .frame(width: 6, height: 6)
                             Text("Online")
-                                .font(.bmUI(11, weight: .medium))
+                                .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(Color.appAsh)
                         }
                     }
                 }
                 ToolbarItem(placement: .navigationBarLeading) {
-                    BMGlassIconButton(icon: "chevron.down", size: 40, iconSize: 14, tint: .appInk) {
+                    Button {
+                        Haptic.press()
                         dismiss()
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.appInk)
+                            .frame(width: 40, height: 40)
+                            .background(Color.appSurface, in: Circle())
+                            .overlay(Circle().stroke(Color.appDivider, lineWidth: 0.5))
                     }
                 }
             }
@@ -55,7 +69,9 @@ struct ChatView: View {
         }
         .onAppear {
             startObserving()
-            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
+            withAnimation(.spring(response: 0.75, dampingFraction: 0.85).delay(0.1)) {
+                appeared = true
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 inputFocused = true
             }
@@ -68,6 +84,7 @@ struct ChatView: View {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
     // MARK: - Messages
 
     private var messagesScroll: some View {
@@ -94,7 +111,7 @@ struct ChatView: View {
             }
             .onChange(of: messages.count) { _, _ in
                 if let last = messages.last {
-                    withAnimation(Motion.press) {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
                 }
@@ -106,21 +123,21 @@ struct ChatView: View {
         VStack(spacing: Space.md) {
             ZStack {
                 Circle()
-                    .fill(Color.appAccentTint)
+                    .fill(Color.gold.opacity(0.12))
                     .frame(width: 80, height: 80)
                 Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.bmUI(30, weight: .light))
-                    .foregroundStyle(Color.appAccent)
+                    .font(.system(size: 30, weight: .light))
+                    .foregroundStyle(Color.gold)
             }
             .scaleEffect(appeared ? 1 : 0.8)
             .opacity(appeared ? 1 : 0)
 
             VStack(spacing: Space.xs) {
                 Text("Start the conversation")
-                    .font(.bmDisplay(20, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold, design: .serif))
                     .foregroundStyle(Color.appInk)
                 Text("Ask \(booking.braiderName) about timing, prep, or anything else.")
-                    .font(.bmUI(13))
+                    .font(.system(size: 13))
                     .foregroundStyle(Color.appAsh)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
@@ -137,28 +154,28 @@ struct ChatView: View {
         VStack(spacing: 4) {
             HStack(spacing: 6) {
                 Image(systemName: "calendar")
-                    .font(.bmUI(10))
+                    .font(.system(size: 10))
                 Text(booking.date.formatted(date: .abbreviated, time: .omitted))
-                    .font(.bmUI(12, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                 Text("·")
                 Image(systemName: "clock")
-                    .font(.bmUI(10))
+                    .font(.system(size: 10))
                 Text(booking.time)
-                    .font(.bmUI(12, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
             }
-            .foregroundStyle(Color.appAccent)
+            .foregroundStyle(Color.gold)
 
             Text(booking.style)
-                .font(.bmUI(14, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color.appInk)
         }
         .frame(maxWidth: .infinity)
         .padding(Space.md)
-        .background(Color.appAccentTint)
+        .background(Color.gold.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: Radius.button))
         .overlay(
             RoundedRectangle(cornerRadius: Radius.button)
-                .stroke(Color.appAccent.opacity(0.2), lineWidth: 1)
+                .stroke(Color.gold.opacity(0.2), lineWidth: 1)
         )
         .padding(.bottom, Space.sm)
     }
@@ -169,7 +186,7 @@ struct ChatView: View {
                 .fill(Color.appDivider)
                 .frame(height: 0.5)
             Text(dateLabel(date))
-                .font(.bmUI(11, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .tracking(0.5)
                 .foregroundStyle(Color.appSmoke)
                 .fixedSize()
@@ -193,7 +210,7 @@ struct ChatView: View {
             if isMine { Spacer(minLength: 60) }
             VStack(alignment: isMine ? .trailing : .leading, spacing: Space.xxs) {
                 Text(msg.text)
-                    .font(.bmUI(15))
+                    .font(.system(size: 15))
                     .foregroundStyle(isMine ? Color.appInkInverse : Color.appInk)
                     .padding(.horizontal, Space.md)
                     .padding(.vertical, Space.sm)
@@ -212,9 +229,10 @@ struct ChatView: View {
                             }
                         }
                     )
-                    .shadow(color: Color.appInk.opacity(isMine ? 0.15 : 0.04), radius: 8, y: 2)
+                    .shadow(color: Color.black.opacity(isMine ? 0.15 : 0.04), radius: 8, y: 2)
+
                 Text(msg.timestamp.formatted(date: .omitted, time: .shortened))
-                    .font(.bmUI(10, weight: .medium))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(Color.appSmoke)
                     .padding(.horizontal, Space.xs)
             }
@@ -222,13 +240,14 @@ struct ChatView: View {
         }
     }
 
-    // MARK: - Input Bar
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Input bar
 
     private var inputBar: some View {
         HStack(spacing: Space.sm) {
             HStack(spacing: Space.sm) {
                 TextField("Message…", text: $draft, axis: .vertical)
-                    .font(.bmUI(15))
+                    .font(.system(size: 15))
                     .lineLimit(1...5)
                     .foregroundStyle(Color.appInk)
                     .focused($inputFocused)
@@ -239,7 +258,7 @@ struct ChatView: View {
                         draft = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.bmUI(15))
+                            .font(.system(size: 15))
                             .foregroundStyle(Color.appSmoke)
                     }
                     .transition(.scale.combined(with: .opacity))
@@ -252,12 +271,12 @@ struct ChatView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .stroke(
-                        inputFocused ? Color.appAccent.opacity(0.4) : Color.appDivider,
+                        inputFocused ? Color.gold.opacity(0.4) : Color.appDivider,
                         lineWidth: inputFocused ? 1.5 : 0.5
                     )
             )
-            .animation(Motion.subtle, value: inputFocused)
-            .animation(Motion.subtle, value: draft.isEmpty)
+            .animation(.easeOut(duration: 0.2), value: inputFocused)
+            .animation(.easeOut(duration: 0.2), value: draft.isEmpty)
 
             Button(action: sendMessage) {
                 ZStack {
@@ -272,19 +291,19 @@ struct ChatView: View {
                             .scaleEffect(0.8)
                     } else {
                         Image(systemName: "arrow.up")
-                            .font(.bmUI(16, weight: .bold))
+                            .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(Color.appInkInverse)
                     }
                 }
                 .scaleEffect(canSend ? 1 : 0.95)
-                .animation(Motion.bouncy, value: canSend)
+                .animation(.spring(response: 0.3, dampingFraction: 0.65), value: canSend)
             }
             .disabled(!canSend || sending)
             .buttonStyle(BMIconPressStyle())
         }
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.sm)
-        .background(.ultraThinMaterial)
+        .background(Color.glassTintStrong)
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(Color.appDivider)
@@ -320,6 +339,7 @@ struct ChatView: View {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
     // MARK: - Grouping
 
     private var groupedMessages: [(date: Date, messages: [ChatMessage])] {

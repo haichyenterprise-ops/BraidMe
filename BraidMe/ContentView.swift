@@ -1,6 +1,10 @@
 ﻿import SwiftUI
 import FirebaseAuth
 
+// =============================================================================
+// ContentView — Root router + splash
+// =============================================================================
+
 struct ContentView: View {
     @EnvironmentObject private var session: SessionManager
 
@@ -26,7 +30,7 @@ struct ContentView: View {
                     provider: providerString,
                     needsName: (session.displayName ?? "").isEmpty
                 ) {
-                    withAnimation(Motion.navigation) {
+                    withAnimation(.spring(response: 0.55, dampingFraction: 0.85)) {
                         needsOnboarding = false
                     }
                 }
@@ -43,64 +47,76 @@ struct ContentView: View {
             }
         }
         .background(Color.appBackground.ignoresSafeArea())
-        .animate(Motion.navigation, value: session.isSignedIn)
-        .animate(Motion.navigation, value: needsOnboarding)
-        .animate(Motion.navigation, value: isCheckingProfile)
+        .animation(.spring(response: 0.55, dampingFraction: 0.85), value: session.isSignedIn)
+        .animation(.spring(response: 0.55, dampingFraction: 0.85), value: needsOnboarding)
+        .animation(.spring(response: 0.55, dampingFraction: 0.85), value: isCheckingProfile)
         .task(id: session.uid) {
             await checkProfile()
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Splash
+
     private var splash: some View {
         ZStack {
             Color.appBackground.ignoresSafeArea()
-            
-            // Ambient gradient
+
+            // Ambient gold gradient
             RadialGradient(
-                colors: [Color.appAccent.opacity(0.08), .clear],
+                colors: [Color.gold.opacity(0.10), .clear],
                 center: .center,
                 startRadius: 0,
                 endRadius: 300
             )
             .ignoresSafeArea()
-            
+
             VStack(spacing: Space.xl) {
                 // Animated logo
                 ZStack {
+                    // Breathing outer glow
                     Circle()
-                        .fill(Color.appAccentTint)
-                        .frame(width: 100, height: 100)
-                    
-                    Circle()
-                        .stroke(Color.appAccent.opacity(0.3), lineWidth: 1.5)
+                        .fill(Color.gold.opacity(0.15))
                         .frame(width: 100, height: 100)
                         .scaleEffect(1.2)
-                        .opacity(0.5)
-                    
+                        .opacity(0.6)
+
+                    Circle()
+                        .stroke(Color.gold.opacity(0.3), lineWidth: 1.5)
+                        .frame(width: 100, height: 100)
+                        .scaleEffect(1.35)
+                        .opacity(0.35)
+
+                    Circle()
+                        .fill(Color.gold.opacity(0.15))
+                        .frame(width: 100, height: 100)
+
                     Image(systemName: "sparkles")
-                        .font(.bmUI(36, weight: .medium))
-                        .foregroundStyle(Color.appAccent)
+                        .font(.system(size: 36, weight: .medium))
+                        .foregroundStyle(Color.gold)
                 }
-                .glow(color: .appAccent, radius: 30, intensity: 0.3)
-                
+
                 VStack(spacing: Space.xs) {
                     Text("BraidMe")
-                        .font(.bmHero(34))
+                        .font(.system(size: 34, weight: .bold, design: .serif))
                         .foregroundStyle(Color.appInk)
-                    
+
                     Text("Where craft meets care")
-                        .font(.bmUI(13, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color.appAsh)
                         .tracking(1)
                 }
-                
+
                 ProgressView()
-                    .tint(Color.appAccent)
+                    .tint(Color.gold)
                     .scaleEffect(1.1)
                     .padding(.top, Space.sm)
             }
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Provider
 
     private var providerString: String {
         guard let user = session.user else { return "guest" }
@@ -110,6 +126,9 @@ struct ContentView: View {
         if ids.contains("password") { return "email" }
         return "guest"
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Profile check
 
     private func checkProfile() async {
         guard session.isSignedIn else {

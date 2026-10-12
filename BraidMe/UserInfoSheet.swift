@@ -1,6 +1,11 @@
 import SwiftUI
 import PhotosUI
 
+// =============================================================================
+// UserInfoSheet — Account sheet, upgraded
+// Gradient-ring avatar, quick-action tiles, editorial info rows, breathing sign-out.
+// =============================================================================
+
 struct UserInfoSheet: View {
     @EnvironmentObject private var session: SessionManager
     @Environment(\.dismiss) private var dismiss
@@ -14,6 +19,11 @@ struct UserInfoSheet: View {
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var uploadingAvatar = false
     @State private var avatarError: String?
+
+    // Breathing ring rotation
+    @State private var ringRotation: Double = 0
+    // Ambient orb motion
+    @State private var ambientOffset: CGSize = .zero
 
     private var displayName: String {
         fb.currentUser?.displayName ?? session.displayName ?? "BraidMe User"
@@ -59,14 +69,20 @@ struct UserInfoSheet: View {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
 
-                // Ambient gradient
-                RadialGradient(
-                    colors: [Color.appAccent.opacity(0.08), .clear],
-                    center: .top,
-                    startRadius: 0,
-                    endRadius: 400
-                )
-                .ignoresSafeArea()
+                // Ambient orb
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Color.gold.opacity(0.12), .clear],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 260
+                        )
+                    )
+                    .frame(width: 520, height: 520)
+                    .offset(x: ambientOffset.width, y: ambientOffset.height - 180)
+                    .blur(radius: 30)
+                    .allowsHitTesting(false)
 
                 ScrollView(showsIndicators: true) {
                     VStack(spacing: Space.lg) {
@@ -84,8 +100,16 @@ struct UserInfoSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    BMGlassIconButton(icon: "xmark", size: 40, iconSize: 14, tint: .appInk) {
+                    Button {
+                        Haptic.press()
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.appInk)
+                            .frame(width: 40, height: 40)
+                            .background(Color.appSurface, in: Circle())
+                            .overlay(Circle().stroke(Color.appDivider, lineWidth: 0.5))
                     }
                 }
             }
@@ -116,7 +140,15 @@ struct UserInfoSheet: View {
             Task { await uploadAvatar(newValue) }
         }
         .onAppear {
-            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
+            withAnimation(.spring(response: 0.75, dampingFraction: 0.85).delay(0.1)) {
+                appeared = true
+            }
+            withAnimation(.linear(duration: 12).repeatForever(autoreverses: false)) {
+                ringRotation = 360
+            }
+            withAnimation(.easeInOut(duration: 8).repeatForever(autoreverses: true)) {
+                ambientOffset = CGSize(width: 20, height: 30)
+            }
             let uid = session.uid
             guard !uid.isEmpty else { return }
             Task {
@@ -127,30 +159,42 @@ struct UserInfoSheet: View {
         }
     }
 
-    // MARK: - Avatar Section
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Avatar
 
     private var avatarSection: some View {
         VStack(spacing: Space.md) {
             ZStack(alignment: .bottomTrailing) {
                 ZStack {
-                    // Outer glow ring
+                    // Rotating gold gradient ring
                     Circle()
                         .stroke(
-                            LinearGradient(
-                                colors: [Color.appAccent.opacity(0.6), Color.appAccentSoft.opacity(0.2)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+                            AngularGradient(
+                                colors: [
+                                    Color.goldLight.opacity(0.85),
+                                    Color.gold.opacity(0.3),
+                                    Color.goldDeep.opacity(0.6),
+                                    Color.gold.opacity(0.3),
+                                    Color.goldLight.opacity(0.85)
+                                ],
+                                center: .center,
+                                angle: .degrees(ringRotation)
                             ),
                             lineWidth: 3
                         )
                         .frame(width: 116, height: 116)
+
+                    // Static outer soft ring
+                    Circle()
+                        .stroke(Color.gold.opacity(0.15), lineWidth: 1)
+                        .frame(width: 122, height: 122)
 
                     if avatarUrl.isEmpty {
                         Circle()
                             .fill(Color.appInk)
                             .frame(width: 108, height: 108)
                         Text(initials)
-                            .font(.bmDisplay(40, weight: .semibold))
+                            .font(.system(size: 40, weight: .bold, design: .serif))
                             .foregroundStyle(Color.appInkInverse)
                     } else {
                         RemoteImage(url: avatarUrl)
@@ -158,7 +202,7 @@ struct UserInfoSheet: View {
                             .clipShape(Circle())
                     }
                 }
-                .shadow(color: Color.appAccent.opacity(0.2), radius: 20, y: 8)
+                .shadow(color: Color.gold.opacity(0.25), radius: 20, y: 8)
 
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     ZStack {
@@ -166,12 +210,12 @@ struct UserInfoSheet: View {
                             .fill(Color.appInk)
                             .frame(width: 38, height: 38)
                             .overlay(Circle().stroke(Color.appSurface, lineWidth: 3))
-                            .shadow(color: Color.appInk.opacity(0.25), radius: 8, y: 4)
+                            .shadow(color: Color.black.opacity(0.25), radius: 8, y: 4)
                         if uploadingAvatar {
                             ProgressView().tint(Color.appInkInverse).scaleEffect(0.7)
                         } else {
                             Image(systemName: "camera.fill")
-                                .font(.bmUI(14, weight: .semibold))
+                                .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(Color.appInkInverse)
                         }
                     }
@@ -182,17 +226,17 @@ struct UserInfoSheet: View {
 
             VStack(spacing: 6) {
                 Text(displayName)
-                    .font(.bmDisplay(24, weight: .semibold))
+                    .font(.system(size: 24, weight: .bold, design: .serif))
                     .foregroundStyle(Color.appInk)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
 
                 HStack(spacing: 5) {
                     Image(systemName: "checkmark.seal.fill")
-                        .font(.bmUI(10))
-                        .foregroundStyle(Color.appAccent)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.gold)
                     Text("\(providerLabel) account")
-                        .font(.bmUI(12, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color.appAsh)
                 }
             }
@@ -202,7 +246,8 @@ struct UserInfoSheet: View {
         .offset(y: appeared ? 0 : 24)
     }
 
-    // MARK: - Quick Actions
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Quick actions
 
     private var quickActions: some View {
         HStack(spacing: Space.sm) {
@@ -216,7 +261,7 @@ struct UserInfoSheet: View {
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 24)
-        .animate(Motion.heroReveal.delay(0.15), value: appeared)
+        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.15), value: appeared)
     }
 
     private func quickAction(icon: String, value: String, label: String, enabled: Bool, action: @escaping () -> Void) -> some View {
@@ -228,18 +273,18 @@ struct UserInfoSheet: View {
             VStack(spacing: Space.xs) {
                 ZStack {
                     Circle()
-                        .fill(Color.appAccentTint)
+                        .fill(Color.gold.opacity(0.14))
                         .frame(width: 40, height: 40)
                     Image(systemName: icon)
-                        .font(.bmUI(15, weight: .semibold))
-                        .foregroundStyle(Color.appAccent)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.gold)
                 }
                 Text(value)
-                    .font(.bmDisplay(20, weight: .semibold))
+                    .font(.system(size: 20, weight: .bold, design: .serif))
                     .foregroundStyle(Color.appInk)
                     .contentTransition(.numericText())
                 Text(label.uppercased())
-                    .font(.bmUI(9, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .tracking(1)
                     .foregroundStyle(Color.appAsh)
             }
@@ -251,14 +296,15 @@ struct UserInfoSheet: View {
                 RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                     .stroke(Color.appDivider, lineWidth: 0.5)
             )
-            .shadow(color: Color.appInk.opacity(enabled ? 0.06 : 0), radius: 12, y: 4)
+            .shadow(color: Color.black.opacity(enabled ? 0.06 : 0), radius: 12, y: 4)
             .opacity(enabled ? 1 : 0.5)
         }
         .buttonStyle(BMPressStyle(scale: 0.98))
         .disabled(!enabled)
     }
 
-    // MARK: - Info Section
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Info rows
 
     private var infoSection: some View {
         VStack(spacing: 0) {
@@ -276,29 +322,29 @@ struct UserInfoSheet: View {
             RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .stroke(Color.appDivider, lineWidth: 0.5)
         )
-        .shadow(color: Color.appInk.opacity(0.06), radius: 16, y: 8)
+        .shadow(color: Color.black.opacity(0.06), radius: 16, y: 8)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 24)
-        .animate(Motion.heroReveal.delay(0.2), value: appeared)
+        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.20), value: appeared)
     }
 
     private func infoRow(icon: String, label: String, value: String) -> some View {
         HStack(spacing: Space.md) {
             ZStack {
                 Circle()
-                    .fill(Color.appAccentTint)
+                    .fill(Color.gold.opacity(0.12))
                     .frame(width: 36, height: 36)
                 Image(systemName: icon)
-                    .font(.bmUI(13, weight: .semibold))
-                    .foregroundStyle(Color.appAccent)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.gold)
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(label.uppercased())
-                    .font(.bmUI(9, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .tracking(1.2)
                     .foregroundStyle(Color.appAsh)
                 Text(value)
-                    .font(.bmUI(14, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color.appInk)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -309,7 +355,8 @@ struct UserInfoSheet: View {
         .padding(.vertical, Space.sm)
     }
 
-    // MARK: - Sign Out
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Sign out + footer
 
     private var signOutButton: some View {
         Button {
@@ -318,9 +365,9 @@ struct UserInfoSheet: View {
         } label: {
             HStack(spacing: Space.xs) {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.bmUI(14, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                 Text("Sign Out")
-                    .font(.bmUI(15, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
             }
             .foregroundStyle(Color.appAlert)
             .frame(maxWidth: .infinity)
@@ -336,20 +383,23 @@ struct UserInfoSheet: View {
         .padding(.top, Space.xs)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 24)
-        .animate(Motion.heroReveal.delay(0.25), value: appeared)
+        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.25), value: appeared)
     }
 
     private var footer: some View {
         VStack(spacing: 6) {
             Text("BraidMe")
-                .font(.bmDisplay(14, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold, design: .serif))
                 .foregroundStyle(Color.appInk)
             Text("v1.0 · Made with care")
-                .font(.bmUI(11))
+                .font(.system(size: 11))
                 .foregroundStyle(Color.appSmoke)
         }
         .padding(.top, Space.md)
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Actions
 
     private func signOut() {
         fb.currentUser = nil

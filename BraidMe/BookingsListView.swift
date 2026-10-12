@@ -1,5 +1,10 @@
 import SwiftUI
 
+// =============================================================================
+// BookingsListView — User's bookings, upgraded
+// Underline filter tabs, colored date badges, staggered reveal, cancel flow.
+// =============================================================================
+
 struct BookingsListView: View {
     @EnvironmentObject private var session: SessionManager
     @StateObject private var fb = FirebaseManager.shared
@@ -30,9 +35,8 @@ struct BookingsListView: View {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
 
-                // Ambient gradient
                 RadialGradient(
-                    colors: [Color.appAccent.opacity(0.06), .clear],
+                    colors: [Color.gold.opacity(0.06), .clear],
                     center: .top,
                     startRadius: 0,
                     endRadius: 350
@@ -48,8 +52,16 @@ struct BookingsListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    BMGlassIconButton(icon: "xmark", size: 40, iconSize: 14, tint: .appInk) {
+                    Button {
+                        Haptic.press()
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.appInk)
+                            .frame(width: 40, height: 40)
+                            .background(Color.appSurface, in: Circle())
+                            .overlay(Circle().stroke(Color.appDivider, lineWidth: 0.5))
                     }
                 }
             }
@@ -66,32 +78,35 @@ struct BookingsListView: View {
                 loading = true
                 await fb.loadBookings(uid: uid)
                 loading = false
-                withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
+                withAnimation(.spring(response: 0.85, dampingFraction: 0.85).delay(0.1)) {
+                    appeared = true
+                }
             }
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
     // MARK: - Header
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack(spacing: Space.xs) {
                 Rectangle()
-                    .fill(Color.appAccent)
+                    .fill(Color.gold)
                     .frame(width: 20, height: 2)
                 Text("YOUR APPOINTMENTS")
-                    .font(.bmUI(10, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .tracking(2)
-                    .foregroundStyle(Color.appAccent)
+                    .foregroundStyle(Color.gold)
             }
 
             Text("My bookings")
-                .font(.bmHero(34))
-                .foregroundStyle(Color.appInk)
+                .font(.system(size: 34, weight: .bold, design: .serif))
                 .lineSpacing(-4)
+                .foregroundStyle(Color.appInk)
 
             Text(verbatim: "\(fb.bookings.count) appointment\(fb.bookings.count == 1 ? "" : "s")")
-                .font(.bmUI(14))
+                .font(.system(size: 14))
                 .foregroundStyle(Color.appAsh)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -100,25 +115,27 @@ struct BookingsListView: View {
         .padding(.bottom, Space.md)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 16)
-        .animate(Motion.heroReveal, value: appeared)
     }
 
-    // MARK: - Filter Tabs
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Filter tabs
 
     private var filterTabs: some View {
         HStack(spacing: 0) {
             ForEach(Filter.allCases, id: \.self) { f in
                 Button {
                     Haptic.select()
-                    withAnimation(Motion.bouncy) { filter = f }
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+                        filter = f
+                    }
                 } label: {
                     VStack(spacing: 8) {
                         Text(f.rawValue)
-                            .font(.bmUI(14, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(filter == f ? Color.appInk : Color.appAsh)
                             .frame(maxWidth: .infinity)
                         Rectangle()
-                            .fill(filter == f ? Color.appAccent : Color.clear)
+                            .fill(filter == f ? Color.gold : Color.clear)
                             .frame(height: 2)
                             .clipShape(Capsule())
                     }
@@ -130,13 +147,21 @@ struct BookingsListView: View {
         .padding(.bottom, Space.md)
     }
 
+    // ═══════════════════════════════════════════════════════════════
     // MARK: - Content
 
     @ViewBuilder
     private var content: some View {
         if loading && fb.bookings.isEmpty {
-            BMLoadingView(message: "Loading your bookings")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: Space.md) {
+                ProgressView()
+                    .tint(Color.gold)
+                    .scaleEffect(1.1)
+                Text("Loading your bookings")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.appAsh)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if filtered.isEmpty {
             emptyState
         } else {
@@ -145,13 +170,35 @@ struct BookingsListView: View {
     }
 
     private var emptyState: some View {
-        BMEmptyState(
-            icon: filter == .current ? "calendar.badge.plus" : "clock.arrow.circlepath",
-            title: filter == .current ? "No upcoming bookings" : "No history yet",
-            message: filter == .current
-                ? "Book a braider from the map to get started."
-                : "Your completed appointments will appear here."
-        )
+        VStack(spacing: Space.lg) {
+            ZStack {
+                Circle()
+                    .fill(Color.gold.opacity(0.12))
+                    .frame(width: 100, height: 100)
+                Circle()
+                    .stroke(Color.gold.opacity(0.2), lineWidth: 1)
+                    .frame(width: 100, height: 100)
+                Image(systemName: filter == .current ? "calendar.badge.plus" : "clock.arrow.circlepath")
+                    .font(.system(size: 36, weight: .light))
+                    .foregroundStyle(Color.gold)
+            }
+
+            VStack(spacing: Space.xs) {
+                Text(filter == .current ? "No upcoming bookings" : "No history yet")
+                    .font(.system(size: 22, weight: .semibold, design: .serif))
+                    .foregroundStyle(Color.appInk)
+                    .multilineTextAlignment(.center)
+
+                Text(filter == .current
+                     ? "Book a braider from the map to get started."
+                     : "Your completed appointments will appear here.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.appAsh)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, Space.xl)
+            }
+        }
         .frame(maxHeight: .infinity)
     }
 
@@ -173,7 +220,11 @@ struct BookingsListView: View {
                     )
                     .opacity(appeared ? 1 : 0)
                     .offset(y: appeared ? 0 : 20)
-                    .animate(Motion.reveal.delay(Motion.stagger(index)), value: appeared)
+                    .animation(
+                        .spring(response: 0.6, dampingFraction: 0.85)
+                            .delay(Double(index) * 0.06),
+                        value: appeared
+                    )
                 }
                 Color.clear.frame(height: Space.lg)
             }
@@ -185,7 +236,9 @@ struct BookingsListView: View {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Booking Card
+// ═══════════════════════════════════════════════════════════════════
 
 struct BookingCardView: View {
     let booking: Booking
@@ -207,27 +260,27 @@ struct BookingCardView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(booking.style)
-                        .font(.bmDisplay(19, weight: .semibold))
+                        .font(.system(size: 19, weight: .semibold, design: .serif))
                         .foregroundStyle(Color.appInk)
                         .lineLimit(1)
 
                     HStack(spacing: 5) {
                         Image(systemName: "scissors")
-                            .font(.bmUI(10))
+                            .font(.system(size: 10))
                             .foregroundStyle(Color.appSmoke)
                         Text(booking.braiderName)
-                            .font(.bmUI(13, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(Color.appAsh)
                     }
 
                     HStack(spacing: Space.xs) {
                         Text("£\(booking.price)")
-                            .font(.bmMono(15, weight: .semibold))
-                            .foregroundStyle(Color.appAccent)
+                            .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Color.gold)
                         Text("·")
                             .foregroundStyle(Color.appSmoke)
                         Text(booking.time)
-                            .font(.bmUI(13))
+                            .font(.system(size: 13))
                             .foregroundStyle(Color.appAsh)
                     }
                     .padding(.top, 2)
@@ -242,9 +295,9 @@ struct BookingCardView: View {
                         Button(action: onMessage) {
                             HStack(spacing: 6) {
                                 Image(systemName: "message.fill")
-                                    .font(.bmUI(11, weight: .semibold))
+                                    .font(.system(size: 11, weight: .semibold))
                                 Text("Message")
-                                    .font(.bmUI(13, weight: .semibold))
+                                    .font(.system(size: 13, weight: .semibold))
                             }
                             .foregroundStyle(Color.appInkInverse)
                             .frame(maxWidth: .infinity)
@@ -258,9 +311,9 @@ struct BookingCardView: View {
                         Button(action: onCancel) {
                             HStack(spacing: 6) {
                                 Image(systemName: "xmark.circle")
-                                    .font(.bmUI(11, weight: .semibold))
+                                    .font(.system(size: 11, weight: .semibold))
                                 Text("Cancel")
-                                    .font(.bmUI(13, weight: .semibold))
+                                    .font(.system(size: 13, weight: .semibold))
                             }
                             .foregroundStyle(Color.appAlert)
                             .frame(maxWidth: .infinity)
@@ -283,17 +336,17 @@ struct BookingCardView: View {
             RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .stroke(Color.appDivider, lineWidth: 0.5)
         )
-        .shadow(color: Color.appInk.opacity(0.06), radius: 16, y: 8)
+        .shadow(color: Color.black.opacity(0.06), radius: 16, y: 8)
     }
 
     private var dateBadge: some View {
         VStack(spacing: 0) {
             Text(booking.date.formatted(.dateTime.month(.abbreviated)).uppercased())
-                .font(.bmUI(9, weight: .bold))
+                .font(.system(size: 9, weight: .bold))
                 .tracking(1)
                 .foregroundStyle(Color.appInkInverse.opacity(0.75))
             Text(booking.date.formatted(.dateTime.day()))
-                .font(.bmDisplay(22, weight: .semibold))
+                .font(.system(size: 22, weight: .bold, design: .serif))
                 .foregroundStyle(Color.appInkInverse)
         }
         .frame(width: 56, height: 64)
@@ -305,7 +358,7 @@ struct BookingCardView: View {
     private var monthColor: Color {
         if booking.status == "cancelled" || booking.status == "cancellation_denied" { return Color.appSmoke }
         if booking.date < Calendar.current.startOfDay(for: Date()) { return Color.appSmoke }
-        if Calendar.current.isDateInToday(booking.date) { return Color.appAccent }
+        if Calendar.current.isDateInToday(booking.date) { return Color.gold }
         return Color.appInk
     }
 
@@ -315,7 +368,7 @@ struct BookingCardView: View {
             case "confirmed": return ("Confirmed", Color.appSignal)
             case "completed": return ("Completed", Color.appAsh)
             case "cancelled": return ("Cancelled", Color.appAlert)
-            case "cancellation_requested": return ("Pending", Color.appAccent)
+            case "cancellation_requested": return ("Pending", Color.gold)
             case "cancellation_denied": return ("Denied", Color.appAlert)
             default: return (booking.status.capitalized, Color.appAsh)
             }
@@ -323,7 +376,7 @@ struct BookingCardView: View {
         return HStack(spacing: 5) {
             Circle().fill(color).frame(width: 6, height: 6)
             Text(label)
-                .font(.bmUI(10, weight: .bold))
+                .font(.system(size: 10, weight: .bold))
                 .tracking(0.5)
                 .foregroundStyle(color)
         }
@@ -334,7 +387,9 @@ struct BookingCardView: View {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Cancel Booking Sheet
+// ═══════════════════════════════════════════════════════════════════
 
 struct CancelBookingSheet: View {
     let booking: Booking
@@ -379,7 +434,7 @@ struct CancelBookingSheet: View {
                         dismiss()
                         onDismiss()
                     }
-                    .font(.bmUI(15, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Color.appAsh)
                 }
             }
@@ -401,7 +456,9 @@ struct CancelBookingSheet: View {
             }
         }
         .onAppear {
-            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
+            withAnimation(.spring(response: 0.75, dampingFraction: 0.85).delay(0.1)) {
+                appeared = true
+            }
         }
     }
 
@@ -419,7 +476,7 @@ struct CancelBookingSheet: View {
                     .frame(width: 100, height: 100)
 
                 Image(systemName: "xmark.circle.fill")
-                    .font(.bmUI(44))
+                    .font(.system(size: 44))
                     .foregroundStyle(Color.appAlert)
             }
             .scaleEffect(appeared ? 1 : 0.7)
@@ -427,28 +484,28 @@ struct CancelBookingSheet: View {
 
             VStack(spacing: Space.sm) {
                 Text("Cancel this\nappointment?")
-                    .font(.bmHero(26))
+                    .font(.system(size: 26, weight: .bold, design: .serif))
                     .foregroundStyle(Color.appInk)
                     .multilineTextAlignment(.center)
                     .lineSpacing(-3)
 
                 Text("\(booking.style) with \(booking.braiderName)")
-                    .font(.bmUI(14))
+                    .font(.system(size: 14))
                     .foregroundStyle(Color.appAsh)
                     .multilineTextAlignment(.center)
 
                 HStack(spacing: Space.xs) {
                     Image(systemName: "calendar")
-                        .font(.bmUI(11))
+                        .font(.system(size: 11))
                     Text(booking.date.formatted(date: .abbreviated, time: .omitted))
-                        .font(.bmUI(12, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                     Text("·")
                     Image(systemName: "clock")
-                        .font(.bmUI(11))
+                        .font(.system(size: 11))
                     Text(booking.time)
-                        .font(.bmUI(12, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                 }
-                .font(.bmUI(12))
+                .font(.system(size: 12))
                 .foregroundStyle(Color.appInkSecondary)
                 .padding(.horizontal, Space.md)
                 .padding(.vertical, 8)
@@ -462,17 +519,25 @@ struct CancelBookingSheet: View {
 
     private var reasonBlock: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            BMSectionLabel(text: "Reason (optional)")
+            HStack(spacing: Space.xs) {
+                Rectangle()
+                    .fill(Color.gold)
+                    .frame(width: 20, height: 1.5)
+                Text("REASON (OPTIONAL)")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(2)
+                    .foregroundStyle(Color.appAsh)
+            }
             ZStack(alignment: .topLeading) {
                 if reason.isEmpty {
                     Text("Let the braider know why…")
-                        .font(.bmUI(15))
+                        .font(.system(size: 15))
                         .foregroundStyle(Color.appSmoke)
                         .padding(.horizontal, Space.md)
                         .padding(.vertical, Space.md)
                 }
                 TextEditor(text: $reason)
-                    .font(.bmUI(15))
+                    .font(.system(size: 15))
                     .foregroundStyle(Color.appInk)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
@@ -489,7 +554,6 @@ struct CancelBookingSheet: View {
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 16)
-        .animate(Motion.heroReveal.delay(0.2), value: appeared)
     }
 
     private var submitButton: some View {
@@ -502,8 +566,6 @@ struct CancelBookingSheet: View {
         }
         .disabled(submitting)
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
-        .animate(Motion.heroReveal.delay(0.25), value: appeared)
     }
 
     private func submit() {

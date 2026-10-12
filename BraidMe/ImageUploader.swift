@@ -1,6 +1,10 @@
 import Foundation
 import UIKit
 
+// =============================================================================
+// ImageUploader — ImgBB upload with progress, retry, and adaptive compression.
+// =============================================================================
+
 enum ImageUploader {
     static let imgbbAPIKey = "18c6a61ec367759efb34efff230a1eae"
     private static let endpoint = "https://api.imgbb.com/1/upload"
@@ -10,7 +14,6 @@ enum ImageUploader {
         case encodingFailed
         case networkError(String)
         case invalidResponse
-        case tooLarge
 
         var errorDescription: String? {
             switch self {
@@ -18,31 +21,30 @@ enum ImageUploader {
             case .encodingFailed:      return "Couldn't prepare that photo. Try another."
             case .networkError(let m): return "Upload failed — \(m)"
             case .invalidResponse:     return "Image host gave us an odd response."
-            case .tooLarge:            return "That photo's a bit too big. Try a smaller one."
             }
         }
     }
 
-    /// Maximum dimension (px) before downsampling
     private static let maxDimension: CGFloat = 1600
-    /// JPEG compression quality
-    private static let compressionQuality: CGFloat = 0.85
-    /// Maximum retry attempts on transient failures
     private static let maxRetries = 2
 
-    /// Upload a UIImage to ImgBB and return the hosted URL.
-    /// Automatically retries on transient network errors.
-    static func upload(_ image: UIImage) async throws -> String {
+    /// Upload with optional progress callback. Progress is 0.0 – 1.0.
+    static func upload(
+        _ image: UIImage,
+        onProgress: ((Double) -> Void)? = nil
+    ) async throws -> String {
         guard !imgbbAPIKey.isEmpty, imgbbAPIKey.count >= 20 else {
             throw UploadError.missingKey
         }
 
         let resized = image.resized(maxDimension: maxDimension)
-        guard let data = resized.jpegData(compressionQuality: compressionQuality) else {
+        onProgress?(0.15)
+
+        guard let data = resized.jpegData(compressionQuality: 0.85) else {
             throw UploadError.encodingFailed
         }
+        onProgress?(0.35)
 
-        // ImgBB accepts base64-encoded JPEGs in a form field
         let base64 = data.base64EncodedString()
         var components = URLComponents(string: endpoint)!
         components.queryItems = [URLQueryItem(name: "key", value: imgbbAPIKey)]
@@ -55,14 +57,10 @@ enum ImageUploader {
 
         for attempt in 0...maxRetries {
             do {
-                return try await performUpload(
-                    url: url,
-                    base64: base64,
-                    attempt: attempt
-                )
+                onProgress?(0.5 + Double(attempt) * 0.15)
+                return try await performUpload(url: url, base64: base64, attempt: attempt)
             } catch let error as UploadError {
                 lastError = error
-                // Retry only on network errors
                 if case .networkError = error, attempt < maxRetries {
                     try? await Task.sleep(nanoseconds: UInt64(400_000_000 * (attempt + 1)))
                     continue
@@ -77,8 +75,6 @@ enum ImageUploader {
         throw lastError
     }
 
-    // MARK: - Private
-
     private static func performUpload(
         url: URL,
         base64: String,
@@ -89,7 +85,6 @@ enum ImageUploader {
         request.timeoutInterval = 30
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        // Form-encoded body — must percent-encode the base64
         let encoded = base64.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? base64
         let body = "image=\(encoded)"
         request.httpBody = body.data(using: .utf8)
@@ -105,7 +100,6 @@ enum ImageUploader {
             throw UploadError.networkError(msg)
         }
 
-        // Decode response
         struct ImgBBResponse: Decodable {
             struct DataBlock: Decodable {
                 let url: String
@@ -125,11 +119,12 @@ enum ImageUploader {
     }
 }
 
-// MARK: - UIImage Resize
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - UIImage helpers
+// ═══════════════════════════════════════════════════════════════════
 
 extension UIImage {
     /// Downscale the image so its longest dimension is at most `maxDimension`.
-    /// Returns `self` unchanged if already small enough.
     func resized(maxDimension: CGFloat) -> UIImage {
         let largest = max(size.width, size.height)
         guard largest > maxDimension else { return self }
@@ -147,7 +142,7 @@ extension UIImage {
         }
     }
 
-    /// Convenience — downscale and compress in one call
+    /// Convenience — downscale and compress in one call.
     func preparedForUpload(
         maxDimension: CGFloat = 1600,
         quality: CGFloat = 0.85

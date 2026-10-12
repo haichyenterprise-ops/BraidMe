@@ -1,5 +1,11 @@
 import SwiftUI
 
+// =============================================================================
+// BookingDateTimeView — Step 2: pick date and time, upgraded
+// Content-transition date pills, period-grouped time chips with spring physics,
+// floating glass continue bar.
+// =============================================================================
+
 struct BookingDateTimeView: View {
     let braider: Braider
     let service: BraidService
@@ -67,29 +73,34 @@ struct BookingDateTimeView: View {
             }
         }
         .task {
-            withAnimation(Motion.heroReveal.delay(0.1)) { appeared = true }
+            withAnimation(.spring(response: 0.85, dampingFraction: 0.85).delay(0.1)) {
+                appeared = true
+            }
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Header
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack(spacing: Space.xs) {
                 Rectangle()
-                    .fill(Color.appAccent)
+                    .fill(Color.gold)
                     .frame(width: 20, height: 2)
                 Text("STEP 2 OF 3")
-                    .font(.bmUI(10, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .tracking(2)
-                    .foregroundStyle(Color.appAccent)
+                    .foregroundStyle(Color.gold)
             }
 
             Text("Pick a time")
-                .font(.bmHero(34))
-                .foregroundStyle(Color.appInk)
+                .font(.system(size: 34, weight: .bold, design: .serif))
                 .lineSpacing(-4)
+                .foregroundStyle(Color.appInk)
 
             Text(service.name)
-                .font(.bmUI(14))
+                .font(.system(size: 14))
                 .foregroundStyle(Color.appAsh)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -100,9 +111,12 @@ struct BookingDateTimeView: View {
         .offset(y: appeared ? 0 : 20)
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Date strip
+
     private var dateStrip: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            BMSectionLabel(text: "Available dates")
+            sectionEyebrow("AVAILABLE DATES")
                 .padding(.horizontal, Space.lg)
 
             if availableDates.isEmpty {
@@ -112,15 +126,15 @@ struct BookingDateTimeView: View {
                             .fill(Color.appSurfaceElevated)
                             .frame(width: 44, height: 44)
                         Image(systemName: "calendar.badge.exclamationmark")
-                            .font(.bmUI(18))
+                            .font(.system(size: 18))
                             .foregroundStyle(Color.appSmoke)
                     }
                     VStack(alignment: .leading, spacing: 3) {
                         Text("No dates available")
-                            .font(.bmUI(14, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(Color.appInk)
                         Text("This service hasn't been scheduled yet.")
-                            .font(.bmUI(12))
+                            .font(.system(size: 12))
                             .foregroundStyle(Color.appAsh)
                     }
                     Spacer()
@@ -142,7 +156,7 @@ struct BookingDateTimeView: View {
                                 isSelected: Calendar.current.isDate(date, inSameDayAs: selectedDate)
                             ) {
                                 Haptic.select()
-                                withAnimation(Motion.bouncy) {
+                                withAnimation(.spring(response: 0.45, dampingFraction: 0.72)) {
                                     selectedDate = date
                                     selectedSlot = nil
                                 }
@@ -155,17 +169,20 @@ struct BookingDateTimeView: View {
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 20)
-        .animate(Motion.reveal.delay(0.15), value: appeared)
+        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.15), value: appeared)
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Times
 
     private var timesSection: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            BMSectionLabel(text: "Available times")
+            sectionEyebrow("AVAILABLE TIMES")
                 .padding(.horizontal, Space.lg)
 
             if slotsForDate.isEmpty {
                 Text("No times on this date. Try another.")
-                    .font(.bmUI(14))
+                    .font(.system(size: 14))
                     .foregroundStyle(Color.appAsh)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, Space.xl)
@@ -175,10 +192,10 @@ struct BookingDateTimeView: View {
                         VStack(alignment: .leading, spacing: Space.sm) {
                             HStack(spacing: Space.xs) {
                                 Image(systemName: periodIcon(group.0))
-                                    .font(.bmUI(12, weight: .semibold))
-                                    .foregroundStyle(Color.appAccent)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Color.gold)
                                 Text(group.0.rawValue.uppercased())
-                                    .font(.bmUI(10, weight: .bold))
+                                    .font(.system(size: 10, weight: .bold))
                                     .tracking(1.5)
                                     .foregroundStyle(Color.appAsh)
                             }
@@ -192,7 +209,9 @@ struct BookingDateTimeView: View {
                                         isSelected: selectedSlot == label
                                     ) {
                                         Haptic.select()
-                                        withAnimation(Motion.bouncy) { selectedSlot = label }
+                                        withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
+                                            selectedSlot = label
+                                        }
                                     }
                                 }
                             }
@@ -204,15 +223,18 @@ struct BookingDateTimeView: View {
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 20)
-        .animate(Motion.reveal.delay(0.2), value: appeared)
+        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.20), value: appeared)
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Continue bar
 
     private func continueBar(slot: String) -> some View {
         VStack(spacing: 0) {
             Rectangle()
                 .fill(
                     LinearGradient(
-                        colors: [Color.appDivider.opacity(0), Color.appDivider, Color.appDivider.opacity(0)],
+                        colors: [Color.clear, Color.gold.opacity(0.5), Color.clear],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
@@ -222,11 +244,11 @@ struct BookingDateTimeView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(selectedDate.formatted(.dateTime.weekday(.wide).day().month(.abbreviated)))
-                        .font(.bmUI(15, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Color.appInk)
                     Text(slot)
-                        .font(.bmMono(13, weight: .semibold))
-                        .foregroundStyle(Color.appAccent)
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color.gold)
                 }
                 Spacer()
                 Button {
@@ -235,9 +257,9 @@ struct BookingDateTimeView: View {
                 } label: {
                     HStack(spacing: Space.xs) {
                         Text("Continue")
-                            .font(.bmUI(15, weight: .semibold))
+                            .font(.system(size: 15, weight: .semibold))
                         Image(systemName: "arrow.right")
-                            .font(.bmUI(12, weight: .bold))
+                            .font(.system(size: 12, weight: .bold))
                     }
                     .foregroundStyle(Color.appInkInverse)
                     .padding(.horizontal, Space.lg)
@@ -249,7 +271,22 @@ struct BookingDateTimeView: View {
             }
             .padding(.horizontal, Space.lg)
             .padding(.vertical, Space.md)
-            .background(.ultraThinMaterial)
+            .background(Color.glassTintStrong)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Helpers
+
+    private func sectionEyebrow(_ text: String) -> some View {
+        HStack(spacing: Space.xs) {
+            Rectangle()
+                .fill(Color.gold)
+                .frame(width: 20, height: 1.5)
+            Text(text)
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1.5)
+                .foregroundStyle(Color.appAsh)
         }
     }
 
@@ -279,7 +316,9 @@ struct BookingDateTimeView: View {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Date Pill
+// ═══════════════════════════════════════════════════════════════════
 
 struct DateStripPill: View {
     let date: Date
@@ -290,15 +329,15 @@ struct DateStripPill: View {
         Button(action: onTap) {
             VStack(spacing: 6) {
                 Text(date.formatted(.dateTime.weekday(.abbreviated)).uppercased())
-                    .font(.bmUI(10, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .tracking(1)
                     .foregroundStyle(isSelected ? Color.appInkInverse.opacity(0.7) : Color.appAsh)
                 Text(date.formatted(.dateTime.day()))
-                    .font(.bmDisplay(24, weight: .semibold))
+                    .font(.system(size: 24, weight: .bold, design: .serif))
                     .foregroundStyle(isSelected ? Color.appInkInverse : Color.appInk)
                     .contentTransition(.numericText())
                 Text(date.formatted(.dateTime.month(.abbreviated)).uppercased())
-                    .font(.bmUI(10, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .tracking(1)
                     .foregroundStyle(isSelected ? Color.appInkInverse.opacity(0.7) : Color.appAsh)
             }
@@ -310,17 +349,19 @@ struct DateStripPill: View {
                     .stroke(isSelected ? Color.clear : Color.appDivider, lineWidth: 0.5)
             )
             .shadow(
-                color: isSelected ? Color.appInk.opacity(0.2) : Color.appInk.opacity(0.04),
+                color: isSelected ? Color.appInk.opacity(0.2) : Color.black.opacity(0.04),
                 radius: isSelected ? 14 : 6,
                 y: isSelected ? 6 : 2
             )
         }
         .buttonStyle(BMPressStyle(scale: 0.96))
-        .animation(Motion.bouncy, value: isSelected)
+        .animation(.spring(response: 0.45, dampingFraction: 0.72), value: isSelected)
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Time Chip
+// ═══════════════════════════════════════════════════════════════════
 
 struct TimeChipView: View {
     let label: String
@@ -330,7 +371,7 @@ struct TimeChipView: View {
     var body: some View {
         Button(action: onTap) {
             Text(label)
-                .font(.bmMono(13, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
                 .foregroundStyle(isSelected ? Color.appInkInverse : Color.appInk)
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: 48)
@@ -341,12 +382,12 @@ struct TimeChipView: View {
                         .stroke(isSelected ? Color.clear : Color.appDivider, lineWidth: 0.5)
                 )
                 .shadow(
-                    color: isSelected ? Color.appInk.opacity(0.2) : Color.clear,
+                    color: isSelected ? Color.appInk.opacity(0.2) : .clear,
                     radius: isSelected ? 12 : 0,
                     y: isSelected ? 4 : 0
                 )
         }
         .buttonStyle(BMPressStyle(scale: 0.97))
-        .animation(Motion.bouncy, value: isSelected)
+        .animation(.spring(response: 0.4, dampingFraction: 0.65), value: isSelected)
     }
 }

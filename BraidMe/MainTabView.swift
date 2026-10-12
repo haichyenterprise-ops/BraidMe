@@ -8,8 +8,8 @@ import UIKit
 // =============================================================================
 // MainTabView — "The Spatial Canvas"
 //
-// Star-vortex transition — no globe, no SceneKit. Map dims, avatar extracts
-// from pin position, stars orbit, then swoosh right into the profile.
+// Enhanced: triple shockwave, custom easing camera, ambient gold motes,
+// rating-reactive pins, gold burst capsule expand, spotlight curtain.
 // =============================================================================
 
 struct MainTabView: View {
@@ -51,19 +51,26 @@ struct MainTabView: View {
     @State private var userInfo: UserProfile?
     @State private var braidersLoading = false
 
-    // ─── Shockwaves ───
+    // ─── Shockwaves (multi-layer) ───
     @State private var shockwaves: [Shockwave] = []
+
+    // ─── Capsule tap burst ───
+    @State private var capsuleBursts: [CapsuleBurst] = []
 
     // ─── Transition ───
     @State private var transitionActive = false
     @State private var transitionBraider: Braider?
     @State private var hasPlayedCinematicOnce = false
 
+    // ─── Spot curtain (radial, not flat) ───
+    @State private var curtainOpacity: Double = 0
+    @State private var curtainCenter: CGPoint = .init(x: 0.5, y: 0.5)
+
     // ─── Gyro gate ───
     @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Shockwave model
+    // MARK: - Models
 
     struct Shockwave: Identifiable, Equatable {
         let id = UUID()
@@ -71,6 +78,16 @@ struct MainTabView: View {
         let startTime: Date
 
         static func == (lhs: Shockwave, rhs: Shockwave) -> Bool {
+            lhs.id == rhs.id
+        }
+    }
+
+    struct CapsuleBurst: Identifiable, Equatable {
+        let id = UUID()
+        let coordinate: CLLocationCoordinate2D
+        let startTime: Date
+
+        static func == (lhs: CapsuleBurst, rhs: CapsuleBurst) -> Bool {
             lhs.id == rhs.id
         }
     }
@@ -84,6 +101,12 @@ struct MainTabView: View {
                 ZStack {
                     // ─── Map ───
                     mapCanvas(size: geo.size)
+
+                    // ─── Ambient gold motes drifting across the map ───
+                    AmbientGoldMotes(seed: 777, count: 60)
+                        .blendMode(.plusLighter)
+                        .allowsHitTesting(false)
+                        .opacity(mapAppeared ? 0.7 : 0)
 
                     NoiseTexture(opacity: 0.035, seed: 937)
                         .blendMode(.overlay)
@@ -110,6 +133,9 @@ struct MainTabView: View {
                     }
                     .opacity(transitionActive ? 0 : 1)
                     .animation(.easeInOut(duration: 0.3), value: transitionActive)
+
+                    // ─── Spotlight curtain (radial blackout) ───
+                    spotlightCurtain(in: geo.size)
 
                     // ─── Star vortex transition overlay ───
                     if transitionActive, let braider = transitionBraider {
@@ -158,7 +184,28 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Map Canvas
+    // MARK: - Spotlight curtain
+
+    private func spotlightCurtain(in size: CGSize) -> some View {
+        let radius = max(size.width, size.height) * 0.9
+        return RadialGradient(
+            stops: [
+                .init(color: .black.opacity(0.0), location: 0.35),
+                .init(color: .black.opacity(0.7), location: 0.65),
+                .init(color: .black.opacity(1.0), location: 1.0)
+            ],
+            center: UnitPoint(x: curtainCenter.x, y: curtainCenter.y),
+            startRadius: 0,
+            endRadius: radius
+        )
+        .ignoresSafeArea()
+        .opacity(curtainOpacity)
+        .allowsHitTesting(curtainOpacity > 0.3)
+        .zIndex(500)
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Map
 
     private func mapCanvas(size: CGSize) -> some View {
         Map(position: $cameraPosition, interactionModes: transitionActive ? [] : [.pan, .zoom]) {
@@ -202,7 +249,18 @@ struct MainTabView: View {
                     coordinate: wave.coordinate,
                     anchor: .center
                 ) {
-                    ShockwaveView(startTime: wave.startTime)
+                    MultiLayerShockwave(startTime: wave.startTime)
+                        .allowsHitTesting(false)
+                }
+            }
+
+            ForEach(capsuleBursts) { burst in
+                Annotation(
+                    "",
+                    coordinate: burst.coordinate,
+                    anchor: .center
+                ) {
+                    CapsuleGoldBurst(startTime: burst.startTime)
                         .allowsHitTesting(false)
                 }
             }
@@ -256,13 +314,14 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Top Chrome
+    // MARK: - Top chrome
 
     private var topChrome: some View {
         HStack(spacing: Space.sm) {
             settingsOrb
             Spacer(minLength: 0)
-            avatarOrb
+            reCenterOrb
+            nearbyTicker
         }
         .opacity(mapAppeared ? 1 : 0)
         .offset(y: mapAppeared ? 0 : -24)
@@ -277,7 +336,7 @@ struct MainTabView: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(.regularMaterial)
+                    .fill(Color.glassTintStrong)
                     .frame(width: 52, height: 52)
                     .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
                     .overlay(gyroBorder(size: 52))
@@ -289,6 +348,48 @@ struct MainTabView: View {
             }
         }
         .buttonStyle(BMSquirclePressStyle())
+    }
+
+    private var reCenterOrb: some View {
+        Button {
+            Haptic.medium()
+            haptics.play(.select)
+            reCenter()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(Color.glassTintStrong)
+                    .frame(width: 52, height: 52)
+                    .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+                    .overlay(gyroBorder(size: 52))
+                    .shadow(color: Color.black.opacity(0.15), radius: 20, y: 10)
+
+                Image(systemName: "location.north.line.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.gold)
+            }
+        }
+        .buttonStyle(BMSquirclePressStyle())
+    }
+
+    private var nearbyTicker: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color.appSignal)
+                .frame(width: 6, height: 6)
+            Text("\(fb.braiders.count)")
+                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.appInk)
+                .contentTransition(.numericText())
+            Text("nearby")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.appAsh)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 52)
+        .background(Color.glassTintStrong, in: Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+        .shadow(color: Color.black.opacity(0.15), radius: 20, y: 10)
     }
 
     private var avatarOrb: some View {
@@ -340,7 +441,7 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Bottom Chrome
+    // MARK: - Bottom chrome
 
     private var bottomChrome: some View {
         HStack(alignment: .bottom) {
@@ -400,7 +501,7 @@ struct MainTabView: View {
             .padding(.vertical, 10)
             .background {
                 RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(Color.glassTint)
                     .overlay(
                         RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
                             .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
@@ -441,7 +542,7 @@ struct MainTabView: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(.regularMaterial)
+                    .fill(Color.glassTintStrong)
                     .frame(width: 42, height: 42)
                     .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
                     .overlay(
@@ -468,32 +569,51 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Pin Tap
+    // MARK: - Pin tap
 
     private func handlePinTap(_ braider: Braider) {
         Haptic.medium()
         haptics.play(.pinTap)
 
+        // Triple-layer shockwave
         let wave = Shockwave(coordinate: braider.coordinate, startTime: Date())
         shockwaves.append(wave)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [wave] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [wave] in
             shockwaves.removeAll { $0.id == wave.id }
+        }
+
+        // Custom-easing camera fly: rapid approach, gentle arrival
+        let targetHeading: Double = braider.longitude > currentCity.longitude ? 12 : -12
+
+        // Phase 1: fast approach (0.35s) — overshoot the target distance
+        withAnimation(.easeIn(duration: 0.35)) {
+            cameraPosition = .camera(
+                MapCamera(
+                    centerCoordinate: braider.coordinate,
+                    distance: 900,
+                    heading: targetHeading,
+                    pitch: 32
+                )
+            )
+        }
+
+        // Phase 2: settle (0.5s) — snap to final distance
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.82)) {
+                cameraPosition = .camera(
+                    MapCamera(
+                        centerCoordinate: braider.coordinate,
+                        distance: 1200,
+                        heading: targetHeading,
+                        pitch: 28
+                    )
+                )
+            }
         }
 
         cameraCenter = braider.coordinate
         cameraDistance = 1200
         cameraPitch = 28
-
-        withAnimation(.spring(response: 0.85, dampingFraction: 0.82)) {
-            cameraPosition = .camera(
-                MapCamera(
-                    centerCoordinate: braider.coordinate,
-                    distance: 1200,
-                    heading: braider.longitude > currentCity.longitude ? 12 : -12,
-                    pitch: 28
-                )
-            )
-        }
 
         withAnimation(Motion.morph) {
             expandedBraiderId = braider.id
@@ -511,13 +631,20 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Star Vortex Transition
+    // MARK: - Star vortex transition
 
     private func startTransition(_ braider: Braider) {
         guard !transitionActive else { return }
 
         Haptic.heavy()
         haptics.play(.pinExpand)
+
+        // Emit a gold capsule burst at the pin
+        let burst = CapsuleBurst(coordinate: braider.coordinate, startTime: Date())
+        capsuleBursts.append(burst)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [burst] in
+            capsuleBursts.removeAll { $0.id == burst.id }
+        }
 
         withAnimation(Motion.collapse) {
             expandedBraiderId = nil
@@ -553,7 +680,7 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Zoom Logic
+    // MARK: - Zoom + fly + re-center
 
     private func adjustZoom(in closer: Bool) {
         let factor: Double = closer ? 0.55 : 1.8
@@ -599,8 +726,24 @@ struct MainTabView: View {
         }
     }
 
+    private func reCenter() {
+        withAnimation(.spring(response: 0.75, dampingFraction: 0.82)) {
+            cameraPosition = .camera(
+                MapCamera(
+                    centerCoordinate: currentCity.coordinate,
+                    distance: 5500,
+                    heading: 0,
+                    pitch: 12
+                )
+            )
+            cameraCenter = currentCity.coordinate
+            cameraDistance = 5500
+            cameraPitch = 12
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - User Initials
+    // MARK: - User initials
 
     private var userInitials: String {
         let name = userInfo?.displayName ?? session.displayName ?? ""
@@ -712,7 +855,7 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Safe Area
+    // MARK: - Safe area
 
     private func safeAreaTop() -> CGFloat {
         UIApplication.shared.connectedScenes
@@ -732,7 +875,157 @@ struct MainTabView: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - StarOrbPin
+// MARK: - Ambient Gold Motes
+// ═══════════════════════════════════════════════════════════════════
+
+struct AmbientGoldMotes: View {
+    var seed: UInt64 = 777
+    var count: Int = 60
+
+    @State private var drift: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                ForEach(0..<count, id: \.self) { i in
+                    mote(index: i, size: geo.size)
+                }
+            }
+            .onAppear {
+                withAnimation(.linear(duration: 40).repeatForever(autoreverses: false)) {
+                    drift = 1
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func mote(index: Int, size: CGSize) -> some View {
+        var rng = SeededRNG(seed: seed &+ UInt64(index))
+        let startX = CGFloat.random(in: 0...size.width, using: &rng)
+        let startY = CGFloat.random(in: 0...size.height, using: &rng)
+        let radius = CGFloat.random(in: 1.2...2.8, using: &rng)
+        let opacity = Double.random(in: 0.15...0.5, using: &rng)
+        let duration = Double.random(in: 25...55, using: &rng)
+        let offsetX = CGFloat.random(in: -60...60, using: &rng)
+        let offsetY = CGFloat.random(in: -80...80, using: &rng)
+
+        return Circle()
+            .fill(
+                RadialGradient(
+                    colors: [
+                        Color.goldLight.opacity(opacity),
+                        Color.gold.opacity(opacity * 0.4),
+                        .clear
+                    ],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: radius * 3
+                )
+            )
+            .frame(width: radius * 3, height: radius * 3)
+            .position(x: startX, y: startY)
+            .offset(x: offsetX * drift, y: offsetY * drift)
+            .blur(radius: 0.4)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Multi-Layer Shockwave
+// ═══════════════════════════════════════════════════════════════════
+
+struct MultiLayerShockwave: View {
+    let startTime: Date
+    @State private var progress: CGFloat = 0
+    @State private var opacity: Double = 1.0
+
+    var body: some View {
+        ZStack {
+            // Layer 1: gold
+            Circle()
+                .stroke(Color.gold.opacity(opacity), lineWidth: 2.5)
+                .frame(width: 40 + progress * 220, height: 40 + progress * 220)
+                .blur(radius: progress * 8)
+
+            // Layer 2: white hot core
+            Circle()
+                .stroke(Color.white.opacity(opacity * 0.7), lineWidth: 1.2)
+                .frame(width: 20 + progress * 140, height: 20 + progress * 140)
+                .blur(radius: progress * 4)
+
+            // Layer 3: chromatic aberration ghost
+            Circle()
+                .stroke(Color.goldLight.opacity(opacity * 0.35), lineWidth: 1)
+                .frame(width: 30 + progress * 180, height: 30 + progress * 180)
+                .blur(radius: progress * 12)
+                .offset(x: progress * 4, y: 0)
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.85)) {
+                progress = 1
+                opacity = 0
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Capsule Gold Burst
+// ═══════════════════════════════════════════════════════════════════
+
+struct CapsuleGoldBurst: View {
+    let startTime: Date
+    @State private var progress: CGFloat = 0
+    @State private var opacity: Double = 0.95
+
+    var body: some View {
+        ZStack {
+            // Radial flash
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.goldLight.opacity(opacity),
+                            Color.gold.opacity(opacity * 0.4),
+                            .clear
+                        ],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 80 * progress
+                    )
+                )
+                .frame(width: 180 * progress, height: 180 * progress)
+                .blur(radius: progress * 6)
+
+            // 8 sparkle rays
+            ForEach(0..<8, id: \.self) { i in
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.goldLight.opacity(opacity),
+                                .clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 1.5, height: 60 * progress)
+                    .offset(y: -60 * progress / 2)
+                    .rotationEffect(.degrees(Double(i) * 45))
+            }
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.85)) {
+                progress = 1
+                opacity = 0
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Star Orb Pin (rating-reactive halo)
 // ═══════════════════════════════════════════════════════════════════
 
 struct StarOrbPin: View {
@@ -742,17 +1035,19 @@ struct StarOrbPin: View {
     @State private var breathe = false
     @State private var appear = false
 
-    private var ratingTier: (color: Color, label: String) {
+    /// Rating tier drives the halo brightness and color.
+    private var ratingTier: (color: Color, brightness: Double) {
         let r = braider.rating
-        if r >= 4.8 { return (Color(hex: "#34D399"), "excellent") }
-        if r >= 4.5 { return (Color.goldLight, "great") }
-        if r >= 4.0 { return (Color.gold, "good") }
-        return (Color(hex: "#F59E0B"), "fair")
+        if r >= 4.8 { return (Color(hex: "#34D399"), 0.55) }
+        if r >= 4.5 { return (Color.goldLight, 0.5) }
+        if r >= 4.0 { return (Color.gold, 0.4) }
+        return (Color(hex: "#F59E0B"), 0.3)
     }
 
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 4) {
+                // Rating badge
                 HStack(spacing: 3) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 8, weight: .bold))
@@ -780,28 +1075,29 @@ struct StarOrbPin: View {
                                 lineWidth: 1
                             )
                         )
-                        .shadow(color: ratingTier.color.opacity(0.4), radius: 6, y: 2)
+                        .shadow(color: ratingTier.color.opacity(0.5), radius: 6, y: 2)
                 )
                 .scaleEffect(appear ? 1 : 0.4)
                 .opacity(appear ? 1 : 0)
 
                 ZStack {
+                    // Breathing halo — brighter for higher ratings
                     Circle()
-                        .stroke(Color.gold.opacity(0.35), lineWidth: 1.2)
+                        .stroke(ratingTier.color.opacity(ratingTier.brightness), lineWidth: 1.4)
                         .frame(width: 32, height: 32)
-                        .scaleEffect(breathe ? 1.7 : 1)
-                        .opacity(breathe ? 0 : 0.7)
+                        .scaleEffect(breathe ? 1.8 : 1)
+                        .opacity(breathe ? 0 : 0.85)
 
                     Circle()
-                        .stroke(Color.gold.opacity(0.2), lineWidth: 1)
+                        .stroke(ratingTier.color.opacity(ratingTier.brightness * 0.5), lineWidth: 1)
                         .frame(width: 32, height: 32)
-                        .scaleEffect(breathe ? 1.4 : 1)
-                        .opacity(breathe ? 0 : 0.5)
+                        .scaleEffect(breathe ? 1.5 : 1)
+                        .opacity(breathe ? 0 : 0.55)
 
                     Circle()
                         .fill(
                             RadialGradient(
-                                colors: [ratingTier.color.opacity(0.3), .clear],
+                                colors: [ratingTier.color.opacity(0.35), .clear],
                                 center: .center,
                                 startRadius: 0,
                                 endRadius: 22
@@ -821,7 +1117,7 @@ struct StarOrbPin: View {
                         .overlay(
                             Circle().stroke(Color.white.opacity(0.5), lineWidth: 1)
                         )
-                        .shadow(color: ratingTier.color.opacity(0.6), radius: 10, y: 3)
+                        .shadow(color: ratingTier.color.opacity(0.7), radius: 10, y: 3)
 
                     Circle()
                         .fill(Color.white.opacity(0.7))
@@ -856,7 +1152,7 @@ struct OrbPinPressStyle: ButtonStyle {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - OrbCapsule
+// MARK: - Orb Capsule
 // ═══════════════════════════════════════════════════════════════════
 
 struct OrbCapsule: View {
@@ -941,7 +1237,7 @@ struct OrbCapsule: View {
             .background {
                 ZStack {
                     RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
-                        .fill(.regularMaterial)
+                        .fill(Color.glassTintStrong)
                         .overlay(
                             RoundedRectangle(cornerRadius: Radius.pill, style: .continuous)
                                 .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
@@ -1000,37 +1296,7 @@ struct OrbCapsule: View {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - Shockwave
-// ═══════════════════════════════════════════════════════════════════
-
-struct ShockwaveView: View {
-    let startTime: Date
-    @State private var progress: CGFloat = 0
-    @State private var opacity: Double = 0.9
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.gold.opacity(opacity), lineWidth: 2)
-                .frame(width: 40 + progress * 160, height: 40 + progress * 160)
-                .blur(radius: progress * 6)
-
-            Circle()
-                .stroke(Color.goldLight.opacity(opacity * 0.6), lineWidth: 1)
-                .frame(width: 20 + progress * 120, height: 20 + progress * 120)
-                .blur(radius: progress * 3)
-        }
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.55)) {
-                progress = 1
-                opacity = 0
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MARK: - MotionTracker
+// MARK: - Motion Tracker
 // ═══════════════════════════════════════════════════════════════════
 
 final class MotionTracker: ObservableObject {
@@ -1060,7 +1326,7 @@ final class MotionTracker: ObservableObject {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MARK: - HapticEngine
+// MARK: - Haptic Engine
 // ═══════════════════════════════════════════════════════════════════
 
 final class HapticEngine: ObservableObject {
@@ -1251,7 +1517,7 @@ struct SettingsSheet: View {
                                     .foregroundStyle(Color.gold)
                             }
                             Text("Settings")
-                                .font(.system(size: 34, weight: .regular, design: .serif))
+                                .font(.system(size: 34, weight: .bold, design: .serif))
                                 .tracking(-1)
                                 .foregroundStyle(Color.appInk)
                         }
@@ -1290,7 +1556,7 @@ struct SettingsSheet: View {
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(isOn.wrappedValue ? Color.gold : Color.appSmoke)
             }
-            .animation(Motion.subtle, value: isOn.wrappedValue)
+            .animation(.easeOut(duration: 0.2), value: isOn.wrappedValue)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
@@ -1376,7 +1642,7 @@ struct LocationPermissionSheet: View {
 
                 VStack(spacing: Space.sm) {
                     Text("Find braiders\nnear you")
-                        .font(.system(size: 34, weight: .regular, design: .serif))
+                        .font(.system(size: 34, weight: .bold, design: .serif))
                         .tracking(-1)
                         .foregroundStyle(Color.appInk)
                         .multilineTextAlignment(.center)
