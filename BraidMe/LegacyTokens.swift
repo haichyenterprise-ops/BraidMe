@@ -37,3 +37,13 @@ extension Haptic {
     static func light() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
     static func medium() { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
 }
+
+// More names used by GlobeMorphView
+extension Color {
+    static var glassTintStrong: Color { Color.white.opacity(0.14) }
+    static var glassTint: Color { Color.white.opacity(0.06) }
+}
+
+extension Braider {
+    var ratingText: String { String(format: "%.1f", rating) }
+}
