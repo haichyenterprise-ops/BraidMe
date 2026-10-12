@@ -542,3 +542,16 @@ struct FlowLayout: Layout {
         }
     }
 }
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Check Shape
+// ═══════════════════════════════════════════════════════════════════
+
+struct CheckShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.width * 0.15, y: rect.height * 0.55))
+        path.addLine(to: CGPoint(x: rect.width * 0.42, y: rect.height * 0.80))
+        path.addLine(to: CGPoint(x: rect.width * 0.88, y: rect.height * 0.20))
+        return path
+    }
+}
