@@ -1426,21 +1426,21 @@ struct PortfolioCoverCard: View {
 // MARK: - Magnifier Lens (FIXED)
 // ═══════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════
+// MARK: - Magnifier Lens (FIXED)
+// ═══════════════════════════════════════════════════════════════════
+
 struct MagnifierLens: View {
     let imageUrl: String
     let location: CGPoint
     let cardSize: CGSize
     let size: CGFloat
-
-    private var zoomFactor: CGFloat = 2.2
+    var zoomFactor: CGFloat = 2.2
 
     var body: some View {
         ZStack {
-            // Zoomed image clipped to circle
-            GeometryReader { geo in
+            GeometryReader { _ in
                 ZStack {
-                    // Position the zoomed image so that the point under the
-                    // finger aligns with the center of the lens.
                     RemoteImage(url: imageUrl)
                         .frame(
                             width: cardSize.width * zoomFactor,
@@ -1457,7 +1457,6 @@ struct MagnifierLens: View {
             .frame(width: size, height: size)
             .clipShape(Circle())
 
-            // Gold rim
             Circle()
                 .stroke(
                     LinearGradient(
@@ -1468,7 +1467,6 @@ struct MagnifierLens: View {
                     lineWidth: 2.5
                 )
 
-            // Inner highlight
             Circle()
                 .stroke(.white.opacity(0.4), lineWidth: 0.8)
                 .padding(2)
