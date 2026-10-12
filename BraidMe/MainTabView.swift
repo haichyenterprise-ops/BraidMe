@@ -58,6 +58,10 @@ struct MainTabView: View {
         let id = UUID()
         let coordinate: CLLocationCoordinate2D
         let startTime: Date
+
+        static func == (lhs: Shockwave, rhs: Shockwave) -> Bool {
+            lhs.id == rhs.id
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════
