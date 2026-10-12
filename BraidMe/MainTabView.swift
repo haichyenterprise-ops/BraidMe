@@ -8,8 +8,8 @@ import UIKit
 // =============================================================================
 // MainTabView — "The Spatial Canvas"
 //
-// The globe is a ZStack OVERLAY (not a fullScreenCover). This means no
-// slide-up transition — the globe fades in over the map, seamlessly.
+// Globe transition is a ZStack overlay. Map zooms behind a black curtain
+// so MapKit tile-loading artifacts (grey zones) are never visible.
 // =============================================================================
 
 struct MainTabView: View {
@@ -54,11 +54,12 @@ struct MainTabView: View {
     // ─── Shockwaves ───
     @State private var shockwaves: [Shockwave] = []
 
-    // ─── Globe transition (ZStack overlay — NOT a modal) ───
+    // ─── Globe transition ───
     @State private var globeActive = false
     @State private var globeBraider: Braider?
     @State private var hasPlayedCinematicOnce = false
-    @State private var mapFadeOpacity: Double = 1.0
+    /// Full-screen black curtain that hides MapKit's grey tiles during zoom-out
+    @State private var blackoutOpacity: Double = 0
 
     // ─── Gyro gate ───
     @AppStorage("braidme.gyroTilt") private var gyroTiltEnabled: Bool = true
@@ -83,18 +84,15 @@ struct MainTabView: View {
         NavigationStack {
             GeometryReader { geo in
                 ZStack {
-                    // ─── Map layer ───
+                    // ─── Map ───
                     mapCanvas(size: geo.size)
-                        .opacity(mapFadeOpacity)
 
                     NoiseTexture(opacity: 0.035, seed: 937)
                         .blendMode(.overlay)
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
-                        .opacity(mapFadeOpacity)
 
                     vignetteLayer
-                        .opacity(mapFadeOpacity)
 
                     // ─── Top chrome ───
                     VStack(spacing: 0) {
@@ -115,7 +113,14 @@ struct MainTabView: View {
                     .opacity(globeActive ? 0 : 1)
                     .animation(.easeInOut(duration: 0.3), value: globeActive)
 
-                    // ─── GLOBE OVERLAY (ZStack layer, no modal) ───
+                    // ─── BLACK CURTAIN (hides grey tiles during zoom) ───
+                    Color.black
+                        .ignoresSafeArea()
+                        .opacity(blackoutOpacity)
+                        .allowsHitTesting(blackoutOpacity > 0.5)
+                        .zIndex(500)
+
+                    // ─── GLOBE OVERLAY ───
                     if globeActive, let braider = globeBraider {
                         GlobeMorphView(
                             braider: braider,
@@ -162,7 +167,7 @@ struct MainTabView: View {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Layer 1: Map Canvas
+    // MARK: - Map Canvas
 
     private func mapCanvas(size: CGSize) -> some View {
         Map(position: $cameraPosition, interactionModes: globeActive ? [] : [.pan, .zoom]) {
@@ -225,10 +230,7 @@ struct MainTabView: View {
     private var vignetteLayer: some View {
         ZStack {
             RadialGradient(
-                colors: [
-                    .clear,
-                    Color.black.opacity(0.10)
-                ],
+                colors: [.clear, Color.black.opacity(0.10)],
                 center: .center,
                 startRadius: 180,
                 endRadius: 520
@@ -251,10 +253,7 @@ struct MainTabView: View {
             .allowsHitTesting(false)
 
             LinearGradient(
-                colors: [
-                    .clear,
-                    Color.appBackground.opacity(0.35)
-                ],
+                colors: [.clear, Color.appBackground.opacity(0.35)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -523,12 +522,12 @@ struct MainTabView: View {
     // ═══════════════════════════════════════════════════════════════
     // MARK: - Globe Transition
     //
-    // Sequence:
-    //   1. Collapse pin, disengage map interaction
-    //   2. Fade map out + globe in — OVERLAPPING (seamless crossfade)
-    //   3. Map camera also pulls back (behind the fade — visual depth)
-    //   4. Globe plays its full sequence
-    //   5. onFinish → push profile, fade globe out
+    // Story:
+    //  0.00  Tap → collapse pin, disengage map, black curtain fades in
+    //  0.00  Map zooms out behind the curtain (grey tiles hidden)
+    //  1.60  Curtain at 100%. Globe overlay activates.
+    //  ...
+    // 11.40  GlobeMorphView finishes → push profile
     // ═══════════════════════════════════════════════════════════════
 
     private func openProfileWithGlobe(_ braider: Braider) {
@@ -544,8 +543,13 @@ struct MainTabView: View {
 
         globeBraider = braider
 
-        // Kick off the map camera pull-back (behind the fade) — SINGLE animation
-        withAnimation(.easeInOut(duration: 1.0)) {
+        // ─── 0.00 — Black curtain fades in (hides grey tiles) ───
+        withAnimation(.easeIn(duration: 0.4)) {
+            blackoutOpacity = 1.0
+        }
+
+        // ─── 0.00 — Map camera pulls back (behind the curtain) ───
+        withAnimation(.easeInOut(duration: 1.6)) {
             cameraPosition = .camera(
                 MapCamera(
                     centerCoordinate: braider.coordinate,
@@ -559,40 +563,34 @@ struct MainTabView: View {
         cameraDistance = 40_000_000
         cameraPitch = 0
 
-        // Crossfade: map fades out over 0.6s while globe fades in
-        withAnimation(.easeInOut(duration: 0.6)) {
-            mapFadeOpacity = 0.0
-        }
-
-        // Activate globe overlay after a tiny delay so the collapse animation
-        // doesn't fight the globe presentation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+        // ─── 1.60 — Activate globe overlay ───
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
             hasPlayedCinematicOnce = true
-            withAnimation(.easeIn(duration: 0.4)) {
+            withAnimation(.easeIn(duration: 0.2)) {
                 globeActive = true
             }
         }
     }
 
     /// Called by GlobeMorphView when its sequence ends.
-    /// Navigates to profile, then fades the globe out and restores the map.
     private func finishGlobeTransition() {
         guard let braider = globeBraider else {
             globeActive = false
+            blackoutOpacity = 0
             return
         }
 
-        // 1. Push the profile (behind the globe — still covered)
+        // 1. Push the profile (behind the globe)
         selectedBraider = braider
 
-        // 2. Fade the globe out on the next runloop
+        // 2. Fade the globe out
         DispatchQueue.main.async {
             withAnimation(.easeOut(duration: 0.35)) {
                 globeActive = false
             }
         }
 
-        // 3. Restore the map behind the profile so when we come back it's ready
+        // 3. Restore the map behind the profile
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             let resetDistance: Double = 5500
             let resetPitch: Double = 10
@@ -607,8 +605,8 @@ struct MainTabView: View {
                     pitch: resetPitch
                 )
             )
-            withAnimation(.easeInOut(duration: 0.5)) {
-                mapFadeOpacity = 1.0
+            withAnimation(.easeOut(duration: 0.5)) {
+                blackoutOpacity = 0
             }
         }
 

@@ -3,21 +3,34 @@ import SceneKit
 import UIKit
 
 // =============================================================================
-// GlobeScene — Real 3D rotating Earth in SceneKit.
-// Rotation is driven by SCNAction (smooth 60fps).
-// Opacity is driven by SwiftUI state (one-time fades).
+// GlobeScene — Premium 3D Earth with PBR materials, two-layer ocean,
+// multi-layer continents, fresnel atmosphere, and particle rings.
+//
+// Rotation: SCNAction-driven (60fps).
+// Spin speed, camera distance, and morph progress are all SwiftUI-driven
+// via explicit setters on the coordinator.
 // =============================================================================
 
 final class GlobeSceneCoordinator: NSObject {
     let scene = SCNScene()
     let cameraNode = SCNNode()
     let globeNode = SCNNode()
-    let outerRingNode = SCNNode()
-    let atmosphereNode = SCNNode()
+    let oceanNode = SCNNode()
     let continentNode = SCNNode()
     let gridNode = SCNNode()
+    let specularNode = SCNNode()
+    let atmosphereInner = SCNNode()
+    let atmosphereOuter = SCNNode()
+    let particleRing = SCNNode()
+
+    // Material references for morph control
+    private var continentMaterial: SCNMaterial?
+    private var gridMaterial: SCNMaterial?
+    private var oceanMaterial: SCNMaterial?
 
     private var currentSpinSpeed: Float = 0
+    private var currentMorph: Float = 0
+    private var currentScale: Float = 1
 
     override init() {
         super.init()
@@ -33,205 +46,446 @@ final class GlobeSceneCoordinator: NSObject {
         // ─── Camera ───
         let camera = SCNCamera()
         camera.zNear = 0.01
-        camera.zFar = 100
-        camera.fieldOfView = 40
+        camera.zFar = 200
+        camera.fieldOfView = 42
         camera.wantsHDR = true
-        camera.bloomIntensity = 0.8
-        camera.bloomThreshold = 0.4
-        camera.bloomBlurRadius = 12
+        camera.bloomIntensity = 0.9
+        camera.bloomThreshold = 0.35
+        camera.bloomBlurRadius = 14
+        camera.wantsExposureAdaptation = false
+        camera.exposureOffset = 0.1
         cameraNode.camera = camera
-        cameraNode.position = SCNVector3(0, 0, 4.2)
+        cameraNode.position = SCNVector3(0, 0, 7.5)
         scene.rootNode.addChildNode(cameraNode)
 
-        // ─── Ambient ───
+        // ─── Environment lighting (procedural HDR-like map) ───
+        let envMap = Self.generateEnvironmentMap()
+        scene.lightingEnvironment.contents = envMap
+        scene.lightingEnvironment.intensity = 1.1
+
+        // ─── Ambient fill ───
         let ambient = SCNLight()
         ambient.type = .ambient
-        ambient.color = UIColor(red: 0.10, green: 0.08, blue: 0.05, alpha: 1)
-        ambient.intensity = 200
+        ambient.color = UIColor(red: 0.05, green: 0.04, blue: 0.06, alpha: 1)
+        ambient.intensity = 180
         let ambientNode = SCNNode()
         ambientNode.light = ambient
         scene.rootNode.addChildNode(ambientNode)
 
-        // ─── Key light ───
+        // ─── Key light: warm sun ───
         let key = SCNLight()
         key.type = .directional
-        key.color = UIColor(red: 1.0, green: 0.88, blue: 0.55, alpha: 1)
-        key.intensity = 900
+        key.color = UIColor(red: 1.0, green: 0.92, blue: 0.72, alpha: 1)
+        key.intensity = 1100
         key.castsShadow = false
         let keyNode = SCNNode()
         keyNode.light = key
-        keyNode.eulerAngles = SCNVector3(-0.9, -0.6, 0)
+        keyNode.eulerAngles = SCNVector3(-0.85, -0.65, 0)
         scene.rootNode.addChildNode(keyNode)
 
-        // ─── Rim light ───
+        // ─── Cool rim light ───
         let rim = SCNLight()
         rim.type = .omni
-        rim.color = UIColor(red: 0.85, green: 0.65, blue: 0.25, alpha: 1)
-        rim.intensity = 400
+        rim.color = UIColor(red: 0.65, green: 0.55, blue: 0.85, alpha: 1)
+        rim.intensity = 380
         rim.attenuationStartDistance = 3
-        rim.attenuationEndDistance = 12
+        rim.attenuationEndDistance = 15
         let rimNode = SCNNode()
         rimNode.light = rim
         rimNode.position = SCNVector3(2.5, -2, 2)
         scene.rootNode.addChildNode(rimNode)
 
-        // ─── Build ───
-        buildGlobe()
+        // ─── Warm bounce from below ───
+        let bounce = SCNLight()
+        bounce.type = .omni
+        bounce.color = UIColor(red: 0.85, green: 0.60, blue: 0.30, alpha: 1)
+        bounce.intensity = 220
+        bounce.attenuationStartDistance = 3
+        bounce.attenuationEndDistance = 14
+        let bounceNode = SCNNode()
+        bounceNode.light = bounce
+        bounceNode.position = SCNVector3(-2, -1.5, 1.5)
+        scene.rootNode.addChildNode(bounceNode)
+
+        // ─── Build globe ───
+        buildOcean()
+        buildContinents()
+        buildGrid()
         buildAtmosphere()
-        buildOrbitingRings()
-    }
+        buildParticleRing()
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Globe
-
-    private func buildGlobe() {
-        // ── Base sphere: obsidian ──
-        let sphere = SCNSphere(radius: 1.0)
-        sphere.segmentCount = 96
-
-        let baseMaterial = SCNMaterial()
-        baseMaterial.diffuse.contents = UIColor(red: 0.06, green: 0.05, blue: 0.07, alpha: 1)
-        baseMaterial.metalness.contents = 0.4
-        baseMaterial.roughness.contents = 0.35
-        baseMaterial.lightingModel = .physicallyBased
-        sphere.materials = [baseMaterial]
-
-        globeNode.geometry = sphere
-
-        // ── Continents overlay ──
-        let continentSphere = SCNSphere(radius: 1.003)
-        continentSphere.segmentCount = 96
-
-        let continentMaterial = SCNMaterial()
-        continentMaterial.diffuse.contents = Self.generateEarthTexture()
-        continentMaterial.diffuse.wrapS = .repeat
-        continentMaterial.diffuse.wrapT = .clamp
-        continentMaterial.diffuse.mipFilter = .linear
-        continentMaterial.transparencyMode = .aOne
-        continentMaterial.isDoubleSided = false
-        continentMaterial.lightingModel = .constant
-        continentMaterial.blendMode = .alpha
-        continentSphere.firstMaterial = continentMaterial
-
-        continentNode.geometry = continentSphere
-
-        // ── Graticule layer ──
-        let gridSphere = SCNSphere(radius: 1.005)
-        gridSphere.segmentCount = 48
-
-        let gridMaterial = SCNMaterial()
-        gridMaterial.diffuse.contents = Self.generateGraticuleTexture()
-        gridMaterial.diffuse.wrapS = .repeat
-        gridMaterial.diffuse.wrapT = .clamp
-        gridMaterial.transparencyMode = .aOne
-        gridMaterial.lightingModel = .constant
-        gridMaterial.blendMode = .alpha
-        gridSphere.firstMaterial = gridMaterial
-        gridNode.geometry = gridSphere
-
-        globeNode.addChildNode(continentNode)
-        globeNode.addChildNode(gridNode)
-
-        // Start invisible
+        // Entire globe under one parent
         globeNode.opacity = 0
         scene.rootNode.addChildNode(globeNode)
     }
 
-    private func buildAtmosphere() {
-        let atmosphere = SCNSphere(radius: 1.15)
-        atmosphere.segmentCount = 48
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Ocean
+
+    private func buildOcean() {
+        let sphere = SCNSphere(radius: 1.0)
+        sphere.segmentCount = 128
 
         let material = SCNMaterial()
-        material.diffuse.contents = UIColor.clear
-        material.emission.contents = Self.glowHalo()
-        material.transparencyMode = .aOne
-        material.isDoubleSided = true
-        material.lightingModel = .constant
-        material.blendMode = .add
-        material.writesToDepthBuffer = false
-        atmosphere.firstMaterial = material
+        material.diffuse.contents = Self.generateOceanTexture()
+        material.diffuse.wrapS = .repeat
+        material.diffuse.wrapT = .clamp
+        material.diffuse.mipFilter = .linear
+        material.metalness.contents = 0.15
+        material.metalness.intensity = 0.3
+        material.roughness.contents = 0.35
+        material.roughness.intensity = 0.4
+        material.normal.contents = Self.generateNormalMap()
+        material.normal.wrapS = .repeat
+        material.normal.wrapT = .repeat
+        material.normal.intensity = 0.6
+        material.lightingModel = .physicallyBased
+        material.isDoubleSided = false
+        sphere.firstMaterial = material
+        oceanMaterial = material
 
-        atmosphereNode.geometry = atmosphere
-        atmosphereNode.opacity = 0
-        scene.rootNode.addChildNode(atmosphereNode)
-    }
-
-    private func buildOrbitingRings() {
-        for i in 0..<2 {
-            let torus = SCNTorus(
-                ringRadius: CGFloat(1.35) + CGFloat(i) * 0.10,
-                pipeRadius: 0.004
-            )
-            let material = SCNMaterial()
-            material.diffuse.contents = UIColor(red: 1.0, green: 0.85, blue: 0.45, alpha: 1)
-            material.emission.contents = UIColor(red: 1.0, green: 0.80, blue: 0.35, alpha: 1)
-            material.emission.intensity = 1.6
-            material.lightingModel = .constant
-            material.transparencyMode = .aOne
-            torus.materials = [material]
-
-            let ringNode = SCNNode(geometry: torus)
-            ringNode.eulerAngles = SCNVector3(
-                Float.pi / 2 + Float(i) * 0.3,
-                0,
-                Float(i) * 0.6
-            )
-            outerRingNode.addChildNode(ringNode)
-        }
-        outerRingNode.opacity = 0
-        scene.rootNode.addChildNode(outerRingNode)
+        let oceanSphereNode = SCNNode(geometry: sphere)
+        oceanNode.addChildNode(oceanSphereNode)
+        globeNode.addChildNode(oceanNode)
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MARK: - Continuous rotation via SCNAction
+    // MARK: - Continents
 
-    /// Called from SwiftUI. Speed 0 = stopped, 1 = normal, 2 = fast.
+    private func buildContinents() {
+        let sphere = SCNSphere(radius: 1.002)
+        sphere.segmentCount = 128
+
+        let material = SCNMaterial()
+        material.diffuse.contents = Self.generateEarthTexture()
+        material.diffuse.wrapS = .repeat
+        material.diffuse.wrapT = .clamp
+        material.diffuse.mipFilter = .linear
+        material.emission.contents = Self.generateEmissionMap()
+        material.emission.wrapS = .repeat
+        material.emission.wrapT = .clamp
+        material.emission.intensity = 0.3
+        material.metalness.contents = 0.85
+        material.metalness.intensity = 0.9
+        material.roughness.contents = 0.25
+        material.roughness.intensity = 0.35
+        material.transparencyMode = .aOne
+        material.lightingModel = .physicallyBased
+        material.isDoubleSided = false
+        material.blendMode = .alpha
+        sphere.firstMaterial = material
+        continentMaterial = material
+
+        let node = SCNNode(geometry: sphere)
+        continentNode.addChildNode(node)
+        globeNode.addChildNode(continentNode)
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Grid (graticule)
+
+    private func buildGrid() {
+        let sphere = SCNSphere(radius: 1.006)
+        sphere.segmentCount = 64
+
+        let material = SCNMaterial()
+        material.diffuse.contents = Self.generateGraticuleTexture()
+        material.diffuse.wrapS = .repeat
+        material.diffuse.wrapT = .clamp
+        material.transparencyMode = .aOne
+        material.lightingModel = .constant
+        material.blendMode = .alpha
+        material.emission.contents = UIColor(red: 0.95, green: 0.78, blue: 0.35, alpha: 0.35)
+        material.emission.intensity = 0.4
+        sphere.firstMaterial = material
+        gridMaterial = material
+
+        let node = SCNNode(geometry: sphere)
+        gridNode.addChildNode(node)
+        globeNode.addChildNode(gridNode)
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Atmosphere (two layers)
+
+    private func buildAtmosphere() {
+        // Inner tight fresnel halo
+        let inner = SCNSphere(radius: 1.06)
+        inner.segmentCount = 64
+        let innerMaterial = SCNMaterial()
+        innerMaterial.diffuse.contents = UIColor.clear
+        innerMaterial.emission.contents = Self.generateFresnelAtmosphere(color: UIColor(red: 1.0, green: 0.85, blue: 0.55, alpha: 1.0))
+        innerMaterial.emission.intensity = 1.4
+        innerMaterial.transparencyMode = .aOne
+        innerMaterial.lightingModel = .constant
+        innerMaterial.blendMode = .add
+        innerMaterial.isDoubleSided = true
+        innerMaterial.writesToDepthBuffer = false
+        inner.firstMaterial = innerMaterial
+        atmosphereInner.geometry = inner
+        atmosphereInner.opacity = 0
+        scene.rootNode.addChildNode(atmosphereInner)
+
+        // Outer diffuse glow
+        let outer = SCNSphere(radius: 1.18)
+        outer.segmentCount = 48
+        let outerMaterial = SCNMaterial()
+        outerMaterial.diffuse.contents = UIColor.clear
+        outerMaterial.emission.contents = Self.generateFresnelAtmosphere(color: UIColor(red: 0.95, green: 0.72, blue: 0.35, alpha: 1.0))
+        outerMaterial.emission.intensity = 0.7
+        outerMaterial.transparencyMode = .aOne
+        outerMaterial.lightingModel = .constant
+        outerMaterial.blendMode = .add
+        outerMaterial.isDoubleSided = true
+        outerMaterial.writesToDepthBuffer = false
+        outer.firstMaterial = outerMaterial
+        atmosphereOuter.geometry = outer
+        atmosphereOuter.opacity = 0
+        scene.rootNode.addChildNode(atmosphereOuter)
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Particle ring
+
+    private func buildParticleRing() {
+        let count = 320
+        let ringRadius: Float = 1.38
+        let thickness: Float = 0.04
+
+        // Build a single geometry using SCNGeometry with points
+        var positions: [SCNVector3] = []
+        var colors: [SIMD4<Float>] = []
+
+        for i in 0..<count {
+            let angle = Float(i) / Float(count) * Float.pi * 2
+            let jitter = Float.random(in: -thickness...thickness)
+            let jitterRadius = ringRadius + Float.random(in: -0.02...0.02)
+
+            let x = cos(angle) * jitterRadius
+            let y = sin(angle) * jitterRadius
+            let z = jitter
+
+            positions.append(SCNVector3(x, y, z))
+
+            // Random brightness for sparkle
+            let b = Float.random(in: 0.5...1.0)
+            colors.append(SIMD4<Float>(b, b * 0.85, b * 0.4, 1))
+        }
+
+        // Position source
+        let positionSource = SCNGeometrySource(vertices: positions)
+
+        // Color source
+        let colorData = colors.withUnsafeBufferPointer { Data(buffer: $0) }
+        let colorSource = SCNGeometrySource(
+            data: colorData,
+            semantic: .color,
+            vectorCount: count,
+            usesFloatComponents: true,
+            componentsPerVector: 4,
+            bytesPerComponent: MemoryLayout<Float>.size,
+            dataOffset: 0,
+            dataStride: MemoryLayout<SIMD4<Float>>.size
+        )
+
+        // Point geometry element
+        let indices = (0..<count).map { Int32($0) }
+        let indexData = indices.withUnsafeBufferPointer { Data(buffer: $0) }
+        let element = SCNGeometryElement(
+            data: indexData,
+            primitiveType: .point,
+            primitiveCount: count,
+            bytesPerIndex: MemoryLayout<Int32>.size
+        )
+        element.pointSize = 4
+        element.minimumPointScreenSpaceRadius = 2
+        element.maximumPointScreenSpaceRadius = 6
+
+        let geometry = SCNGeometry(sources: [positionSource, colorSource], elements: [element])
+        let material = SCNMaterial()
+        material.lightingModel = .constant
+        material.diffuse.contents = UIColor.white
+        material.emission.contents = UIColor(red: 1.0, green: 0.85, blue: 0.55, alpha: 1)
+        material.emission.intensity = 2.2
+        material.blendMode = .add
+        material.writesToDepthBuffer = false
+        material.isDoubleSided = true
+        geometry.materials = [material]
+
+        let node = SCNNode(geometry: geometry)
+        node.eulerAngles = SCNVector3(Float.pi / 2 + 0.35, 0, 0.2)
+        particleRing.addChildNode(node)
+        particleRing.opacity = 0
+        scene.rootNode.addChildNode(particleRing)
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARK: - Public API (SwiftUI-driven)
+
+    func setCameraDistance(_ distance: Float) {
+        SCNTransaction.begin()
+        SCNTransaction.animationDuration = 0
+        cameraNode.position = SCNVector3(0, 0, distance)
+        SCNTransaction.commit()
+    }
+
+    func setGlobeOpacity(_ value: Float) {
+        SCNTransaction.begin()
+        SCNTransaction.animationDuration = 0
+        globeNode.opacity = CGFloat(value)
+        SCNTransaction.commit()
+    }
+
+    func setAtmosphereOpacity(_ value: Float) {
+        SCNTransaction.begin()
+        SCNTransaction.animationDuration = 0
+        atmosphereInner.opacity = CGFloat(value)
+        atmosphereOuter.opacity = CGFloat(value)
+        SCNTransaction.commit()
+    }
+
+    func setRingOpacity(_ value: Float) {
+        SCNTransaction.begin()
+        SCNTransaction.animationDuration = 0
+        particleRing.opacity = CGFloat(value)
+        SCNTransaction.commit()
+    }
+
     func setSpinSpeed(_ speed: Float) {
-        // Small tolerance to avoid restarting on near-identical values
         guard abs(speed - currentSpinSpeed) > 0.01 else { return }
         currentSpinSpeed = speed
 
         globeNode.removeAction(forKey: "spin")
-        outerRingNode.removeAction(forKey: "ringSpin")
+        particleRing.removeAction(forKey: "ringSpin")
 
-        guard speed > 0 else { return }
+        guard speed > 0.01 else { return }
 
-        // Globe: one full rotation every (8 / speed) seconds
         let globeDuration = TimeInterval(8.0 / Double(speed))
         let globeSpin = SCNAction.repeatForever(
             SCNAction.rotateBy(x: 0, y: .pi * 2, z: 0, duration: globeDuration)
         )
         globeNode.runAction(globeSpin, forKey: "spin")
 
-        // Rings: rotate on their own axis — duration slower
-        let ringDuration = TimeInterval(12.0 / Double(speed))
+        let ringDuration = TimeInterval(20.0 / Double(speed))
         let ringSpin = SCNAction.repeatForever(
             SCNAction.rotateBy(x: 0, y: .pi * 2, z: 0, duration: ringDuration)
         )
-        outerRingNode.runAction(ringSpin, forKey: "ringSpin")
+        particleRing.runAction(ringSpin, forKey: "ringSpin")
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // MARK: - Opacity / camera (SwiftUI-driven, one-shot)
-
-    func setCameraDistance(_ distance: Float) {
-        cameraNode.position = SCNVector3(0, 0, distance)
+    func setScale(_ scale: Float) {
+        guard abs(scale - currentScale) > 0.005 else { return }
+        currentScale = scale
+        SCNTransaction.begin()
+        SCNTransaction.animationDuration = 0
+        globeNode.scale = SCNVector3(scale, scale, scale)
+        atmosphereInner.scale = SCNVector3(scale, scale, scale)
+        atmosphereOuter.scale = SCNVector3(scale, scale, scale)
+        particleRing.scale = SCNVector3(scale, scale, scale)
+        SCNTransaction.commit()
     }
 
-    func setGlobeOpacity(_ value: Float) {
-        globeNode.opacity = CGFloat(value)
-    }
+    /// 0.0 = normal globe, 1.0 = fully dissolved (gold glow only)
+    func setMorphProgress(_ progress: Float) {
+        let p = max(0, min(progress, 1))
+        guard abs(p - currentMorph) > 0.005 else { return }
+        currentMorph = p
 
-    func setAtmosphereOpacity(_ value: Float) {
-        atmosphereNode.opacity = CGFloat(value)
-    }
+        SCNTransaction.begin()
+        SCNTransaction.animationDuration = 0
 
-    func setRingOpacity(_ value: Float) {
-        outerRingNode.opacity = CGFloat(value)
+        // Continents: blur toward invisible, brighten emission
+        continentMaterial?.diffuse.intensity = CGFloat(1.0 - p * 0.9)
+        continentMaterial?.emission.intensity = CGFloat(0.3 + p * 2.5)
+
+        // Grid: fade out
+        gridMaterial?.diffuse.intensity = CGFloat(1.0 - p)
+
+        // Ocean: brighten to glowing
+        oceanMaterial?.emission.contents = UIColor(red: 1.0, green: 0.85, blue: 0.5, alpha: 1)
+        oceanMaterial?.emission.intensity = CGFloat(p * 2.8)
+
+        // Globe overall: brighten
+        globeNode.opacity = CGFloat(1.0 - p * 0.6)
+
+        // Atmosphere: expand and brighten
+        atmosphereInner.opacity = CGFloat(1.0 + p * 0.5)
+        atmosphereOuter.opacity = CGFloat(1.0 + p * 0.8)
+
+        SCNTransaction.commit()
     }
 
     // ═══════════════════════════════════════════════════════════════
     // MARK: - Texture generation
+
+    static func generateOceanTexture() -> UIImage {
+        let size = CGSize(width: 1024, height: 512)
+        let renderer = UIGraphicsImageRenderer(size: size)
+
+        return renderer.image { ctx in
+            let cg = ctx.cgContext
+
+            // Deep navy base
+            let colors = [
+                UIColor(red: 0.04, green: 0.06, blue: 0.14, alpha: 1.0).cgColor,
+                UIColor(red: 0.06, green: 0.10, blue: 0.22, alpha: 1.0).cgColor,
+                UIColor(red: 0.08, green: 0.14, blue: 0.28, alpha: 1.0).cgColor
+            ] as CFArray
+            if let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: colors,
+                locations: [0, 0.5, 1]
+            ) {
+                cg.drawLinearGradient(
+                    gradient,
+                    start: CGPoint(x: 0, y: 0),
+                    end: CGPoint(x: size.width, y: size.height),
+                    options: []
+                )
+            }
+
+            // Cyan shimmer streaks
+            cg.setStrokeColor(UIColor(red: 0.4, green: 0.75, blue: 0.9, alpha: 0.12).cgColor)
+            cg.setLineWidth(1.5)
+            for _ in 0..<40 {
+                let y = CGFloat.random(in: 0...size.height)
+                let x = CGFloat.random(in: 0...size.width)
+                let len = CGFloat.random(in: 60...200)
+                cg.move(to: CGPoint(x: x, y: y))
+                cg.addLine(to: CGPoint(x: x + len, y: y + CGFloat.random(in: -8...8)))
+            }
+            cg.strokePath()
+
+            // Tiny bright specks
+            cg.setFillColor(UIColor(red: 0.7, green: 0.9, blue: 1.0, alpha: 0.3).cgColor)
+            for _ in 0..<80 {
+                let x = CGFloat.random(in: 0...size.width)
+                let y = CGFloat.random(in: 0...size.height)
+                cg.fillEllipse(in: CGRect(x: x, y: y, width: 2, height: 2))
+            }
+        }
+    }
+
+    static func generateNormalMap() -> UIImage {
+        let size = CGSize(width: 512, height: 256)
+        let renderer = UIGraphicsImageRenderer(size: size)
+
+        return renderer.image { ctx in
+            let cg = ctx.cgContext
+            // Neutral normal (128, 128, 255) with slight variance
+            cg.setFillColor(UIColor(red: 0.5, green: 0.5, blue: 1.0, alpha: 1.0).cgColor)
+            cg.fill(CGRect(origin: .zero, size: size))
+
+            for _ in 0..<600 {
+                let x = CGFloat.random(in: 0...size.width)
+                let y = CGFloat.random(in: 0...size.height)
+                let r = CGFloat.random(in: 0.5...1.5)
+                let v = CGFloat.random(in: 0.4...0.6)
+                cg.setFillColor(UIColor(red: v, green: v, blue: 1.0, alpha: 1).cgColor)
+                cg.fillEllipse(in: CGRect(x: x, y: y, width: r, height: r))
+            }
+        }
+    }
 
     static func generateEarthTexture() -> UIImage {
         let size = CGSize(width: 2048, height: 1024)
@@ -239,22 +493,93 @@ final class GlobeSceneCoordinator: NSObject {
 
         return renderer.image { ctx in
             let cg = ctx.cgContext
-
             cg.setFillColor(UIColor.clear.cgColor)
             cg.fill(CGRect(origin: .zero, size: size))
 
             let continents = Self.continentPaths()
 
+            // Gold gradient with multiple stops for depth
             let goldColors = [
-                UIColor(red: 1.00, green: 0.88, blue: 0.50, alpha: 1.0).cgColor,
+                UIColor(red: 1.00, green: 0.94, blue: 0.65, alpha: 1.0).cgColor,
+                UIColor(red: 0.95, green: 0.80, blue: 0.40, alpha: 1.0).cgColor,
                 UIColor(red: 0.85, green: 0.66, blue: 0.24, alpha: 1.0).cgColor,
                 UIColor(red: 0.55, green: 0.40, blue: 0.12, alpha: 1.0).cgColor
             ] as CFArray
             guard let gradient = CGGradient(
                 colorsSpace: CGColorSpaceCreateDeviceRGB(),
                 colors: goldColors,
-                locations: [0, 0.5, 1]
+                locations: [0, 0.3, 0.7, 1]
             ) else { return }
+
+            for continent in continents {
+                guard let first = continent.first else { continue }
+                let path = CGMutablePath()
+                path.move(to: first)
+                for p in continent.dropFirst() {
+                    path.addLine(to: p)
+                }
+                path.closeSubpath()
+
+                // Outer coastal glow
+                cg.saveGState()
+                cg.addPath(path)
+                cg.setShadow(
+                    offset: .zero,
+                    blur: 24,
+                    color: UIColor(red: 1.0, green: 0.85, blue: 0.4, alpha: 0.6).cgColor
+                )
+                cg.setFillColor(UIColor(red: 0.9, green: 0.75, blue: 0.35, alpha: 1.0).cgColor)
+                cg.fillPath()
+                cg.restoreGState()
+
+                // Main fill
+                cg.saveGState()
+                cg.addPath(path)
+                cg.clip()
+                cg.drawLinearGradient(
+                    gradient,
+                    start: CGPoint(x: 0, y: 0),
+                    end: CGPoint(x: size.width, y: size.height),
+                    options: []
+                )
+                cg.restoreGState()
+
+                // Inner texture noise
+                cg.saveGState()
+                cg.addPath(path)
+                cg.clip()
+                for _ in 0..<120 {
+                    let px = CGFloat.random(in: 0...size.width)
+                    let py = CGFloat.random(in: 0..<size.height)
+                    let alpha = CGFloat.random(in: 0.05...0.2)
+                    let v = CGFloat.random(in: 0.4...0.9)
+                    cg.setFillColor(UIColor(red: v, green: v * 0.9, blue: v * 0.5, alpha: alpha).cgColor)
+                    let r = CGFloat.random(in: 4...20)
+                    cg.fillEllipse(in: CGRect(x: px, y: py, width: r, height: r))
+                }
+                cg.restoreGState()
+
+                // Bright edge
+                cg.saveGState()
+                cg.addPath(path)
+                cg.setStrokeColor(UIColor(red: 1, green: 0.9, blue: 0.5, alpha: 0.85).cgColor)
+                cg.setLineWidth(2.5)
+                cg.strokePath()
+                cg.restoreGState()
+            }
+        }
+    }
+
+    static func generateEmissionMap() -> UIImage {
+        let size = CGSize(width: 2048, height: 1024)
+        let renderer = UIGraphicsImageRenderer(size: size)
+
+        return renderer.image { ctx in
+            let cg = ctx.cgContext
+            cg.setFillColor(UIColor.black.cgColor)
+            cg.fill(CGRect(origin: .zero, size: size))
+
+            let continents = Self.continentPaths()
 
             for continent in continents {
                 guard let first = continent.first else { continue }
@@ -269,27 +594,14 @@ final class GlobeSceneCoordinator: NSObject {
                 cg.addPath(path)
                 cg.clip()
 
-                cg.drawLinearGradient(
-                    gradient,
-                    start: CGPoint(x: 0, y: 0),
-                    end: CGPoint(x: size.width, y: size.height),
-                    options: []
-                )
-
-                for _ in 0..<40 {
-                    let px = CGFloat.random(in: first.x - 80 ... first.x + 80)
-                    let py = CGFloat.random(in: first.y - 80 ... first.y + 80)
-                    cg.setFillColor(UIColor(red: 1, green: 0.92, blue: 0.62, alpha: 0.25).cgColor)
-                    cg.fillEllipse(in: CGRect(x: px, y: py, width: 3, height: 3))
+                // Scattered emissive points near coastal areas
+                for _ in 0..<60 {
+                    let px = CGFloat.random(in: 0...size.width)
+                    let py = CGFloat.random(in: 0..<size.height)
+                    let r = CGFloat.random(in: 1...3)
+                    cg.setFillColor(UIColor(red: 1, green: 0.85, blue: 0.4, alpha: 0.6).cgColor)
+                    cg.fillEllipse(in: CGRect(x: px, y: py, width: r, height: r))
                 }
-
-                cg.restoreGState()
-
-                cg.saveGState()
-                cg.addPath(path)
-                cg.setStrokeColor(UIColor(red: 1, green: 0.85, blue: 0.4, alpha: 0.6).cgColor)
-                cg.setLineWidth(2)
-                cg.strokePath()
                 cg.restoreGState()
             }
         }
@@ -301,7 +613,7 @@ final class GlobeSceneCoordinator: NSObject {
 
         return renderer.image { ctx in
             let cg = ctx.cgContext
-            cg.setStrokeColor(UIColor(red: 0.90, green: 0.72, blue: 0.32, alpha: 0.35).cgColor)
+            cg.setStrokeColor(UIColor(red: 0.95, green: 0.78, blue: 0.35, alpha: 0.42).cgColor)
             cg.setLineWidth(1.5)
 
             let lonCount = 24
@@ -322,21 +634,32 @@ final class GlobeSceneCoordinator: NSObject {
         }
     }
 
-    static func glowHalo() -> UIImage {
+    static func generateFresnelAtmosphere(color: UIColor) -> UIImage {
         let size = CGSize(width: 512, height: 512)
         let renderer = UIGraphicsImageRenderer(size: size)
+
         return renderer.image { ctx in
             let cg = ctx.cgContext
+            let components = color.cgColor.components ?? [1, 1, 1, 1]
+            let r = components[0]
+            let g = components.count > 1 ? components[1] : r
+            let b = components.count > 2 ? components[2] : r
+
             let colors = [
-                UIColor(red: 1.0, green: 0.85, blue: 0.45, alpha: 0.9).cgColor,
-                UIColor(red: 0.85, green: 0.65, blue: 0.25, alpha: 0.3).cgColor,
-                UIColor(red: 0.55, green: 0.40, blue: 0.15, alpha: 0.0).cgColor
+                UIColor(red: r, green: g, blue: b, alpha: 0.0).cgColor,
+                UIColor(red: r, green: g, blue: b, alpha: 0.0).cgColor,
+                UIColor(red: r, green: g, blue: b, alpha: 0.55).cgColor,
+                UIColor(red: r, green: g, blue: b, alpha: 0.95).cgColor,
+                UIColor(red: r, green: g, blue: b, alpha: 0.5).cgColor,
+                UIColor(red: r, green: g, blue: b, alpha: 0.0).cgColor
             ] as CFArray
+
             guard let gradient = CGGradient(
                 colorsSpace: CGColorSpaceCreateDeviceRGB(),
                 colors: colors,
-                locations: [0.4, 0.7, 1.0]
+                locations: [0.0, 0.55, 0.78, 0.88, 0.95, 1.0]
             ) else { return }
+
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
             cg.drawRadialGradient(
                 gradient,
@@ -346,6 +669,53 @@ final class GlobeSceneCoordinator: NSObject {
                 endRadius: size.width / 2,
                 options: []
             )
+        }
+    }
+
+    static func generateEnvironmentMap() -> UIImage {
+        let size = CGSize(width: 512, height: 512)
+        let renderer = UIGraphicsImageRenderer(size: size)
+
+        return renderer.image { ctx in
+            let cg = ctx.cgContext
+            let colors = [
+                UIColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1.0).cgColor,
+                UIColor(red: 0.08, green: 0.06, blue: 0.10, alpha: 1.0).cgColor,
+                UIColor(red: 0.02, green: 0.02, blue: 0.04, alpha: 1.0).cgColor
+            ] as CFArray
+            if let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: colors,
+                locations: [0, 0.5, 1]
+            ) {
+                cg.drawLinearGradient(
+                    gradient,
+                    start: .zero,
+                    end: CGPoint(x: 0, y: size.height),
+                    options: []
+                )
+            }
+
+            // Warm spot at top-left (sun hint)
+            let sun = [
+                UIColor(red: 1.0, green: 0.9, blue: 0.65, alpha: 0.85).cgColor,
+                UIColor(red: 1.0, green: 0.9, blue: 0.65, alpha: 0.0).cgColor
+            ] as CFArray
+            if let sunGradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: sun,
+                locations: [0, 1]
+            ) {
+                let center = CGPoint(x: size.width * 0.25, y: size.height * 0.2)
+                cg.drawRadialGradient(
+                    sunGradient,
+                    startCenter: center,
+                    startRadius: 0,
+                    endCenter: center,
+                    endRadius: size.width * 0.5,
+                    options: []
+                )
+            }
         }
     }
 
@@ -404,8 +774,9 @@ struct GlobeSceneView: UIViewRepresentable {
     @Binding var globeOpacity: Float
     @Binding var atmosphereOpacity: Float
     @Binding var ringOpacity: Float
-    /// 0 = stopped, 1 = normal, 2 = fast
     @Binding var spinSpeed: Float
+    @Binding var scale: Float
+    @Binding var morphProgress: Float
 
     func makeCoordinator() -> GlobeSceneCoordinator {
         GlobeSceneCoordinator()
@@ -420,7 +791,6 @@ struct GlobeSceneView: UIViewRepresentable {
         view.isPlaying = true
         view.preferredFramesPerSecond = 60
         view.antialiasingMode = .multisampling4X
-        // Must be true for SCNAction-driven animation
         view.rendersContinuously = true
         return view
     }
@@ -432,5 +802,7 @@ struct GlobeSceneView: UIViewRepresentable {
         c.setAtmosphereOpacity(atmosphereOpacity)
         c.setRingOpacity(ringOpacity)
         c.setSpinSpeed(spinSpeed)
+        c.setScale(scale)
+        c.setMorphProgress(morphProgress)
     }
 }
