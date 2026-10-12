@@ -7,7 +7,6 @@ struct City: Identifiable, Hashable {
     let region: String
     let latitude: Double
     let longitude: Double
-    let imageUrl: String
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -18,30 +17,18 @@ struct City: Identifiable, Hashable {
 
 enum CityCatalog {
     static let all: [City] = [
-        City(id: "birmingham",  name: "Birmingham",  region: "West Midlands", latitude: 52.4862, longitude: -1.8904,
-             imageUrl: "https://images.unsplash.com/photo-1560427450-0849dd7fc0b7?w=400&q=75"),
-        City(id: "solihull",    name: "Solihull",    region: "West Midlands", latitude: 52.4118, longitude: -1.7776,
-             imageUrl: "https://images.unsplash.com/photo-1543872084-c7bd3822856f?w=400&q=75"),
-        City(id: "wolverhampton", name: "Wolverhampton", region: "West Midlands", latitude: 52.5870, longitude: -2.1288,
-             imageUrl: "https://images.unsplash.com/photo-1590418606746-018840f9cd0f?w=400&q=75"),
-        City(id: "coventry",    name: "Coventry",    region: "West Midlands", latitude: 52.4068, longitude: -1.5197,
-             imageUrl: "https://images.unsplash.com/photo-1505144808419-1957a94ca61e?w=400&q=75"),
-        City(id: "london",      name: "London",      region: "Greater London", latitude: 51.5074, longitude: -0.1278,
-             imageUrl: "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=400&q=75"),
-        City(id: "manchester",  name: "Manchester",  region: "Greater Manchester", latitude: 53.4808, longitude: -2.2426,
-             imageUrl: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&q=75"),
-        City(id: "leeds",       name: "Leeds",       region: "West Yorkshire", latitude: 53.8008, longitude: -1.5491,
-             imageUrl: "https://images.unsplash.com/photo-1543872084-c7bd3822856f?w=400&q=75"),
-        City(id: "bristol",     name: "Bristol",     region: "South West", latitude: 51.4545, longitude: -2.5879,
-             imageUrl: "https://images.unsplash.com/photo-1543872084-c7bd3822856f?w=400&q=75"),
-        City(id: "cardiff",     name: "Cardiff",     region: "Wales", latitude: 51.4816, longitude: -3.1791,
-             imageUrl: "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=400&q=75"),
-        City(id: "swansea",     name: "Swansea",     region: "Wales", latitude: 51.6214, longitude: -3.9436,
-             imageUrl: "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=400&q=75"),
-        City(id: "edinburgh",   name: "Edinburgh",   region: "Scotland", latitude: 55.9533, longitude: -3.1883,
-             imageUrl: "https://images.unsplash.com/photo-1506377711776-db0cf0d26e3e?w=400&q=75"),
-        City(id: "glasgow",     name: "Glasgow",     region: "Scotland", latitude: 55.8642, longitude: -4.2518,
-             imageUrl: "https://images.unsplash.com/photo-1506377711776-db0cf0d26e3e?w=400&q=75")
+        City(id: "birmingham", name: "Birmingham", region: "West Midlands", latitude: 52.4862, longitude: -1.8904),
+        City(id: "solihull", name: "Solihull", region: "West Midlands", latitude: 52.4118, longitude: -1.7776),
+        City(id: "wolverhampton", name: "Wolverhampton", region: "West Midlands", latitude: 52.5870, longitude: -2.1288),
+        City(id: "coventry", name: "Coventry", region: "West Midlands", latitude: 52.4068, longitude: -1.5197),
+        City(id: "london", name: "London", region: "Greater London", latitude: 51.5074, longitude: -0.1278),
+        City(id: "manchester", name: "Manchester", region: "Greater Manchester", latitude: 53.4808, longitude: -2.2426),
+        City(id: "leeds", name: "Leeds", region: "West Yorkshire", latitude: 53.8008, longitude: -1.5491),
+        City(id: "bristol", name: "Bristol", region: "South West", latitude: 51.4545, longitude: -2.5879),
+        City(id: "cardiff", name: "Cardiff", region: "Wales", latitude: 51.4816, longitude: -3.1791),
+        City(id: "swansea", name: "Swansea", region: "Wales", latitude: 51.6214, longitude: -3.9436),
+        City(id: "edinburgh", name: "Edinburgh", region: "Scotland", latitude: 55.9533, longitude: -3.1883),
+        City(id: "glasgow", name: "Glasgow", region: "Scotland", latitude: 55.8642, longitude: -4.2518)
     ]
 
     static func closest(to location: CLLocation?) -> City? {
@@ -54,8 +41,6 @@ enum CityCatalog {
     }
 }
 
-// MARK: - Search view
-
 struct LocationSearchView: View {
     @EnvironmentObject private var session: SessionManager
     @Environment(\.dismiss) private var dismiss
@@ -64,294 +49,157 @@ struct LocationSearchView: View {
     var onSelect: (City) -> Void
 
     @State private var query = ""
-    @State private var appeared = false
     @FocusState private var searchFocused: Bool
 
     private var filtered: [City] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         if q.isEmpty { return CityCatalog.all }
         return CityCatalog.all.filter {
-            $0.name.lowercased().contains(q) ||
-            $0.region.lowercased().contains(q)
+            $0.name.lowercased().contains(q) || $0.region.lowercased().contains(q)
         }
     }
 
-    private var suggested: [City] {
-        Array(CityCatalog.all.prefix(4))
-    }
+    private var suggested: [City] { Array(CityCatalog.all.prefix(4)) }
 
     var body: some View {
-        ZStack {
-            AppTheme.cloud.ignoresSafeArea()
-            ambient
+        NavigationStack {
+            ZStack {
+                Color.appBackground.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                navBar
-                Spacer().frame(height: 16)
-                searchField
-                Spacer().frame(height: 20)
+                VStack(spacing: 0) {
+                    searchField
+                        .padding(.horizontal, Space.lg)
+                        .padding(.top, Space.md)
+                        .padding(.bottom, Space.md)
 
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(spacing: 0) {
-                        if query.isEmpty {
-                            suggestedHeader
-                            ForEach(suggested) { city in
-                                CityRow(city: city, isSelected: city.id == initialCity.id) {
-                                    select(city)
+                    ScrollView(showsIndicators: false) {
+                        LazyVStack(spacing: 0) {
+                            if query.isEmpty {
+                                sectionHeader("POPULAR")
+                                ForEach(suggested) { city in
+                                    cityRow(city)
+                                    BMDivider().padding(.leading, Space.xxl)
                                 }
-                                .padding(.horizontal, 20)
+                                Spacer().frame(height: Space.lg)
+                                sectionHeader("ALL CITIES")
                             }
 
-                            Spacer().frame(height: 24)
-
-                            allCitiesHeader
-                        }
-
-                        ForEach(filtered) { city in
-                            CityRow(city: city, isSelected: city.id == initialCity.id) {
-                                select(city)
+                            ForEach(filtered) { city in
+                                cityRow(city)
+                                if city.id != filtered.last?.id {
+                                    BMDivider().padding(.leading, Space.xxl)
+                                }
                             }
-                            .padding(.horizontal, 20)
 
-                            if city.id != filtered.last?.id {
-                                Divider()
-                                    .background(AppTheme.hairline.opacity(0.6))
-                                    .padding(.leading, 76)
+                            if filtered.isEmpty {
+                                BMEmptyState(
+                                    icon: "magnifyingglass",
+                                    title: "No cities found",
+                                    message: "Try a different city or region."
+                                )
                             }
-                        }
 
-                        if filtered.isEmpty {
-                            emptyState
+                            Color.clear.frame(height: Space.xl)
                         }
-
-                        Color.clear.frame(height: 40)
+                        .padding(.horizontal, Space.lg)
                     }
+                }
+            }
+            .navigationTitle("Location")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Cancel") { dismiss() }
+                        .font(.bmUI(15, weight: .medium))
+                        .foregroundStyle(Color.appAsh)
                 }
             }
         }
         .onAppear {
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.85).delay(0.05)) {
-                appeared = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 searchFocused = true
             }
         }
     }
 
-    // MARK: - Ambient
-
-    private var ambient: some View {
-        ZStack {
-            Circle()
-                .fill(RadialGradient(
-                    colors: [AppTheme.accent.opacity(0.14), .clear],
-                    center: .center, startRadius: 0, endRadius: 220
-                ))
-                .frame(width: 440, height: 440)
-                .blur(radius: 50)
-                .offset(x: -140, y: -220)
-                .opacity(appeared ? 1 : 0)
-
-            Circle()
-                .fill(RadialGradient(
-                    colors: [AppTheme.plum.opacity(0.10), .clear],
-                    center: .center, startRadius: 0, endRadius: 200
-                ))
-                .frame(width: 400, height: 400)
-                .blur(radius: 60)
-                .offset(x: 160, y: 280)
-                .opacity(appeared ? 1 : 0)
-        }
-        .animation(.easeOut(duration: 1.2), value: appeared)
-        .allowsHitTesting(false)
-    }
-
-    // MARK: - Nav
-
-    private var navBar: some View {
-        HStack {
-            Spacer()
-            Button {
-                Haptics.soft()
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(AppTheme.ink)
-                    .frame(width: 40, height: 40)
-                    .background(AppTheme.snow)
-                    .clipShape(Circle())
-                    .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
-                    .overlay(Circle().stroke(AppTheme.hairline, lineWidth: 0.5))
-            }
-            .buttonStyle(BouncyPress())
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
-    }
-
-    // MARK: - Search field
-
     private var searchField: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.sm) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(AppTheme.slate)
+                .font(.bmUI(15, weight: .medium))
+                .foregroundStyle(Color.appAsh)
 
             TextField("Search city or region", text: $query)
-                .font(AppTheme.sans(16, weight: .medium))
-                .foregroundColor(AppTheme.ink)
+                .font(.bmUI(16, weight: .medium))
+                .foregroundStyle(Color.appInk)
                 .focused($searchFocused)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
 
             if !query.isEmpty {
                 Button {
-                    Haptics.soft()
+                    Haptic.select()
                     query = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15))
-                        .foregroundColor(AppTheme.ash)
+                        .font(.bmUI(14))
+                        .foregroundStyle(Color.appSmoke)
                 }
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Space.md)
         .frame(height: 52)
-        .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(AppTheme.hairline, lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                .stroke(Color.appDivider, lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.04), radius: 10, y: 3)
-        .padding(.horizontal, 20)
     }
 
-    // MARK: - Section headers
-
-    private var suggestedHeader: some View {
+    private func sectionHeader(_ text: String) -> some View {
         HStack {
-            Text("POPULAR")
-                .font(AppTheme.sans(11, weight: .bold))
+            Text(text)
+                .font(.bmUI(11, weight: .semibold))
                 .tracking(1.4)
-                .foregroundColor(AppTheme.stone)
+                .foregroundStyle(Color.appAsh)
             Spacer()
         }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 10)
+        .padding(.vertical, Space.sm)
     }
 
-    private var allCitiesHeader: some View {
-        HStack {
-            Text("ALL CITIES")
-                .font(AppTheme.sans(11, weight: .bold))
-                .tracking(1.4)
-                .foregroundColor(AppTheme.stone)
-            Spacer()
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 32, weight: .light))
-                .foregroundColor(AppTheme.ash)
-            Text("No cities found")
-                .font(AppTheme.sans(16, weight: .semibold))
-                .foregroundColor(AppTheme.ink)
-            Text("Try a different city or region.")
-                .font(AppTheme.sans(13))
-                .foregroundColor(AppTheme.slate)
-        }
-        .padding(.top, 60)
-    }
-
-    // MARK: - Select
-
-    private func select(_ city: City) {
-        Haptics.medium()
-        onSelect(city)
-
-        // Persist to Firestore if signed in
-        Task {
-            let uid = session.uid
-            guard !uid.isEmpty else { return }
-            do {
-                try await FirebaseManager.shared.updateUser(uid: uid, data: [
-                    "city": city.name,
-                    "region": city.region,
-                    "latitude": city.latitude,
-                    "longitude": city.longitude,
-                    "cityUpdatedAt": Date()
-                ])
-            } catch {
-                print("[LocationSearch] save failed:", error)
-            }
-        }
-
-        dismiss()
-    }
-}
-
-// MARK: - City row
-
-struct CityRow: View {
-    let city: City
-    let isSelected: Bool
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 14) {
-                ZStack {
-                    RemoteImage(url: city.imageUrl)
-                        .frame(width: 48, height: 48)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                    if isSelected {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(AppTheme.accent, lineWidth: 2)
-                            .frame(width: 48, height: 48)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 3) {
+    private func cityRow(_ city: City) -> some View {
+        Button {
+            Haptic.select()
+            onSelect(city)
+            dismiss()
+        } label: {
+            HStack(spacing: Space.md) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(city.name)
-                        .font(AppTheme.sans(15, weight: .semibold))
-                        .foregroundColor(AppTheme.ink)
-
+                        .font(.bmUI(15, weight: .semibold))
+                        .foregroundStyle(Color.appInk)
                     Text(city.region)
-                        .font(AppTheme.sans(12))
-                        .foregroundColor(AppTheme.slate)
+                        .font(.bmUI(12))
+                        .foregroundStyle(Color.appAsh)
                 }
-
                 Spacer()
-
-                if isSelected {
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 10, weight: .bold))
-                        Text("Current")
-                            .font(AppTheme.sans(10, weight: .bold))
-                            .tracking(0.8)
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(AppTheme.ink, in: Capsule())
+                if city.id == initialCity.id {
+                    Text("Current")
+                        .font(.bmUI(10, weight: .semibold))
+                        .tracking(0.6)
+                        .foregroundStyle(Color.appAccent)
+                        .padding(.horizontal, Space.xs)
+                        .padding(.vertical, 4)
+                        .background(Color.appAccentTint, in: Capsule())
                 } else {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(AppTheme.ash)
+                        .font(.bmUI(12, weight: .semibold))
+                        .foregroundStyle(Color.appSmoke)
                 }
             }
-            .padding(.vertical, 12)
+            .padding(.vertical, Space.sm)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(CardPress())
+        .buttonStyle(BMPressStyle(scale: 0.99))
     }
 }

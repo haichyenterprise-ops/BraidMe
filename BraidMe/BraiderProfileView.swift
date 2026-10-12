@@ -8,96 +8,81 @@ struct BraiderProfileView: View {
     @StateObject private var fb = FirebaseManager.shared
 
     @State private var showBooking = false
+    @State private var showBookingForService: BraidService?
     @State private var showAllReviews = false
     @State private var showWriteReview = false
     @State private var appeared = false
     @State private var dragOffset: CGFloat = 0
     @State private var scrollOffset: CGFloat = 0
-    @State private var heroScale: CGFloat = 1
-    @State private var headerOpacity: Double = 0
-    @State private var activeSection: Section = .hero
+    @State private var headerCompact = false
 
     @State private var reviews: [Review] = []
-    @State private var breakdown: RatingBreakdown = .empty
     @State private var reviewsLoading = true
 
-    enum Section: Int, CaseIterable {
-        case hero, work, about, reviews
-    }
-
     private var isSaved: Bool { fb.savedBraiderIds.contains(braider.id) }
+    private let heroRestHeight: CGFloat = 420
+    private let heroMinHeight: CGFloat = 120
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .top) {
+        ZStack(alignment: .top) {
+            Color.appBackground.ignoresSafeArea()
 
-                AppTheme.ink.ignoresSafeArea()
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        heroSection(width: geo.size.width, height: geo.size.height)
-                        workSection(width: geo.size.width)
-                        aboutSection(width: geo.size.width)
-                        reviewsSection(width: geo.size.width)
-                        Color.clear.frame(height: 160)
-                    }
-                    .background(alignment: .top) {
-                        GeometryReader { proxy in
-                            Color.clear
-                                .preference(
-                                    key: ScrollOffsetKey.self,
-                                    value: -proxy.frame(in: .named("braiderProfileScroll")).minY
-                                )
-                        }
-                    }
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    hero
+                    content
+                    Color.clear.frame(height: Space.xxxl)
                 }
-                .coordinateSpace(name: "braiderProfileScroll")
-                .onPreferenceChange(ScrollOffsetKey.self) { value in
-                    handleScroll(value, screenHeight: geo.size.height)
-                }
-                .ignoresSafeArea()
-
-                topChrome.opacity(headerOpacity)
-
-                stageRail
-                    .frame(maxHeight: .infinity, alignment: .center)
-                    .padding(.trailing, 12)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .allowsHitTesting(false)
-
-                VStack {
-                    Spacer()
-                    actionBar
+                .background(alignment: .top) {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ProfileScrollKey.self,
+                            value: -proxy.frame(in: .named("profileScroll")).minY
+                        )
+                    }
                 }
             }
-            .offset(x: dragOffset)
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        // Only allow rightward swipe that starts near the left edge
-                        if value.startLocation.x < 40 && value.translation.width > 0 {
-                            dragOffset = min(value.translation.width, 240)
-                        }
-                    }
-                    .onEnded { value in
-                        if value.translation.width > 100 {
-                            Haptics.soft()
-                            dismiss()
-                        } else {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                dragOffset = 0
+            .coordinateSpace(name: "profileScroll")
+            .onPreferenceChange(ProfileScrollKey.self) { value in
+                scrollOffset = value
+                let compact = value > 180
+                if compact != headerCompact {
+                    withAnimation(Motion.navigation) { headerCompact = compact }
+                }
+            }
+            .ignoresSafeArea(edges: .top)
+
+            compactHeader
+
+            Color.clear
+                .frame(width: 20)
+                .frame(maxHeight: .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            if value.translation.width > 0 {
+                                dragOffset = min(value.translation.width, 200)
                             }
                         }
-                    }
-            )
+                        .onEnded { value in
+                            if value.translation.width > 100 {
+                                Haptic.select()
+                                dismiss()
+                            } else {
+                                withAnimation(Motion.press) { dragOffset = 0 }
+                            }
+                        }
+                )
         }
+        .offset(x: dragOffset)
         .toolbar(.hidden, for: .navigationBar)
-        .ignoresSafeArea()
         .sheet(isPresented: $showAllReviews) {
             AllReviewsSheet(
                 braider: braider,
                 reviews: reviews,
-                breakdown: breakdown,
+                breakdown: RatingBreakdown.from(reviews),
                 onWriteReview: { showWriteReview = true }
             )
         }
@@ -109,900 +94,596 @@ struct BraiderProfileView: View {
         .fullScreenCover(isPresented: $showBooking) {
             BookingSelectionView(braider: braider)
         }
-        .onAppear {
-            withAnimation(.spring(response: 1.0, dampingFraction: 0.85).delay(0.1)) {
-                appeared = true
+        .fullScreenCover(item: $showBookingForService) { service in
+            BookingSelectionView(braider: braider, preselectServiceId: service.id)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .bookingFlowFinished)) { _ in
+            withAnimation(Motion.navigation) {
+                showBooking = false
+                showBookingForService = nil
             }
-            Task { await loadReviews() }
+        }
+        .task {
+            appeared = true
+            await loadReviews()
         }
     }
-
-    // MARK: - Load reviews
 
     private func loadReviews() async {
         await MainActor.run { reviewsLoading = true }
         let fetched = await FirebaseManager.shared.fetchReviews(braiderId: braider.id)
         await MainActor.run {
             self.reviews = fetched
-            self.breakdown = RatingBreakdown.from(fetched)
             self.reviewsLoading = false
         }
     }
 
-    // MARK: - Scroll
-
-    private func handleScroll(_ offset: CGFloat, screenHeight: CGFloat) {
-        scrollOffset = offset
-        let progress = min(max(offset / screenHeight, 0), 1)
-        heroScale = 1 + progress * 0.15
-        headerOpacity = min(max((offset - 60) / 200, 0), 1)
-
-        let normalized = offset / screenHeight
-        let newSection: Section
-        if normalized < 0.8 { newSection = .hero }
-        else if normalized < 1.6 { newSection = .work }
-        else if normalized < 2.4 { newSection = .about }
-        else { newSection = .reviews }
-
-        if newSection != activeSection {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                activeSection = newSection
-            }
-            Haptics.select()
-        }
-    }
-
-    // MARK: - Top chrome
-
-    private var topChrome: some View {
-        VStack {
-            HStack(spacing: 12) {
-                Button {
-                    Haptics.soft()
-                    dismiss()
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 14, weight: .bold))
-                        Text("Map")
-                            .font(AppTheme.sans(13, weight: .semibold))
-                    }
-                    .foregroundColor(AppTheme.ink)
-                    .padding(.horizontal, 14)
-                    .frame(height: 40)
-                    .background(AppTheme.snow, in: Capsule())
-                    .shadow(color: .black.opacity(0.1), radius: 12, y: 4)
-                }
-                .buttonStyle(BouncyPress())
-
-                Spacer()
-
-                Button {
-                    Haptics.soft()
-                    Task {
-                        if let uid = session.uid.isEmpty ? nil : session.uid {
-                            await fb.toggleSave(braiderId: braider.id, uid: uid)
-                        }
-                    }
-                } label: {
-                    Image(systemName: isSaved ? "heart.fill" : "heart")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(isSaved ? AppTheme.rose : AppTheme.ink)
-                        .frame(width: 40, height: 40)
-                        .background(AppTheme.snow, in: Circle())
-                        .shadow(color: .black.opacity(0.1), radius: 12, y: 4)
-                }
-                .buttonStyle(BouncyPress())
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 56)
-            .padding(.bottom, 12)
-            .background(
-                LinearGradient(
-                    colors: [
-                        AppTheme.cloud.opacity(0.98),
-                        AppTheme.cloud.opacity(0.9),
-                        AppTheme.cloud.opacity(0)
-                    ],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .ignoresSafeArea(edges: .top)
-            )
-            Spacer()
-        }
-    }
-
-    private var stageRail: some View {
-        VStack(spacing: 10) {
-            ForEach(Section.allCases, id: \.rawValue) { section in
-                Circle()
-                    .fill(section == activeSection ? AppTheme.accent : Color.white.opacity(0.5))
-                    .frame(
-                        width: section == activeSection ? 8 : 6,
-                        height: section == activeSection ? 8 : 6
-                    )
-                    .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
-                    .animation(.spring(response: 0.35, dampingFraction: 0.75), value: activeSection)
-            }
-        }
-        .padding(8)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.1), radius: 8, y: 2)
-        .opacity(headerOpacity)
-    }
-
-    private var actionBar: some View {
-        HStack(spacing: 10) {
-            Button {
-                Haptics.soft()
-                Task {
-                    guard let uid = session.uid.isEmpty ? nil : session.uid else { return }
-                    await fb.toggleSave(braiderId: braider.id, uid: uid)
-                }
-            } label: {
-                Image(systemName: isSaved ? "heart.fill" : "heart")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(isSaved ? AppTheme.rose : AppTheme.ink)
-                    .frame(width: 58, height: 58)
-                    .background(AppTheme.snow, in: Circle())
-                    .shadow(color: .black.opacity(0.12), radius: 14, y: 6)
-            }
-            .buttonStyle(BouncyPress())
-
-            Button {
-                Haptics.medium()
-                showBooking = true
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 15, weight: .semibold))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Book with \(firstName)")
-                            .font(AppTheme.sans(15, weight: .semibold))
-                        Text("from £\(braider.priceFrom)")
-                            .font(AppTheme.sans(11, weight: .medium))
-                            .opacity(0.75)
-                    }
-                    Spacer()
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .opacity(0.7)
-                }
-                .foregroundColor(.white)
-                .padding(.horizontal, 20)
-                .frame(maxWidth: .infinity)
-                .frame(height: 58)
-                .background(AppTheme.inkGradient)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-                )
-                .shadow(color: AppTheme.ink.opacity(0.3), radius: 18, y: 8)
-            }
-            .buttonStyle(SoftPress())
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .padding(.bottom, 30)
-        .background(
-            LinearGradient(
-                colors: [AppTheme.cloud.opacity(0), AppTheme.cloud.opacity(0.95), AppTheme.cloud],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea(edges: .bottom)
-        )
-    }
-
-    private var firstName: String {
-        braider.name.split(separator: " ").first.map(String.init) ?? braider.name
-    }
-
     // MARK: - Hero
 
-    private func heroSection(width: CGFloat, height: CGFloat) -> some View {
-        ZStack(alignment: .bottomLeading) {
+    private var hero: some View {
+        let collapse = min(max(scrollOffset / 300, 0), 1)
+        let currentHeight = heroRestHeight - (heroRestHeight - heroMinHeight) * collapse
+        let contentOpacity = 1 - collapse * 1.2
+
+        return ZStack(alignment: .bottomLeading) {
             if !braider.coverUrl.isEmpty {
                 RemoteImage(url: braider.coverUrl)
-                    .frame(width: width, height: height)
+                    .frame(height: currentHeight)
+                    .frame(maxWidth: .infinity)
                     .clipped()
-                    .scaleEffect(heroScale)
-                    .offset(y: scrollOffset > 0 ? scrollOffset * 0.4 : 0)
+                    .scaleEffect(1 + collapse * 0.06)
             } else {
-                AppTheme.inkGradient
-                    .frame(width: width, height: height)
+                Color.appSurfaceInverse.frame(height: currentHeight)
             }
 
             LinearGradient(
                 stops: [
                     .init(color: .black.opacity(0.35), location: 0.0),
                     .init(color: .clear, location: 0.35),
-                    .init(color: .black.opacity(0.35), location: 0.65),
-                    .init(color: .black.opacity(0.95), location: 1.0)
+                    .init(color: .black.opacity(0.55), location: 0.75),
+                    .init(color: .black.opacity(0.92), location: 1.0)
                 ],
                 startPoint: .top, endPoint: .bottom
             )
+            .frame(height: currentHeight)
 
-            VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    Spacer()
-                    availabilityBadge
-                }
-                .padding(.top, 90)
+            VStack(alignment: .leading, spacing: Space.sm) {
+                HStack(spacing: Space.sm) {
+                    BMAvatar(
+                        url: braider.avatarUrl,
+                        size: 68,
+                        ringed: true,
+                        initials: initials
+                    )
+                    .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
 
-                Spacer()
-
-                HStack(spacing: 16) {
-                    ZStack {
-                        Circle()
-                            .stroke(AppTheme.accentLight, lineWidth: 2.5)
-                            .frame(width: 92, height: 92)
-                        if braider.avatarUrl.isEmpty {
-                            ZStack {
-                                Circle().fill(AppTheme.inkGradient)
-                                Image(systemName: "person.fill")
-                                    .font(.system(size: 32))
-                                    .foregroundColor(.white.opacity(0.75))
-                            }
-                            .frame(width: 82, height: 82)
-                        } else {
-                            RemoteImage(url: braider.avatarUrl)
-                                .frame(width: 82, height: 82)
-                                .clipShape(Circle())
-                        }
-                    }
-                    .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
-
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack(spacing: 6) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: Space.xxs) {
                             Text(braider.name)
-                                .font(AppTheme.serif(28))
-                                .foregroundColor(.white)
+                                .font(.bmDisplay(26, weight: .semibold))
+                                .foregroundStyle(Color.appInkInverse)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.75)
                             if braider.verified {
                                 Image(systemName: "checkmark.seal.fill")
-                                    .font(.system(size: 15))
-                                    .foregroundColor(AppTheme.accentLight)
+                                    .font(.bmUI(14))
+                                    .foregroundStyle(Color.appAccentSoft)
                             }
                         }
-                        Text(braider.tagline)
-                            .font(AppTheme.sans(13, weight: .medium))
-                            .foregroundColor(.white.opacity(0.85))
-                            .lineLimit(1)
+                        if !braider.tagline.isEmpty {
+                            Text(braider.tagline)
+                                .font(.bmUI(13, weight: .medium))
+                                .foregroundStyle(Color.appInkInverse.opacity(0.85))
+                                .lineLimit(1)
+                        }
                     }
-
-                    Spacer(minLength: 0)
+                    Spacer()
                 }
 
-                HStack(spacing: 8) {
-                    if breakdown.total > 0 {
-                        GlassChip(icon: "star.fill",
-                                  title: String(format: "%.1f", breakdown.average))
-                    } else {
-                        GlassChip(icon: "star", title: "New")
+                HStack(spacing: Space.sm) {
+                    HStack(spacing: Space.xxs) {
+                        HStack(spacing: 1) {
+                            ForEach(0..<5, id: \.self) { i in
+                                Image(systemName: Double(i) < braider.rating.rounded() ? "star.fill" : "star")
+                                    .font(.bmUI(10, weight: .medium))
+                                    .foregroundStyle(Color.appAccentSoft)
+                            }
+                        }
+                        Text(String(format: "%.1f", braider.rating))
+                            .font(.bmMono(12, weight: .semibold))
+                            .foregroundStyle(Color.appInkInverse)
+                        Text("·")
+                            .font(.bmMono(12))
+                            .foregroundStyle(Color.appInkInverse.opacity(0.5))
+                        Text("\(braider.reviewCount)")
+                            .font(.bmMono(12, weight: .medium))
+                            .foregroundStyle(Color.appInkInverse.opacity(0.75))
                     }
-                    GlassChip(icon: "mappin.and.ellipse", title: braider.city)
-                    GlassChip(icon: "clock", title: braider.responseTime)
+                    Text("·")
+                        .font(.bmUI(11))
+                        .foregroundStyle(Color.appInkInverse.opacity(0.5))
+                    Text(braider.city)
+                        .font(.bmUI(12, weight: .medium))
+                        .foregroundStyle(Color.appInkInverse.opacity(0.8))
                 }
-
-                Text(braider.bio)
-                    .font(AppTheme.sans(14))
-                    .foregroundColor(.white.opacity(0.9))
-                    .lineSpacing(4)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 10, weight: .bold))
-                    Text("Scroll to explore")
-                        .font(AppTheme.sans(11, weight: .semibold))
-                        .tracking(0.5)
-                }
-                .foregroundColor(.white.opacity(0.55))
-                .padding(.top, 4)
-                .opacity(scrollOffset < 40 ? 1 : 0)
-                .animation(.easeInOut(duration: 0.3), value: scrollOffset)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 140)
-            .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 24)
+            .padding(.horizontal, Space.lg)
+            .padding(.bottom, Space.lg)
+            .opacity(contentOpacity)
         }
-        .frame(width: width, height: height)
+        .frame(height: currentHeight)
         .clipped()
+        .animate(Motion.subtle, value: collapse)
     }
 
-    private var availabilityBadge: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(AppTheme.success)
-                .frame(width: 6, height: 6)
-                .shadow(color: AppTheme.success, radius: 4)
-            Text(hasAvailability ? "Available" : "No availability")
-                .font(AppTheme.sans(11, weight: .bold))
-                .tracking(0.5)
-                .foregroundColor(.white)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.25), lineWidth: 0.5))
+    private var initials: String {
+        let parts = braider.name.split(separator: " ")
+        let r = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
+        return r.isEmpty ? "·" : r.uppercased()
     }
 
-    private var hasAvailability: Bool {
-        braider.services.contains { $0.hasAvailability }
-    }
+    // MARK: - Compact header
 
-    // MARK: - Work
+    private var compactHeader: some View {
+        HStack(spacing: Space.sm) {
+            BMIconButton(icon: "chevron.left") { dismiss() }
 
-    private func workSection(width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
-            sectionHeader(eyebrow: "PORTFOLIO",
-                          title: "Recent work",
-                          subtitle: "\(braider.portfolio.count) photos")
-                .padding(.horizontal, 24)
+            if headerCompact {
+                HStack(spacing: Space.xs) {
+                    BMAvatar(url: braider.avatarUrl, size: 28, initials: initials)
+                    Text(braider.name)
+                        .font(.bmUI(15, weight: .semibold))
+                        .foregroundStyle(Color.appInk)
+                        .lineLimit(1)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
 
-            if braider.portfolio.isEmpty {
-                emptyPortfolio
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
-                        ForEach(Array(braider.portfolio.enumerated()), id: \.element.id) { idx, item in
-                            WorkCard(item: item, index: idx)
-                                .frame(width: 260, height: 400)
-                        }
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 4)
+            Spacer()
+
+            BMIconButton(
+                icon: isSaved ? "heart.fill" : "heart",
+                fg: isSaved ? Color.appAlert : Color.appInk
+            ) {
+                Task {
+                    let uid = session.uid
+                    guard !uid.isEmpty else { return }
+                    await fb.toggleSave(braiderId: braider.id, uid: uid)
                 }
             }
         }
-        .padding(.top, 32)
-        .padding(.bottom, 40)
-        .frame(width: width, alignment: .leading)
-        .background(AppTheme.ink)
-    }
-
-    private var emptyPortfolio: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 32, weight: .light))
-                .foregroundColor(.white.opacity(0.35))
-            Text("No portfolio yet")
-                .font(AppTheme.sans(14, weight: .medium))
-                .foregroundColor(.white.opacity(0.5))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 60)
-    }
-
-    // MARK: - About
-
-    private func aboutSection(width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
-            sectionHeader(eyebrow: "ABOUT",
-                          title: "Meet \(firstName)",
-                          subtitle: braider.city)
-                .padding(.horizontal, 24)
-
-            HStack(spacing: 12) {
-                statBlock(value: breakdown.total > 0 ? String(format: "%.1f", breakdown.average) : "—",
-                          label: "Rating",
-                          icon: "star.fill",
-                          tint: AppTheme.gold)
-                statBlock(value: "\(braider.yearsExperience)",
-                          label: "Years exp.",
-                          icon: "clock.fill",
-                          tint: AppTheme.accentLight)
-                statBlock(value: "\(breakdown.total)",
-                          label: "Reviews",
-                          icon: "bubble.left.fill",
-                          tint: AppTheme.sage)
-            }
-            .padding(.horizontal, 24)
-
-            VStack(alignment: .leading, spacing: 12) {
-                Text("The story")
-                    .font(AppTheme.sans(11, weight: .bold))
-                    .tracking(1.4)
-                    .foregroundColor(.white.opacity(0.45))
-
-                Text(braider.bio.isEmpty ? "—" : braider.bio)
-                    .font(AppTheme.sans(15))
-                    .foregroundColor(.white.opacity(0.9))
-                    .lineSpacing(6)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white.opacity(0.05))
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+        .padding(.horizontal, Space.md)
+        .padding(.top, Space.xxl)
+        .padding(.bottom, Space.xs)
+        .background(
+            LinearGradient(
+                colors: headerCompact
+                    ? [Color.appBackground, Color.appBackground]
+                    : [Color.appBackground.opacity(0), Color.appBackground.opacity(0)],
+                startPoint: .top, endPoint: .bottom
             )
-            .padding(.horizontal, 24)
+            .ignoresSafeArea(edges: .top)
+        )
+        .animate(Motion.navigation, value: headerCompact)
+    }
 
-            if !braider.specialties.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Specialties")
-                        .font(AppTheme.sans(11, weight: .bold))
-                        .tracking(1.4)
-                        .foregroundColor(.white.opacity(0.45))
+    // MARK: - Content
 
-                    FlowLayout(spacing: 8) {
-                        ForEach(braider.specialties, id: \.self) { s in
-                            HStack(spacing: 6) {
-                                Image(systemName: "sparkle")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(AppTheme.accentLight)
-                                Text(s)
-                                    .font(AppTheme.sans(13, weight: .semibold))
-                                    .foregroundColor(.white)
+    private var content: some View {
+        VStack(alignment: .leading, spacing: Space.xxl) {
+            statsRow
+            portfolioStrip
+            storySection
+            specialtiesSection
+            servicesSection
+            reviewsSection
+            bookButton
+        }
+        .padding(.top, Space.lg)
+    }
+
+    private var statsRow: some View {
+        HStack(spacing: Space.lg) {
+            statItem(value: String(format: "%.1f", braider.rating), label: "Rating")
+            Divider().frame(height: 32).overlay(Color.appDivider)
+            statItem(value: "\(braider.yearsExperience)", label: "Years")
+            Divider().frame(height: 32).overlay(Color.appDivider)
+            statItem(value: "\(braider.reviewCount)", label: "Reviews")
+        }
+        .padding(.horizontal, Space.lg)
+    }
+
+    private func statItem(value: String, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value)
+                .font(.bmDisplay(24, weight: .semibold))
+                .foregroundStyle(Color.appInk)
+            Text(label.uppercased())
+                .font(.bmUI(10, weight: .semibold))
+                .tracking(1.0)
+                .foregroundStyle(Color.appAsh)
+        }
+    }
+
+    private var portfolioStrip: some View {
+        Group {
+            if !braider.portfolio.isEmpty {
+                VStack(alignment: .leading, spacing: Space.md) {
+                    HStack {
+                        BMSectionLabel(text: "Portfolio")
+                        Spacer()
+                        Text("\(braider.portfolio.count) photos")
+                            .font(.bmMono(11, weight: .medium))
+                            .foregroundStyle(Color.appAsh)
+                    }
+                    .padding(.horizontal, Space.lg)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: Space.sm) {
+                            ForEach(Array(braider.portfolio.enumerated()), id: \.element.id) { index, item in
+                                PortfolioImageCard(item: item, index: index, appeared: appeared)
                             }
-                            .padding(.horizontal, 14)
-                            .frame(height: 38)
-                            .background(Color.white.opacity(0.08), in: Capsule())
-                            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+                        }
+                        .padding(.horizontal, Space.lg)
+                    }
+                }
+                .padding(.vertical, Space.md)
+                .background(Color.appSurfaceInverse)
+            }
+        }
+    }
+
+    private var storySection: some View {
+        Group {
+            if !braider.bio.isEmpty {
+                VStack(alignment: .leading, spacing: Space.sm) {
+                    BMSectionLabel(text: "The story")
+                        .padding(.horizontal, Space.lg)
+                    Text(braider.bio)
+                        .font(.bmDisplay(20, weight: .regular))
+                        .foregroundStyle(Color.appInk)
+                        .lineSpacing(5)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, Space.lg)
+                }
+            }
+        }
+    }
+
+    private var specialtiesSection: some View {
+        Group {
+            if !braider.specialties.isEmpty {
+                VStack(alignment: .leading, spacing: Space.sm) {
+                    BMSectionLabel(text: "Specialties")
+                        .padding(.horizontal, Space.lg)
+                    FlowLayout(spacing: Space.xs) {
+                        ForEach(braider.specialties, id: \.self) { s in
+                            Text(s)
+                                .font(.bmUI(13, weight: .medium))
+                                .foregroundStyle(Color.appInk)
+                                .padding(.horizontal, Space.sm)
+                                .frame(minHeight: 32)
+                                .padding(.vertical, 4)
+                                .background(Color.appAccentTint, in: Capsule())
+                        }
+                    }
+                    .padding(.horizontal, Space.lg)
+                }
+            }
+        }
+    }
+
+    private var servicesSection: some View {
+        Group {
+            if !braider.services.isEmpty {
+                VStack(alignment: .leading, spacing: Space.md) {
+                    HStack {
+                        BMSectionLabel(text: "Services")
+                        Spacer()
+                        Text("\(braider.services.count)")
+                            .font(.bmMono(12, weight: .semibold))
+                            .foregroundStyle(Color.appAsh)
+                    }
+                    .padding(.horizontal, Space.lg)
+
+                    VStack(spacing: 0) {
+                        ForEach(Array(braider.services.enumerated()), id: \.element.id) { index, service in
+                            ServiceRowTappable(service: service) {
+                                Haptic.select()
+                                showBookingForService = service
+                            }
+                            if index < braider.services.count - 1 {
+                                BMDivider(inset: Space.lg)
+                            }
                         }
                     }
                 }
-                .padding(.horizontal, 24)
             }
         }
-        .padding(.top, 32)
-        .padding(.bottom, 40)
-        .frame(width: width, alignment: .leading)
-        .background(AppTheme.ink)
     }
 
-    private func statBlock(value: String, label: String, icon: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ZStack {
-                Circle().fill(tint.opacity(0.18)).frame(width: 32, height: 32)
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(tint)
-            }
-            Text(value)
-                .font(AppTheme.serif(30))
-                .foregroundColor(.white)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-            Text(label.uppercased())
-                .font(AppTheme.sans(9, weight: .bold))
-                .tracking(1.1)
-                .foregroundColor(.white.opacity(0.5))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-        )
-    }
-
-    // MARK: - Reviews
-
-    private func reviewsSection(width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
+    private var reviewsSection: some View {
+        VStack(alignment: .leading, spacing: Space.md) {
             HStack {
-                sectionHeader(eyebrow: "REVIEWS",
-                              title: "What clients say",
-                              subtitle: breakdown.total == 0 ? "Be the first" : "\(breakdown.total) total")
+                BMSectionLabel(text: "Reviews")
                 Spacer()
                 Button {
-                    Haptics.medium()
+                    Haptic.press()
                     showWriteReview = true
                 } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: Space.xxs) {
                         Image(systemName: "square.and.pencil")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.bmUI(11, weight: .semibold))
                         Text("Write")
-                            .font(AppTheme.sans(12, weight: .semibold))
+                            .font(.bmUI(12, weight: .semibold))
                     }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .frame(height: 34)
-                    .background(AppTheme.accent, in: Capsule())
-                    .shadow(color: AppTheme.accent.opacity(0.4), radius: 8, y: 3)
+                    .foregroundStyle(Color.appInkInverse)
+                    .padding(.horizontal, Space.sm)
+                    .frame(minHeight: 30)
+                    .padding(.vertical, 2)
+                    .background(Color.appAccent, in: Capsule())
                 }
-                .buttonStyle(SoftPress())
+                .buttonStyle(BMPressStyle(scale: 0.96))
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, Space.lg)
 
             if reviewsLoading {
-                VStack(spacing: 10) {
-                    ProgressView().tint(.white)
-                    Text("Loading reviews…")
-                        .font(AppTheme.sans(12))
-                        .foregroundColor(.white.opacity(0.5))
+                BMLoadingView(message: "Loading reviews")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Space.lg)
+            } else if reviews.isEmpty {
+                VStack(spacing: Space.sm) {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.bmUI(24, weight: .light))
+                        .foregroundStyle(Color.appSmoke)
+                    Text("No reviews yet")
+                        .font(.bmUI(14, weight: .semibold))
+                        .foregroundStyle(Color.appInk)
+                    Text("Be the first to share your experience.")
+                        .font(.bmUI(13))
+                        .foregroundStyle(Color.appAsh)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
-            } else if reviews.isEmpty {
-                emptyReviews
-                    .padding(.horizontal, 24)
+                .padding(.vertical, Space.lg)
             } else {
-                RatingBloom(breakdown: breakdown)
-                    .padding(.horizontal, 24)
+                let breakdown = RatingBreakdown.from(reviews)
+                HStack(spacing: Space.sm) {
+                    Text(String(format: "%.1f", breakdown.average))
+                        .font(.bmDisplay(38, weight: .semibold))
+                        .foregroundStyle(Color.appInk)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 1) {
+                            ForEach(0..<5, id: \.self) { i in
+                                Image(systemName: Double(i) < breakdown.average.rounded() ? "star.fill" : "star")
+                                    .font(.bmUI(11))
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+                        Text("\(reviews.count) review\(reviews.count == 1 ? "" : "s")")
+                            .font(.bmUI(12))
+                            .foregroundStyle(Color.appAsh)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, Space.lg)
 
-                VStack(spacing: 12) {
-                    ForEach(Array(reviews.prefix(3).enumerated()), id: \.element.id) { idx, r in
-                        ReviewCinemaCard(review: r, index: idx)
-                            .padding(.horizontal, 24)
+                VStack(spacing: 0) {
+                    ForEach(Array(reviews.prefix(2).enumerated()), id: \.element.id) { index, review in
+                        ReviewRowView(review: review)
+                        if index < min(reviews.count, 2) - 1 {
+                            BMDivider(inset: Space.lg)
+                        }
                     }
                 }
 
-                if reviews.count > 3 {
+                if reviews.count > 2 {
                     Button {
-                        Haptics.soft()
+                        Haptic.press()
                         showAllReviews = true
                     } label: {
-                        HStack {
-                            Text("Read all \(reviews.count) reviews")
-                                .font(AppTheme.sans(15, weight: .semibold))
-                            Spacer()
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 20)
-                        .frame(height: 56)
-                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                        )
+                        Text("See all \(reviews.count) reviews")
+                            .font(.bmUI(13, weight: .semibold))
+                            .foregroundStyle(Color.appAccent)
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 44)
                     }
-                    .buttonStyle(SoftPress())
-                    .padding(.horizontal, 24)
                 }
             }
         }
-        .padding(.top, 32)
-        .padding(.bottom, 40)
-        .frame(width: width, alignment: .leading)
-        .background(AppTheme.ink)
     }
 
-    private var emptyReviews: some View {
-        Button {
-            Haptics.medium()
-            showWriteReview = true
-        } label: {
-            VStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.06))
-                        .frame(width: 80, height: 80)
-                    Image(systemName: "bubble.left.and.bubble.right")
-                        .font(.system(size: 32, weight: .light))
-                        .foregroundColor(.white.opacity(0.5))
+    private var bookButton: some View {
+        VStack(spacing: Space.xs) {
+            if braider.services.isEmpty {
+                Text("Not taking bookings yet")
+                    .font(.bmUI(13))
+                    .foregroundStyle(Color.appAsh)
+            } else {
+                BMPrimaryButton(
+                    title: "Book \(firstName)",
+                    subtitle: "from £\(braider.priceFrom)",
+                    icon: "calendar"
+                ) {
+                    showBooking = true
                 }
-
-                VStack(spacing: 6) {
-                    Text("No reviews yet")
-                        .font(AppTheme.serif(20))
-                        .foregroundColor(.white)
-                    Text("Be the first to review \(firstName). Your feedback helps others decide.")
-                        .font(AppTheme.sans(13))
-                        .foregroundColor(.white.opacity(0.6))
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(3)
-                        .padding(.horizontal, 20)
-                }
-
-                HStack(spacing: 6) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("Write the first review")
-                        .font(AppTheme.sans(14, weight: .semibold))
-                }
-                .foregroundColor(.white)
-                .padding(.horizontal, 18)
-                .frame(height: 46)
-                .background(AppTheme.bronzeGradient, in: Capsule())
-                .shadow(color: AppTheme.accent.opacity(0.35), radius: 12, y: 4)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 40)
-            .background(Color.white.opacity(0.04))
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-            )
         }
-        .buttonStyle(CardPress())
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.md)
     }
 
-    private func sectionHeader(eyebrow: String, title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(eyebrow)
-                .font(AppTheme.sans(10, weight: .bold))
-                .tracking(2.0)
-                .foregroundColor(AppTheme.accentLight)
-
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(title)
-                    .font(AppTheme.serif(26))
-                    .foregroundColor(.white)
-
-                Text("·")
-                    .font(AppTheme.sans(20))
-                    .foregroundColor(.white.opacity(0.3))
-
-                Text(subtitle)
-                    .font(AppTheme.sans(13, weight: .medium))
-                    .foregroundColor(.white.opacity(0.5))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private var firstName: String {
+        braider.name.split(separator: " ").first.map(String.init) ?? braider.name
     }
 }
 
-// MARK: - Scroll offset key
+// MARK: - Scroll preference
 
-private struct ScrollOffsetKey: PreferenceKey {
+private struct ProfileScrollKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
     }
 }
 
-// MARK: - Work card
+// MARK: - Portfolio card
 
-struct WorkCard: View {
+struct PortfolioImageCard: View {
     let item: PortfolioItem
     let index: Int
+    let appeared: Bool
 
-    @State private var appeared = false
+    @State private var revealed = false
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             RemoteImage(url: item.imageUrl)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .scaleEffect(appeared ? 1 : 1.05)
-                .animation(
-                    .spring(response: 0.9, dampingFraction: 0.85).delay(Double(index) * 0.08),
-                    value: appeared
+                .frame(width: 220, height: 300)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+
+            if !item.caption.isEmpty {
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.75)],
+                    startPoint: .top, endPoint: .bottom
                 )
-
-            LinearGradient(
-                colors: [.clear, .clear, .black.opacity(0.6), .black.opacity(0.95)],
-                startPoint: .top, endPoint: .bottom
-            )
-
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 6) {
-                    Text(item.tag.uppercased())
-                        .font(AppTheme.sans(10, weight: .bold))
-                        .tracking(1.2)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
-
-                    Spacer()
-                }
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
 
                 Text(item.caption)
-                    .font(AppTheme.serif(17, weight: .semibold))
-                    .foregroundColor(.white)
+                    .font(.bmUI(13, weight: .medium))
+                    .foregroundStyle(Color.appInkInverse)
                     .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(Space.sm)
             }
-            .padding(14)
-            .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 20)
-            .animation(
-                .spring(response: 0.7, dampingFraction: 0.85).delay(Double(index) * 0.08 + 0.15),
-                value: appeared
-            )
         }
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+        .frame(width: 220, height: 300)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .mask(
+            Rectangle().offset(y: revealed ? 0 : 300)
         )
-        .shadow(color: .black.opacity(0.35), radius: 20, y: 10)
-        .onAppear {
-            withAnimation { appeared = true }
-        }
+        .opacity(revealed ? 1 : 0.001)
+        .animate(Motion.reveal.delay(Motion.stagger(index)), value: revealed)
+        .onAppear { if appeared { revealed = true } }
+        .onChange(of: appeared) { _, newValue in if newValue { revealed = true } }
     }
 }
 
-// MARK: - Rating Bloom
+// MARK: - Service row (tappable)
 
-struct RatingBloom: View {
-    let breakdown: RatingBreakdown
-    @State private var animate = false
-
-    private var barData: [(stars: Int, count: Int)] {
-        [
-            (5, breakdown.five),
-            (4, breakdown.four),
-            (3, breakdown.three),
-            (2, breakdown.two),
-            (1, breakdown.one)
-        ]
-    }
+struct ServiceRowTappable: View {
+    let service: BraidService
+    let onTap: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 20) {
-            ZStack {
-                Circle()
-                    .stroke(Color.white.opacity(0.08), lineWidth: 6)
-                    .frame(width: 120, height: 120)
-
-                Circle()
-                    .trim(from: 0, to: animate ? CGFloat(breakdown.average / 5.0) : 0)
-                    .stroke(AppTheme.gold, style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                    .frame(width: 120, height: 120)
-                    .rotationEffect(.degrees(-90))
-                    .animation(
-                        .spring(response: 1.2, dampingFraction: 0.85).delay(0.2),
-                        value: animate
-                    )
-                    .shadow(color: AppTheme.gold.opacity(0.5), radius: 8)
-
-                VStack(spacing: 2) {
-                    Text(String(format: "%.1f", breakdown.average))
-                        .font(AppTheme.serif(38))
-                        .foregroundColor(.white)
-                        .contentTransition(.numericText())
-                    StarRow(rating: breakdown.average, size: 9, color: AppTheme.gold)
-                    Text("\(breakdown.total)")
-                        .font(AppTheme.sans(10, weight: .bold))
-                        .tracking(0.8)
-                        .foregroundColor(.white.opacity(0.4))
-                        .padding(.top, 2)
+        Button(action: onTap) {
+            HStack(spacing: Space.md) {
+                ZStack {
+                    if service.imageUrl.isEmpty {
+                        RoundedRectangle(cornerRadius: Radius.button)
+                            .fill(Color.appDivider)
+                            .frame(width: 56, height: 56)
+                        Image(systemName: "photo")
+                            .font(.bmUI(18))
+                            .foregroundStyle(Color.appSmoke)
+                    } else {
+                        RemoteImage(url: service.imageUrl)
+                            .frame(width: 56, height: 56)
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.button))
+                    }
                 }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: Space.xxs) {
+                        Text(service.name)
+                            .font(.bmUI(15, weight: .semibold))
+                            .foregroundStyle(Color.appInk)
+                            .lineLimit(1)
+                        if service.popular {
+                            Image(systemName: "flame.fill")
+                                .font(.bmUI(10))
+                                .foregroundStyle(Color.appAccent)
+                        }
+                    }
+                    HStack(spacing: Space.xs) {
+                        Text("£\(service.priceFrom)")
+                            .font(.bmMono(13, weight: .semibold))
+                            .foregroundStyle(Color.appAccent)
+                        Text("·")
+                            .foregroundStyle(Color.appSmoke)
+                        Text("\(service.durationMinutes / 60)h \(service.durationMinutes % 60)m")
+                            .font(.bmUI(12))
+                            .foregroundStyle(Color.appAsh)
+                    }
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.bmUI(12, weight: .semibold))
+                    .foregroundStyle(Color.appSmoke)
             }
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.sm)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(BMPressStyle(scale: 0.99))
+    }
+}
 
-            VStack(spacing: 8) {
-                ForEach(barData, id: \.stars) { data in
-                    HStack(spacing: 10) {
-                        Text("\(data.stars)")
-                            .font(AppTheme.sans(11, weight: .bold))
-                            .foregroundColor(.white.opacity(0.6))
-                            .frame(width: 10)
+// MARK: - Review row
 
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(Color.white.opacity(0.08))
-                                Capsule()
-                                    .fill(LinearGradient(
-                                        colors: [AppTheme.gold, AppTheme.accent],
-                                        startPoint: .leading, endPoint: .trailing
-                                    ))
-                                    .frame(width: animate ? geo.size.width * ratio(data.count) : 0)
-                                    .animation(
-                                        .spring(response: 1.0, dampingFraction: 0.85)
-                                            .delay(0.3 + Double(5 - data.stars) * 0.06),
-                                        value: animate
-                                    )
+struct ReviewRowView: View {
+    let review: Review
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            HStack(spacing: Space.sm) {
+                BMAvatar(url: review.userAvatar, size: 34, initials: userInitials)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(review.userName)
+                        .font(.bmUI(13, weight: .semibold))
+                        .foregroundStyle(Color.appInk)
+                    HStack(spacing: Space.xxs) {
+                        HStack(spacing: 1) {
+                            ForEach(0..<5, id: \.self) { i in
+                                Image(systemName: Double(i) < review.rating.rounded() ? "star.fill" : "star")
+                                    .font(.bmUI(9))
+                                    .foregroundStyle(Color.appAccent)
                             }
                         }
-                        .frame(height: 6)
-
-                        Text("\(data.count)")
-                            .font(AppTheme.sans(11, weight: .medium))
-                            .foregroundColor(.white.opacity(0.4))
-                            .frame(width: 24, alignment: .trailing)
+                        Text(review.dateString)
+                            .font(.bmUI(11))
+                            .foregroundStyle(Color.appAsh)
                     }
                 }
+                Spacer()
+            }
+
+            Text(review.text)
+                .font(.bmUI(14))
+                .foregroundStyle(Color.appInk.opacity(0.88))
+                .lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !review.styleDone.isEmpty {
+                Text(review.styleDone)
+                    .font(.bmUI(10, weight: .semibold))
+                    .tracking(0.4)
+                    .foregroundStyle(Color.appAccent)
+                    .padding(.horizontal, Space.xs)
+                    .padding(.vertical, 4)
+                    .background(Color.appAccentTint, in: Capsule())
             }
         }
-        .padding(20)
-        .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-        )
-        .onAppear { withAnimation { animate = true } }
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
     }
 
-    private func ratio(_ count: Int) -> CGFloat {
-        guard breakdown.total > 0 else { return 0 }
-        return CGFloat(count) / CGFloat(breakdown.total)
-    }
-}
-
-// MARK: - Cinema review card
-
-struct ReviewCinemaCard: View {
-    let review: Review
-    let index: Int
-
-    @State private var appeared = false
-
-    private var accentColor: Color {
-        if review.rating >= 4.5 { return AppTheme.gold }
-        if review.rating >= 3.5 { return AppTheme.accent }
-        return AppTheme.rose
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(accentColor)
-                .frame(width: 3)
-                .padding(.vertical, 4)
-
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    if review.userAvatar.isEmpty {
-                        ZStack {
-                            Circle().fill(AppTheme.inkGradient).frame(width: 36, height: 36)
-                            Text(String(review.userName.prefix(1)).uppercased())
-                                .font(AppTheme.sans(14, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                    } else {
-                        RemoteImage(url: review.userAvatar)
-                            .frame(width: 36, height: 36)
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(accentColor.opacity(0.4), lineWidth: 1.5))
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(review.userName)
-                            .font(AppTheme.sans(13, weight: .semibold))
-                            .foregroundColor(.white)
-                        HStack(spacing: 5) {
-                            StarRow(rating: review.rating, size: 9, color: accentColor)
-                            Text("·")
-                                .foregroundColor(.white.opacity(0.3))
-                            Text(review.dateString)
-                                .font(AppTheme.sans(10))
-                                .foregroundColor(.white.opacity(0.5))
-                        }
-                    }
-
-                    Spacer()
-                }
-
-                Text(review.text)
-                    .font(AppTheme.sans(13))
-                    .foregroundColor(.white.opacity(0.85))
-                    .lineSpacing(4)
-                    .lineLimit(6)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if !review.styleDone.isEmpty {
-                    Text(review.styleDone)
-                        .font(AppTheme.sans(10, weight: .bold))
-                        .tracking(0.4)
-                        .foregroundColor(accentColor)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(accentColor.opacity(0.12), in: Capsule())
-                }
-            }
-        }
-        .padding(14)
-        .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-        )
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 24)
-        .animation(
-            .spring(response: 0.7, dampingFraction: 0.85).delay(Double(index) * 0.1),
-            value: appeared
-        )
-        .onAppear { withAnimation { appeared = true } }
+    private var userInitials: String {
+        let parts = review.userName.split(separator: " ")
+        let r = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
+        return r.isEmpty ? "·" : r.uppercased()
     }
 }
 
@@ -1020,26 +701,20 @@ struct AllReviewsSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                AppTheme.cloud.ignoresSafeArea()
-
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 16) {
-                        if breakdown.total > 0 {
-                            ReviewSummaryLight(breakdown: breakdown)
-                        }
-
-                        ForEach(Array(reviews.enumerated()), id: \.element.id) { idx, r in
-                            LightReviewCard(review: r)
+                Color.appBackground.ignoresSafeArea()
+                ScrollView(showsIndicators: true) {
+                    VStack(spacing: 0) {
+                        ForEach(Array(reviews.enumerated()), id: \.element.id) { index, r in
+                            ReviewRowView(review: r)
                                 .opacity(appeared ? 1 : 0)
-                                .offset(y: appeared ? 0 : 24)
-                                .animation(
-                                    .spring(response: 0.7, dampingFraction: 0.85)
-                                        .delay(Double(idx) * 0.06),
-                                    value: appeared
-                                )
+                                .offset(y: appeared ? 0 : 12)
+                                .animate(Motion.reveal.delay(Motion.stagger(index)), value: appeared)
+                            if index < reviews.count - 1 {
+                                BMDivider(inset: Space.lg)
+                            }
                         }
                     }
-                    .padding(20)
+                    .padding(.vertical, Space.sm)
                 }
             }
             .navigationTitle("Reviews")
@@ -1047,152 +722,25 @@ struct AllReviewsSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Done") { dismiss() }
-                        .font(AppTheme.sans(15, weight: .semibold))
-                        .foregroundColor(AppTheme.ink)
+                        .font(.bmUI(15, weight: .medium))
+                        .foregroundStyle(Color.appInk)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        Haptics.medium()
+                        Haptic.press()
                         dismiss()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                             onWriteReview()
                         }
                     } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "square.and.pencil")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text("Write")
-                                .font(AppTheme.sans(14, weight: .semibold))
-                        }
-                        .foregroundColor(AppTheme.accentDeep)
+                        Text("Write")
+                            .font(.bmUI(15, weight: .semibold))
+                            .foregroundStyle(Color.appAccent)
                     }
                 }
             }
-            .onAppear { withAnimation { appeared = true } }
+            .onAppear { appeared = true }
         }
-    }
-}
-
-struct ReviewSummaryLight: View {
-    let breakdown: RatingBreakdown
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 20) {
-            VStack(spacing: 6) {
-                Text(String(format: "%.1f", breakdown.average))
-                    .font(AppTheme.serif(44))
-                    .foregroundColor(AppTheme.ink)
-                StarRow(rating: breakdown.average, size: 11)
-                Text("\(breakdown.total) reviews")
-                    .font(AppTheme.sans(11, weight: .medium))
-                    .foregroundColor(AppTheme.stone)
-            }
-            .frame(width: 110)
-
-            VStack(spacing: 7) {
-                ForEach([5, 4, 3, 2, 1], id: \.self) { stars in
-                    HStack(spacing: 8) {
-                        Text("\(stars)")
-                            .font(AppTheme.sans(11, weight: .bold))
-                            .foregroundColor(AppTheme.slate)
-                            .frame(width: 10)
-
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(AppTheme.hairline)
-                                Capsule()
-                                    .fill(AppTheme.gold)
-                                    .frame(width: geo.size.width * ratio(stars))
-                            }
-                        }
-                        .frame(height: 6)
-
-                        Text("\(count(stars))")
-                            .font(AppTheme.sans(11, weight: .medium))
-                            .foregroundColor(AppTheme.stone)
-                            .frame(width: 26, alignment: .trailing)
-                    }
-                }
-            }
-        }
-        .padding(18)
-        .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
-        )
-    }
-
-    private func ratio(_ stars: Int) -> CGFloat {
-        guard breakdown.total > 0 else { return 0 }
-        return CGFloat(count(stars)) / CGFloat(breakdown.total)
-    }
-
-    private func count(_ stars: Int) -> Int {
-        switch stars {
-        case 5: return breakdown.five
-        case 4: return breakdown.four
-        case 3: return breakdown.three
-        case 2: return breakdown.two
-        default: return breakdown.one
-        }
-    }
-}
-
-struct LightReviewCard: View {
-    let review: Review
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                if review.userAvatar.isEmpty {
-                    ZStack {
-                        Circle().fill(AppTheme.inkGradient).frame(width: 42, height: 42)
-                        Text(String(review.userName.prefix(1)).uppercased())
-                            .font(AppTheme.sans(15, weight: .bold))
-                            .foregroundColor(.white)
-                    }
-                } else {
-                    RemoteImage(url: review.userAvatar)
-                        .frame(width: 42, height: 42)
-                        .clipShape(Circle())
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(review.userName)
-                        .font(AppTheme.sans(14, weight: .semibold))
-                        .foregroundColor(AppTheme.ink)
-                    Text(review.dateString)
-                        .font(AppTheme.sans(11))
-                        .foregroundColor(AppTheme.stone)
-                }
-                Spacer()
-                StarRow(rating: review.rating, size: 11)
-            }
-
-            Text(review.text)
-                .font(AppTheme.sans(14))
-                .foregroundColor(AppTheme.ink.opacity(0.85))
-                .lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if !review.styleDone.isEmpty {
-                HStack(spacing: 10) {
-                    Pill(icon: "scissors", text: review.styleDone,
-                         fg: AppTheme.accentDeep, bg: AppTheme.accentSoft)
-                    Spacer()
-                }
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
-        )
     }
 }
 
@@ -1203,10 +751,7 @@ struct FlowLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let maxWidth = proposal.width ?? .infinity
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
         for subview in subviews {
             let size = subview.sizeThatFits(.unspecified)
             if x + size.width > maxWidth {
@@ -1221,10 +766,7 @@ struct FlowLayout: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x: CGFloat = bounds.minX
-        var y: CGFloat = bounds.minY
-        var rowHeight: CGFloat = 0
-
+        var x: CGFloat = bounds.minX, y: CGFloat = bounds.minY, rowHeight: CGFloat = 0
         for subview in subviews {
             let size = subview.sizeThatFits(.unspecified)
             if x + size.width > bounds.maxX {

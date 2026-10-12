@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct UserInfoSheet: View {
     @EnvironmentObject private var session: SessionManager
@@ -10,39 +11,31 @@ struct UserInfoSheet: View {
     @State private var showBookings = false
     @State private var showSaved = false
 
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var uploadingAvatar = false
+    @State private var avatarError: String?
+
     private var displayName: String {
         fb.currentUser?.displayName ?? session.displayName ?? "BraidMe User"
     }
-
     private var userEmail: String {
         fb.currentUser?.email ?? session.email ?? "Not shared"
     }
-
     private var userAge: String {
         if let age = fb.currentUser?.age, age > 0 { return "\(age)" }
-        let stored = UserDefaults.standard.integer(forKey: "userAge")
-        return stored > 0 ? "\(stored)" : "—"
+        let s = UserDefaults.standard.integer(forKey: "userAge")
+        return s > 0 ? "\(s)" : "—"
     }
-
     private var userCity: String { fb.currentUser?.city ?? "Not shared" }
+    private var avatarUrl: String { fb.currentUser?.avatarUrl ?? "" }
 
     private var providerLabel: String {
         let p = fb.currentUser?.provider ?? detectedProvider
         switch p {
         case "apple": return "Apple"
         case "google": return "Google"
-        case "email": return "Email"
-        case "password": return "Email"
+        case "email", "password": return "Email"
         default: return "Guest"
-        }
-    }
-
-    private var providerIcon: String {
-        switch providerLabel {
-        case "Apple": return "applelogo"
-        case "Google": return "g.circle.fill"
-        case "Email": return "envelope.fill"
-        default: return "person.fill"
         }
     }
 
@@ -58,29 +51,27 @@ struct UserInfoSheet: View {
     private var initials: String {
         let parts = displayName.split(separator: " ")
         let r = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
-        return r.isEmpty ? "BM" : r.uppercased()
+        return r.isEmpty ? "·" : r.uppercased()
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                AppTheme.cloud.ignoresSafeArea()
-                ambient
-
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 24) {
+                Color.appBackground.ignoresSafeArea()
+                ScrollView(showsIndicators: true) {
+                    VStack(spacing: Space.lg) {
                         avatarSection
                         quickActions
                         infoSection
                         signOutButton
                         Text("BraidMe v1.0 · \(providerLabel) account")
-                            .font(AppTheme.sans(11))
-                            .foregroundColor(AppTheme.stone)
-                            .padding(.top, 8)
-                        Color.clear.frame(height: 20)
+                            .font(.bmUI(11))
+                            .foregroundStyle(Color.appSmoke)
+                            .padding(.top, Space.xs)
+                        Color.clear.frame(height: Space.lg)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.top, Space.md)
                 }
             }
             .navigationTitle("Your Profile")
@@ -88,8 +79,8 @@ struct UserInfoSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { dismiss() }
-                        .font(AppTheme.sans(15, weight: .semibold))
-                        .foregroundColor(AppTheme.ink)
+                        .font(.bmUI(15, weight: .medium))
+                        .foregroundStyle(Color.appInk)
                 }
             }
         }
@@ -105,10 +96,20 @@ struct UserInfoSheet: View {
         } message: {
             Text("You'll need to sign in again to book a braider.")
         }
+        .alert("Couldn't upload", isPresented: Binding(
+            get: { avatarError != nil },
+            set: { if !$0 { avatarError = nil } }
+        )) {
+            Button("OK", role: .cancel) { avatarError = nil }
+        } message: {
+            Text(avatarError ?? "")
+        }
+        .onChange(of: selectedPhoto) { _, newValue in
+            guard let newValue else { return }
+            Task { await uploadAvatar(newValue) }
+        }
         .onAppear {
-            withAnimation(.spring(response: 0.9, dampingFraction: 0.85).delay(0.1)) {
-                appeared = true
-            }
+            appeared = true
             let uid = session.uid
             guard !uid.isEmpty else { return }
             Task {
@@ -119,202 +120,180 @@ struct UserInfoSheet: View {
         }
     }
 
-    private var ambient: some View {
-        ZStack {
-            Circle()
-                .fill(RadialGradient(
-                    colors: [AppTheme.accent.opacity(0.14), .clear],
-                    center: .center, startRadius: 0, endRadius: 200
-                ))
-                .frame(width: 420, height: 420)
-                .blur(radius: 50)
-                .offset(x: -140, y: -180)
-                .opacity(appeared ? 1 : 0)
-
-            Circle()
-                .fill(RadialGradient(
-                    colors: [AppTheme.plum.opacity(0.10), .clear],
-                    center: .center, startRadius: 0, endRadius: 180
-                ))
-                .frame(width: 380, height: 380)
-                .blur(radius: 60)
-                .offset(x: 160, y: 260)
-                .opacity(appeared ? 1 : 0)
-        }
-        .animation(.easeOut(duration: 1.2), value: appeared)
-        .allowsHitTesting(false)
-    }
-
     private var avatarSection: some View {
-        VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(AppTheme.inkGradient)
-                    .frame(width: 120, height: 120)
-                Text(initials)
-                    .font(AppTheme.serif(44))
-                    .foregroundColor(.white)
-                Circle()
-                    .stroke(AppTheme.accent, lineWidth: 3)
-                    .frame(width: 126, height: 126)
-
+        VStack(spacing: Space.md) {
+            ZStack(alignment: .bottomTrailing) {
                 ZStack {
+                    if avatarUrl.isEmpty {
+                        Circle()
+                            .fill(Color.appInk)
+                            .frame(width: 100, height: 100)
+                        Text(initials)
+                            .font(.bmDisplay(36, weight: .semibold))
+                            .foregroundStyle(Color.appInkInverse)
+                    } else {
+                        RemoteImage(url: avatarUrl)
+                            .frame(width: 100, height: 100)
+                            .clipShape(Circle())
+                    }
                     Circle()
-                        .fill(AppTheme.snow)
-                        .frame(width: 36, height: 36)
-                        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
-                    Image(systemName: providerIcon)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(AppTheme.ink)
+                        .stroke(Color.appAccent, lineWidth: 2)
+                        .frame(width: 104, height: 104)
                 }
-                .offset(x: 44, y: 44)
-            }
-            .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
 
-            VStack(spacing: 6) {
+                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.appInk)
+                            .frame(width: 34, height: 34)
+                            .overlay(Circle().stroke(Color.appSurface, lineWidth: 3))
+                        if uploadingAvatar {
+                            ProgressView().tint(Color.appInkInverse).scaleEffect(0.7)
+                        } else {
+                            Image(systemName: "camera.fill")
+                                .font(.bmUI(13, weight: .semibold))
+                                .foregroundStyle(Color.appInkInverse)
+                        }
+                    }
+                }
+                .disabled(uploadingAvatar)
+                .offset(x: 4, y: 4)
+            }
+
+            VStack(spacing: 4) {
                 Text(displayName)
-                    .font(AppTheme.serif(24))
-                    .foregroundColor(AppTheme.ink)
+                    .font(.bmDisplay(22, weight: .semibold))
+                    .foregroundStyle(Color.appInk)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Text("Signed in with \(providerLabel)")
-                    .font(AppTheme.sans(12, weight: .medium))
-                    .foregroundColor(AppTheme.stone)
+                    .font(.bmUI(12, weight: .medium))
+                    .foregroundStyle(Color.appAsh)
             }
         }
-        .padding(.top, 8)
+        .padding(.top, Space.md)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 20)
+        .animate(Motion.reveal, value: appeared)
     }
 
     private var quickActions: some View {
-        HStack(spacing: 12) {
-            quickAction(
-                icon: "calendar.badge.clock",
-                value: "\(fb.bookings.count)",
-                label: "Bookings"
-            ) {
+        HStack(spacing: Space.sm) {
+            quickAction(icon: "calendar", value: "\(fb.bookings.count)", label: "Bookings", enabled: true) {
                 showBookings = true
             }
-            quickAction(
-                icon: "heart.fill",
-                value: "\(fb.savedBraiderIds.count)",
-                label: "Saved"
-            ) {
+            quickAction(icon: "heart.fill", value: "\(fb.savedBraiderIds.count)", label: "Saved", enabled: true) {
                 showSaved = true
             }
-            quickAction(
-                icon: "star.fill",
-                value: "New",
-                label: "Member"
-            ) {}
+            quickAction(icon: "star.fill", value: "New", label: "Member", enabled: false) {}
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 20)
+        .animate(Motion.reveal.delay(0.05), value: appeared)
     }
 
-    private func quickAction(icon: String, value: String, label: String, action: @escaping () -> Void) -> some View {
+    private func quickAction(icon: String, value: String, label: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button {
-            Haptics.soft()
+            guard enabled else { return }
+            Haptic.press()
             action()
         } label: {
-            VStack(spacing: 8) {
+            VStack(spacing: Space.xs) {
                 Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(AppTheme.accent)
+                    .font(.bmUI(15, weight: .semibold))
+                    .foregroundStyle(Color.appAccent)
                 Text(value)
-                    .font(AppTheme.serif(20))
-                    .foregroundColor(AppTheme.ink)
+                    .font(.bmDisplay(18, weight: .semibold))
+                    .foregroundStyle(Color.appInk)
                 Text(label.uppercased())
-                    .font(AppTheme.sans(9, weight: .bold))
+                    .font(.bmUI(9, weight: .semibold))
                     .tracking(0.8)
-                    .foregroundColor(AppTheme.stone)
+                    .foregroundStyle(Color.appAsh)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(AppTheme.snow)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.vertical, Space.md)
+            .background(Color.appSurface)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                    .stroke(Color.appDivider, lineWidth: 0.5)
             )
+            .opacity(enabled ? 1 : 0.6)
         }
-        .buttonStyle(CardPress())
+        .buttonStyle(BMPressStyle(scale: 0.98))
+        .disabled(!enabled)
     }
 
     private var infoSection: some View {
         VStack(spacing: 0) {
-            infoRow(icon: "person.fill", label: "Name", value: displayName)
-            divider
-            infoRow(icon: "envelope.fill", label: "Email", value: userEmail)
-            divider
+            infoRow(icon: "person", label: "Name", value: displayName)
+            BMDivider(inset: 60)
+            infoRow(icon: "envelope", label: "Email", value: userEmail)
+            BMDivider(inset: 60)
             infoRow(icon: "calendar", label: "Age", value: userAge)
-            divider
-            infoRow(icon: "location.fill", label: "City", value: userCity)
+            BMDivider(inset: 60)
+            infoRow(icon: "location", label: "City", value: userCity)
         }
-        .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .background(Color.appSurface)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                .stroke(Color.appDivider, lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.04), radius: 12, y: 4)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 20)
+        .animate(Motion.reveal.delay(0.10), value: appeared)
     }
 
     private func infoRow(icon: String, label: String, value: String) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: Space.md) {
             ZStack {
-                Circle().fill(AppTheme.accentSoft).frame(width: 34, height: 34)
+                Circle().fill(Color.appAccentTint).frame(width: 32, height: 32)
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(AppTheme.accent)
+                    .font(.bmUI(12, weight: .semibold))
+                    .foregroundStyle(Color.appAccent)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(label.uppercased())
-                    .font(AppTheme.sans(10, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundColor(AppTheme.stone)
+                    .font(.bmUI(10, weight: .semibold))
+                    .tracking(1.0)
+                    .foregroundStyle(Color.appAsh)
                 Text(value)
-                    .font(AppTheme.sans(15, weight: .medium))
-                    .foregroundColor(AppTheme.ink)
+                    .font(.bmUI(14, weight: .medium))
+                    .foregroundStyle(Color.appInk)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-    }
-
-    private var divider: some View {
-        Divider().background(AppTheme.hairline).padding(.leading, 64)
+        .padding(.horizontal, Space.md)
+        .padding(.vertical, Space.sm)
     }
 
     private var signOutButton: some View {
         Button {
-            Haptics.warning()
+            Haptic.warning()
             showSignOutConfirm = true
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.xs) {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.bmUI(13, weight: .semibold))
                 Text("Sign Out")
-                    .font(AppTheme.sans(15, weight: .semibold))
+                    .font(.bmUI(15, weight: .semibold))
             }
-            .foregroundColor(AppTheme.danger)
+            .foregroundStyle(Color.appAlert)
             .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background(AppTheme.snow)
+            .frame(minHeight: 52)
+            .padding(.vertical, Space.xs)
+            .background(Color.appSurface)
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(AppTheme.danger.opacity(0.3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: Radius.button)
+                    .stroke(Color.appAlert.opacity(0.3), lineWidth: 1)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.button))
         }
-        .buttonStyle(SoftPress())
-        .padding(.top, 8)
+        .buttonStyle(BMPressStyle())
+        .padding(.top, Space.xs)
         .opacity(appeared ? 1 : 0)
     }
 
@@ -323,9 +302,36 @@ struct UserInfoSheet: View {
         fb.bookings = []
         fb.braiders = []
         fb.savedBraiderIds = []
-
         SessionManager.shared.hardSignOut()
-
         dismiss()
+    }
+
+    private func uploadAvatar(_ item: PhotosPickerItem) async {
+        await MainActor.run { uploadingAvatar = true }
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data) else {
+                throw NSError(domain: "avatar", code: -1,
+                              userInfo: [NSLocalizedDescriptionKey: "Could not read photo."])
+            }
+            let url = try await ImageUploader.upload(image)
+            let uid = session.uid
+            guard !uid.isEmpty else {
+                throw NSError(domain: "avatar", code: -1,
+                              userInfo: [NSLocalizedDescriptionKey: "You need to be signed in."])
+            }
+            try await fb.updateUser(uid: uid, data: ["avatarUrl": url])
+            await fb.loadUser(uid: uid)
+            await MainActor.run {
+                uploadingAvatar = false
+                Haptic.success()
+            }
+        } catch {
+            await MainActor.run {
+                uploadingAvatar = false
+                avatarError = error.localizedDescription
+                Haptic.error()
+            }
+        }
     }
 }

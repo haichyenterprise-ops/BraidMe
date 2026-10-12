@@ -19,21 +19,26 @@ struct WriteReviewSheet: View {
         rating > 0 && text.trimmingCharacters(in: .whitespaces).count >= 5
     }
 
+    private var disabledHint: String? {
+        if rating == 0 { return "Add a star rating to continue" }
+        if text.trimmingCharacters(in: .whitespaces).count < 5 { return "Write at least a few words" }
+        return nil
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
-                AppTheme.cloud.ignoresSafeArea()
-
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 24) {
+                Color.appBackground.ignoresSafeArea()
+                ScrollView(showsIndicators: true) {
+                    VStack(spacing: Space.lg) {
                         header
                         starsPicker
                         textBlock
                         styleBlock
-                        submitButton
-                        Color.clear.frame(height: 40)
+                        submitArea
+                        Color.clear.frame(height: Space.lg)
                     }
-                    .padding(20)
+                    .padding(Space.lg)
                 }
             }
             .navigationTitle("Write a review")
@@ -41,8 +46,8 @@ struct WriteReviewSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
-                        .font(AppTheme.sans(15, weight: .medium))
-                        .foregroundColor(AppTheme.slate)
+                        .font(.bmUI(15, weight: .medium))
+                        .foregroundStyle(Color.appAsh)
                 }
             }
             .alert("Error", isPresented: Binding(
@@ -63,90 +68,72 @@ struct WriteReviewSheet: View {
             }
         }
         .onAppear {
-            withAnimation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.1)) {
-                appeared = true
-            }
-            // Prefill with first service name
+            appeared = true
             if let first = braider.services.first {
                 styleDone = first.name
             }
         }
     }
 
-    // MARK: - Header
-
     private var header: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RemoteImage(url: braider.avatarUrl)
-                    .frame(width: 56, height: 56)
-                    .clipShape(Circle())
-                Circle()
-                    .stroke(AppTheme.accent, lineWidth: 2)
-                    .frame(width: 60, height: 60)
-            }
-
+        HStack(spacing: Space.md) {
+            BMAvatar(url: braider.avatarUrl, size: 52, initials: initials)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Review \(braider.name)")
-                    .font(AppTheme.serif(22))
-                    .foregroundColor(AppTheme.ink)
+                    .font(.bmDisplay(20, weight: .semibold))
+                    .foregroundStyle(Color.appInk)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.75)
                 Text("Your honest feedback helps others.")
-                    .font(AppTheme.sans(13))
-                    .foregroundColor(AppTheme.slate)
+                    .font(.bmUI(13))
+                    .foregroundStyle(Color.appAsh)
             }
-
             Spacer(minLength: 0)
         }
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
+        .offset(y: appeared ? 0 : 12)
+        .animate(Motion.reveal, value: appeared)
     }
 
-    // MARK: - Stars
+    private var initials: String {
+        let parts = braider.name.split(separator: " ")
+        let r = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
+        return r.isEmpty ? "·" : r.uppercased()
+    }
 
     private var starsPicker: some View {
-        VStack(spacing: 14) {
-            Text("Your rating")
-                .font(AppTheme.sans(11, weight: .bold))
-                .tracking(1.4)
-                .foregroundColor(AppTheme.stone)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            BMSectionLabel(text: "Your rating")
+            HStack(spacing: Space.xs) {
                 ForEach(1...5, id: \.self) { i in
                     Button {
-                        Haptics.medium()
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) {
-                            rating = i
-                        }
+                        Haptic.select()
+                        withAnimation(Motion.press) { rating = i }
                     } label: {
                         Image(systemName: i <= rating ? "star.fill" : "star")
-                            .font(.system(size: 34))
-                            .foregroundColor(i <= rating ? AppTheme.gold : AppTheme.ash)
-                            .scaleEffect(i == rating ? 1.15 : 1)
-                            .animation(.spring(response: 0.35, dampingFraction: 0.6), value: rating)
+                            .font(.bmUI(30))
+                            .foregroundStyle(i <= rating ? Color.appAccent : Color.appSmoke)
+                            .scaleEffect(i == rating ? 1.1 : 1)
+                            .animation(Motion.press, value: rating)
                     }
-                    .buttonStyle(SoftPress())
+                    .buttonStyle(BMPressStyle(scale: 0.94))
                 }
                 Spacer()
             }
-
             Text(ratingLabel)
-                .font(AppTheme.sans(13, weight: .medium))
-                .foregroundColor(AppTheme.accentDeep)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .animation(.easeInOut(duration: 0.2), value: rating)
+                .font(.bmUI(13, weight: .medium))
+                .foregroundStyle(Color.appAccent)
         }
-        .padding(16)
-        .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .padding(Space.md)
+        .background(Color.appSurface)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(AppTheme.hairline, lineWidth: 1)
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                .stroke(Color.appDivider, lineWidth: 0.5)
         )
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
+        .offset(y: appeared ? 0 : 12)
+        .animate(Motion.reveal.delay(0.05), value: appeared)
     }
 
     private var ratingLabel: String {
@@ -159,118 +146,110 @@ struct WriteReviewSheet: View {
         }
     }
 
-    // MARK: - Text
-
     private var textBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("YOUR REVIEW")
-                .font(AppTheme.sans(11, weight: .bold))
-                .tracking(1.4)
-                .foregroundColor(AppTheme.stone)
-
+        VStack(alignment: .leading, spacing: Space.xs) {
+            BMSectionLabel(text: "Your review")
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
                     Text("Tell others about your experience — quality, timing, how you felt afterwards…")
-                        .font(AppTheme.sans(15))
-                        .foregroundColor(AppTheme.stone.opacity(0.7))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 16)
+                        .font(.bmUI(15))
+                        .foregroundStyle(Color.appSmoke)
+                        .padding(.horizontal, Space.md)
+                        .padding(.vertical, Space.md)
                         .allowsHitTesting(false)
                 }
                 TextEditor(text: $text)
-                    .font(AppTheme.sans(15))
-                    .foregroundColor(AppTheme.ink)
+                    .font(.bmUI(15))
+                    .foregroundStyle(Color.appInk)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, Space.sm)
+                    .padding(.vertical, Space.xs)
                     .frame(minHeight: 140)
             }
-            .background(AppTheme.snow)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .background(Color.appSurface)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.button))
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(AppTheme.hairline, lineWidth: 1)
+                RoundedRectangle(cornerRadius: Radius.button)
+                    .stroke(Color.appDivider, lineWidth: 1)
             )
-
             HStack {
                 Text("\(text.count) characters")
-                    .font(AppTheme.sans(11))
-                    .foregroundColor(AppTheme.stone)
+                    .font(.bmUI(11))
+                    .foregroundStyle(Color.appSmoke)
                 Spacer()
                 if text.trimmingCharacters(in: .whitespaces).count < 5 && !text.isEmpty {
                     Text("A few more words please")
-                        .font(AppTheme.sans(11, weight: .medium))
-                        .foregroundColor(AppTheme.warn)
+                        .font(.bmUI(11, weight: .medium))
+                        .foregroundStyle(Color.appAccent)
                 }
             }
         }
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
+        .offset(y: appeared ? 0 : 12)
+        .animate(Motion.reveal.delay(0.10), value: appeared)
     }
 
-    // MARK: - Style
-
     private var styleBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("WHICH SERVICE?")
-                .font(AppTheme.sans(11, weight: .bold))
-                .tracking(1.4)
-                .foregroundColor(AppTheme.stone)
-
+        VStack(alignment: .leading, spacing: Space.sm) {
+            BMSectionLabel(text: "Which service?")
             if braider.services.isEmpty {
                 Text("No services listed")
-                    .font(AppTheme.sans(14))
-                    .foregroundColor(AppTheme.stone)
+                    .font(.bmUI(14))
+                    .foregroundStyle(Color.appAsh)
                     .italic()
             } else {
-                FlowLayout(spacing: 8) {
-                    ForEach(braider.services) { service in
-                        Button {
-                            Haptics.select()
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                                styleDone = service.name
-                            }
-                        } label: {
-                            Text(service.name)
-                                .font(AppTheme.sans(13, weight: .semibold))
-                                .foregroundColor(styleDone == service.name ? .white : AppTheme.ink)
-                                .padding(.horizontal, 14)
-                                .frame(height: 36)
-                                .background(styleDone == service.name ? AppTheme.ink : AppTheme.snow, in: Capsule())
-                                .overlay(
-                                    Capsule()
-                                        .stroke(
-                                            styleDone == service.name ? Color.clear : AppTheme.hairline,
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Space.xs) {
+                        ForEach(braider.services) { service in
+                            Button {
+                                Haptic.select()
+                                withAnimation(Motion.press) { styleDone = service.name }
+                            } label: {
+                                Text(service.name)
+                                    .font(.bmUI(13, weight: .semibold))
+                                    .foregroundStyle(styleDone == service.name ? Color.appInkInverse : Color.appInk)
+                                    .padding(.horizontal, Space.md)
+                                    .frame(minHeight: 34)
+                                    .padding(.vertical, 4)
+                                    .background(styleDone == service.name ? Color.appInk : Color.appSurface, in: Capsule())
+                                    .overlay(
+                                        Capsule().stroke(
+                                            styleDone == service.name ? Color.clear : Color.appDivider,
                                             lineWidth: 1
                                         )
-                                )
+                                    )
+                            }
+                            .buttonStyle(BMPressStyle(scale: 0.97))
                         }
-                        .buttonStyle(SoftPress())
                     }
                 }
             }
         }
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
+        .offset(y: appeared ? 0 : 12)
+        .animate(Motion.reveal.delay(0.15), value: appeared)
     }
 
-    // MARK: - Submit
-
-    private var submitButton: some View {
-        PrimaryButton(
-            title: submitting ? "Submitting…" : "Post review",
-            icon: "paperplane.fill",
-            loading: submitting
-        ) {
-            submit()
+    private var submitArea: some View {
+        VStack(spacing: Space.xs) {
+            if let hint = disabledHint {
+                Text(hint)
+                    .font(.bmUI(12, weight: .medium))
+                    .foregroundStyle(Color.appAsh)
+            }
+            BMPrimaryButton(
+                title: submitting ? "Submitting…" : "Post review",
+                icon: "paperplane.fill",
+                loading: submitting
+            ) {
+                submit()
+            }
+            .disabled(!canSubmit || submitting)
+            .opacity(canSubmit ? 1 : 0.5)
         }
-        .disabled(!canSubmit || submitting)
-        .opacity(canSubmit ? 1 : 0.4)
-        .padding(.top, 8)
+        .padding(.top, Space.xs)
     }
-
-    // MARK: - Action
 
     private func submit() {
         guard canSubmit else { return }
@@ -279,9 +258,8 @@ struct WriteReviewSheet: View {
             errorMessage = "You need to be signed in to review."
             return
         }
-
         submitting = true
-        Haptics.medium()
+        Haptic.press()
 
         let userName = session.displayName
             ?? FirebaseManager.shared.currentUser?.displayName
@@ -301,14 +279,14 @@ struct WriteReviewSheet: View {
                 )
                 await MainActor.run {
                     submitting = false
-                    Haptics.success()
+                    Haptic.success()
                     showSuccess = true
                 }
             } catch {
                 await MainActor.run {
                     submitting = false
                     errorMessage = error.localizedDescription
-                    Haptics.error()
+                    Haptic.error()
                 }
             }
         }

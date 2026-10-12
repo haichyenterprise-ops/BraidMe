@@ -177,7 +177,8 @@ final class FirebaseManager: ObservableObject {
                     style: style,
                     price: price,
                     status: status,
-                    createdAt: created.dateValue()
+                    createdAt: created.dateValue(),
+                    customerName: d["customerName"] as? String
                 )
             }
 
@@ -189,39 +190,42 @@ final class FirebaseManager: ObservableObject {
         }
     }
 
-    func createBooking(
-        braider: Braider,
-        date: Date,
-        time: String,
-        service: BraidService,
-        price: Int,
-        uid: String,
-        completion: @escaping (Bool) -> Void
-    ) {
-        let id = UUID().uuidString
-        let booking = Booking(
-            id: id,
-            braiderName: braider.name,
-            braiderId: braider.id,
-            date: date,
-            time: time,
-            style: service.name,
-            price: price,
-            status: "confirmed",
-            createdAt: Date()
-        )
-        var payload = booking.dictionary
-        payload["uid"] = uid
+func createBooking(
+    braider: Braider,
+    date: Date,
+    time: String,
+    service: BraidService,
+    price: Int,
+    uid: String,
+    customerName: String,
+    completion: @escaping (Bool) -> Void
+) {
+    let id = UUID().uuidString
+    let booking = Booking(
+        id: id,
+        braiderName: braider.name,
+        braiderId: braider.id,
+        date: date,
+        time: time,
+        style: service.name,
+        price: price,
+        status: "confirmed",
+        createdAt: Date(),
+        customerName: customerName
+    )
+    var payload = booking.dictionary
+    payload["uid"] = uid
+    payload["customerName"] = customerName
 
-        dbRef.collection("bookings").document(id).setData(payload) { error in
-            DispatchQueue.main.async {
-                if error == nil {
-                    self.bookings.insert(booking, at: 0)
-                }
-                completion(error == nil)
+    dbRef.collection("bookings").document(id).setData(payload) { error in
+        DispatchQueue.main.async {
+            if error == nil {
+                self.bookings.insert(booking, at: 0)
             }
+            completion(error == nil)
         }
     }
+}
 
     func requestCancellation(bookingId: String, reason: String) async throws {
         try await dbRef.collection("bookings").document(bookingId).setData([

@@ -20,11 +20,8 @@ final class SessionManager: NSObject, ObservableObject {
 
     override init() {
         super.init()
-
-        // Restore previous session if the SDK has one
         self.user = Auth.auth().currentUser
 
-        // Listen for auth changes
         authListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             Task { @MainActor in
                 self?.user = user
@@ -33,14 +30,11 @@ final class SessionManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Computed
-
     var isSignedIn: Bool { user != nil }
     var uid: String { user?.uid ?? "" }
     var email: String? { user?.email }
     var displayName: String? { user?.displayName }
 
-    // MARK: - Sign out
     func signOut() {
         do {
             try Auth.auth().signOut()
@@ -53,18 +47,14 @@ final class SessionManager: NSObject, ObservableObject {
             UserDefaults.standard.removeObject(forKey: "locationPermissionDecision")
 
             self.user = nil
-            Haptics.warning()
+            Haptic.warning()
         } catch {
             print("[SessionManager] signOut failed:", error)
         }
     }
 
-    /// Strong sign-out — wipes the Keychain-backed Firebase session
-    /// so the user isn't auto-logged-in on next launch or after reinstall.
     func hardSignOut() {
         signOut()
-
-        // Wipe generic password entries (where Firebase stores its auth tokens)
         let secItemClasses: [CFString] = [kSecClassGenericPassword]
         for itemClass in secItemClasses {
             let spec: [CFString: Any] = [kSecClass: itemClass]
@@ -72,7 +62,6 @@ final class SessionManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Apple
     func signInWithApple(credential: ASAuthorizationAppleIDCredential, nonce: String) async throws {
         guard let tokenData = credential.identityToken,
               let idToken = String(data: tokenData, encoding: .utf8) else {
@@ -100,7 +89,6 @@ final class SessionManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Google
     func signInWithGoogle() async throws {
         guard let root = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
@@ -133,7 +121,6 @@ final class SessionManager: NSObject, ObservableObject {
         self.user = authResult.user
     }
 
-    // MARK: - Email signup
     func signUpWithEmail(email: String, password: String, name: String) async throws {
         let clean = email.trimmingCharacters(in: .whitespaces).lowercased()
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
@@ -158,7 +145,6 @@ final class SessionManager: NSObject, ObservableObject {
         self.user = result.user
     }
 
-    // MARK: - Email login
     func signInWithEmail(email: String, password: String) async throws {
         let clean = email.trimmingCharacters(in: .whitespaces).lowercased()
 
@@ -175,7 +161,6 @@ final class SessionManager: NSObject, ObservableObject {
         self.user = result.user
     }
 
-    // MARK: - Reset
     func sendPasswordReset(email: String) async throws {
         let clean = email.trimmingCharacters(in: .whitespaces).lowercased()
         guard !clean.isEmpty, clean.contains("@") else {
@@ -185,11 +170,9 @@ final class SessionManager: NSObject, ObservableObject {
         try await Auth.auth().sendPasswordReset(withEmail: clean)
     }
 
-    // MARK: - Friendly errors
     static func friendlyError(_ error: Error) -> String {
         let ns = error as NSError
         let code = AuthErrorCode.Code(rawValue: ns.code)
-
         if let code {
             switch code {
             case .emailAlreadyInUse: return "That email is already registered. Try logging in."
@@ -207,8 +190,6 @@ final class SessionManager: NSObject, ObservableObject {
         return ns.localizedDescription
     }
 }
-
-// MARK: - Nonce helpers
 
 enum AppleNonce {
     static func random(length: Int = 32) -> String {

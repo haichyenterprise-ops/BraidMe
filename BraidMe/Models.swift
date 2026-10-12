@@ -209,20 +209,24 @@ struct Booking: Identifiable, Codable {
     let price: Int
     let status: String
     let createdAt: Date
+    let customerName: String?   // NEW
 
-    var dictionary: [String: Any] {
-        [
-            "id": id,
-            "braiderName": braiderName,
-            "braiderId": braiderId,
-            "date": date,
-            "time": time,
-            "style": style,
-            "price": price,
-            "status": status,
-            "createdAt": createdAt
-        ]
-    }
+
+var dictionary: [String: Any] {
+    var d: [String: Any] = [
+        "id": id,
+        "braiderName": braiderName,
+        "braiderId": braiderId,
+        "date": date,
+        "time": time,
+        "style": style,
+        "price": price,
+        "status": status,
+        "createdAt": createdAt
+    ]
+    if let customerName { d["customerName"] = customerName }
+    return d
+}
 }
 
 // MARK: - Time slot

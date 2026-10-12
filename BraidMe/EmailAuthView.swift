@@ -6,7 +6,6 @@ struct EmailAuthView: View {
 
     let mode: Mode
     var onBack: () -> Void
-    var onSuccess: () -> Void
 
     @EnvironmentObject private var session: SessionManager
 
@@ -16,7 +15,6 @@ struct EmailAuthView: View {
     @State private var confirmPassword = ""
     @State private var appeared = false
     @State private var errorMessage: String?
-    @State private var infoMessage: String?
     @State private var showResetSheet = false
 
     @FocusState private var focused: Field?
@@ -30,46 +28,32 @@ struct EmailAuthView: View {
                 && email.contains("@")
                 && password.count >= 6
                 && password == confirmPassword
-        } else {
-            return email.contains("@") && !password.isEmpty
         }
+        return email.contains("@") && !password.isEmpty
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-
-            // Back button + header
-            header
-                .padding(.horizontal, 28)
-
-            Spacer().frame(height: 28)
-
-            // Form
-            formBlock
-                .padding(.horizontal, 28)
-
-            Spacer().frame(height: 24)
-
-            // Submit
-            submitBlock
-                .padding(.horizontal, 28)
-
-            Spacer().frame(height: 16)
-
-            // Secondary actions
-            secondaryActions
-                .padding(.horizontal, 28)
+            header.padding(.horizontal, Space.lg)
+            Spacer().frame(height: Space.lg)
+            formBlock.padding(.horizontal, Space.lg)
+            Spacer().frame(height: Space.lg)
+            submitBlock.padding(.horizontal, Space.lg)
+            Spacer().frame(height: Space.sm)
+            if !isSignup {
+                forgotButton.padding(.horizontal, Space.lg)
+            }
         }
         .onAppear {
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.85).delay(0.05)) {
-                appeared = true
-            }
-            // Focus first field after appear
+            appeared = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 focused = isSignup ? .name : .email
             }
         }
-        .alert("Error", isPresented: bindingError) {
+        .alert("Error", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
@@ -81,69 +65,53 @@ struct EmailAuthView: View {
         }
     }
 
-    private var bindingError: Binding<Bool> {
-        Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
-    }
-
-    // MARK: - Header
-
     private var header: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Button(action: {
-                Haptics.soft()
+        VStack(alignment: .leading, spacing: Space.md) {
+            Button {
+                Haptic.select()
                 onBack()
-            }) {
-                HStack(spacing: 6) {
+            } label: {
+                HStack(spacing: Space.xxs) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.bmUI(13, weight: .semibold))
                     Text("Back")
-                        .font(AppTheme.sans(14, weight: .medium))
+                        .font(.bmUI(14, weight: .medium))
                 }
-                .foregroundColor(AppTheme.slate)
+                .foregroundStyle(Color.appAsh)
             }
 
-            HStack(spacing: 10) {
-                ZStack {
-                    Circle()
-                        .fill(AppTheme.bronzeGradient)
-                        .frame(width: 40, height: 40)
-                        .shadow(color: AppTheme.accent.opacity(0.4), radius: 12, y: 6)
-                    Image(systemName: isSignup ? "envelope.badge.fill" : "lock.open.fill")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundColor(.white)
-                }
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text(isSignup ? "CREATE ACCOUNT" : "WELCOME BACK")
-                    .font(AppTheme.sans(11, weight: .bold))
-                    .tracking(2.8)
-                    .foregroundColor(AppTheme.accentDeep)
+                    .font(.bmUI(11, weight: .semibold))
+                    .tracking(2.0)
+                    .foregroundStyle(Color.appAccent)
+
+                Text(isSignup ? "Sign up\nwith email." : "Log in\nto BraidMe.")
+                    .font(.bmDisplay(34, weight: .semibold))
+                    .lineSpacing(-3)
+                    .foregroundStyle(Color.appInk)
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(2)
+
+                Text(isSignup
+                     ? "Create an account so you can book, save, and review braiders."
+                     : "Enter your email and password to continue.")
+                    .font(.bmUI(14))
+                    .foregroundStyle(Color.appAsh)
+                    .lineSpacing(3)
             }
-
-            Text(isSignup ? "Sign up\nwith email." : "Log in\nto BraidMe.")
-                .font(AppTheme.serif(34))
-                .lineSpacing(-2)
-                .foregroundColor(AppTheme.ink)
-                .minimumScaleFactor(0.7)
-                .lineLimit(2)
-
-            Text(isSignup
-                 ? "Create an account so you can book, save, and review braiders."
-                 : "Enter your email and password to continue.")
-                .font(AppTheme.sans(14))
-                .foregroundColor(AppTheme.slate)
-                .lineSpacing(3)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
+        .offset(y: appeared ? 0 : 12)
+        .animate(Motion.reveal, value: appeared)
     }
 
-    // MARK: - Form
-
     private var formBlock: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: Space.sm) {
             if isSignup {
-                FieldRow(
-                    icon: "person.fill",
+                BMFieldRow(
+                    icon: "person",
                     placeholder: "Full name",
                     text: $name,
                     contentType: .name,
@@ -153,8 +121,8 @@ struct EmailAuthView: View {
                 .onSubmit { focused = .email }
             }
 
-            FieldRow(
-                icon: "envelope.fill",
+            BMFieldRow(
+                icon: "envelope",
                 placeholder: "Email",
                 text: $email,
                 contentType: .emailAddress,
@@ -164,7 +132,7 @@ struct EmailAuthView: View {
             .focused($focused, equals: .email)
             .onSubmit { focused = .password }
 
-            PasswordRow(
+            BMPasswordRow(
                 placeholder: "Password",
                 text: $password,
                 isNew: isSignup
@@ -175,128 +143,93 @@ struct EmailAuthView: View {
             }
 
             if isSignup {
-                PasswordRow(
+                BMPasswordRow(
                     placeholder: "Confirm password",
                     text: $confirmPassword,
                     isNew: true
                 )
                 .focused($focused, equals: .confirm)
                 .onSubmit { submit() }
-            }
 
-            // Live validation hints for signup
-            if isSignup {
-                VStack(alignment: .leading, spacing: 6) {
-                    validationRow(
-                        ok: password.count >= 6,
-                        label: "At least 6 characters"
-                    )
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    validationRow(ok: password.count >= 6, label: "At least 6 characters")
                     validationRow(
                         ok: !confirmPassword.isEmpty && confirmPassword == password,
                         label: "Passwords match"
                     )
                 }
-                .padding(.top, 4)
-                .padding(.horizontal, 4)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .padding(.top, Space.xxs)
+                .padding(.horizontal, Space.xxs)
             }
         }
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
-        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: isSignup)
+        .offset(y: appeared ? 0 : 16)
+        .animate(Motion.reveal.delay(0.08), value: appeared)
     }
 
     private func validationRow(ok: Bool, label: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.xxs) {
             Image(systemName: ok ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(ok ? AppTheme.success : AppTheme.ash)
+                .font(.bmUI(11, weight: .semibold))
+                .foregroundStyle(ok ? Color.appSignal : Color.appSmoke)
             Text(label)
-                .font(AppTheme.sans(12))
-                .foregroundColor(ok ? AppTheme.success : AppTheme.stone)
+                .font(.bmUI(12))
+                .foregroundStyle(ok ? Color.appSignal : Color.appAsh)
         }
     }
-
-    // MARK: - Submit
 
     private var submitBlock: some View {
-        VStack(spacing: 10) {
-            if let infoMessage {
-                Text(infoMessage)
-                    .font(AppTheme.sans(12, weight: .medium))
-                    .foregroundColor(AppTheme.sage)
-                    .multilineTextAlignment(.center)
-            }
-
-            PrimaryButton(
-                title: isSignup ? "Create account" : "Log in",
-                icon: isSignup ? "checkmark" : "arrow.right",
-                loading: session.isBusy
-            ) {
-                submit()
-            }
-            .disabled(!canSubmit || session.isBusy)
-            .opacity(canSubmit ? 1 : 0.45)
+        BMPrimaryButton(
+            title: isSignup ? "Create account" : "Log in",
+            icon: isSignup ? "checkmark" : "arrow.right",
+            loading: session.isBusy
+        ) {
+            submit()
         }
+        .disabled(!canSubmit || session.isBusy)
+        .opacity(canSubmit ? 1 : 0.45)
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 20)
+        .offset(y: appeared ? 0 : 16)
+        .animate(Motion.reveal.delay(0.16), value: appeared)
     }
 
-    // MARK: - Secondary
-
-    private var secondaryActions: some View {
-        HStack(spacing: 4) {
+    private var forgotButton: some View {
+        HStack {
             Spacer()
-
-            if !isSignup {
-                Button {
-                    Haptics.soft()
-                    Task { await resetPassword() }
-                } label: {
-                    Text("Forgot password?")
-                        .font(AppTheme.sans(13, weight: .medium))
-                        .foregroundColor(AppTheme.accentDeep)
-                }
+            Button {
+                Haptic.select()
+                Task { await resetPassword() }
+            } label: {
+                Text("Forgot password?")
+                    .font(.bmUI(13, weight: .medium))
+                    .foregroundStyle(Color.appAccent)
             }
-
             Spacer()
         }
-        .opacity(appeared ? 1 : 0)
     }
-
-    // MARK: - Actions
 
     private func submit() {
         guard canSubmit, !session.isBusy else { return }
         focused = nil
-        Haptics.medium()
+        Haptic.press()
         session.isBusy = true
-        infoMessage = nil
 
         Task {
             do {
                 if isSignup {
-                    try await session.signUpWithEmail(
-                        email: email,
-                        password: password,
-                        name: name
-                    )
+                    try await session.signUpWithEmail(email: email, password: password, name: name)
                 } else {
-                    try await session.signInWithEmail(
-                        email: email,
-                        password: password
-                    )
+                    try await session.signInWithEmail(email: email, password: password)
                 }
                 await MainActor.run {
                     session.isBusy = false
-                    Haptics.success()
-                    onSuccess()
+                    Haptic.success()
                 }
             } catch {
                 await MainActor.run {
                     session.isBusy = false
                     errorMessage = SessionManager.friendlyError(error)
-                    Haptics.error()
+                    Haptic.error()
                 }
             }
         }
@@ -314,9 +247,9 @@ struct EmailAuthView: View {
     }
 }
 
-// MARK: - Field row
+// MARK: - Field components
 
-struct FieldRow: View {
+struct BMFieldRow: View {
     let icon: String
     let placeholder: String
     @Binding var text: String
@@ -325,15 +258,15 @@ struct FieldRow: View {
     var submitLabel: SubmitLabel = .next
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.sm) {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(AppTheme.slate)
+                .font(.bmUI(14, weight: .medium))
+                .foregroundStyle(Color.appAsh)
                 .frame(width: 18)
 
             TextField(placeholder, text: $text)
-                .font(AppTheme.sans(16, weight: .medium))
-                .foregroundColor(AppTheme.ink)
+                .font(.bmUI(16, weight: .medium))
+                .foregroundStyle(Color.appInk)
                 .textContentType(contentType)
                 .keyboardType(keyboard)
                 .submitLabel(submitLabel)
@@ -342,27 +275,27 @@ struct FieldRow: View {
 
             if !text.isEmpty {
                 Button {
-                    Haptics.soft()
+                    Haptic.select()
                     text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15))
-                        .foregroundColor(AppTheme.ash)
+                        .font(.bmUI(14))
+                        .foregroundStyle(Color.appSmoke)
                 }
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Space.md)
         .frame(height: 56)
-        .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(text.isEmpty ? AppTheme.hairline : AppTheme.accent.opacity(0.5), lineWidth: 1)
+            RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                .stroke(text.isEmpty ? Color.appDivider : Color.appAccent.opacity(0.5), lineWidth: 1)
         )
     }
 }
 
-struct PasswordRow: View {
+struct BMPasswordRow: View {
     let placeholder: String
     @Binding var text: String
     var isNew: Bool = false
@@ -370,10 +303,10 @@ struct PasswordRow: View {
     @State private var show = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(AppTheme.slate)
+        HStack(spacing: Space.sm) {
+            Image(systemName: "lock")
+                .font(.bmUI(14, weight: .medium))
+                .foregroundStyle(Color.appAsh)
                 .frame(width: 18)
 
             Group {
@@ -383,28 +316,28 @@ struct PasswordRow: View {
                     SecureField(placeholder, text: $text)
                 }
             }
-            .font(AppTheme.sans(16, weight: .medium))
-            .foregroundColor(AppTheme.ink)
+            .font(.bmUI(16, weight: .medium))
+            .foregroundStyle(Color.appInk)
             .textContentType(isNew ? .newPassword : .password)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled(true)
 
             Button {
-                Haptics.soft()
+                Haptic.select()
                 show.toggle()
             } label: {
                 Image(systemName: show ? "eye.slash" : "eye")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(AppTheme.slate)
+                    .font(.bmUI(14, weight: .medium))
+                    .foregroundStyle(Color.appAsh)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Space.md)
         .frame(height: 56)
-        .background(AppTheme.snow)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(text.isEmpty ? AppTheme.hairline : AppTheme.accent.opacity(0.5), lineWidth: 1)
+            RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                .stroke(text.isEmpty ? Color.appDivider : Color.appAccent.opacity(0.5), lineWidth: 1)
         )
     }
 }

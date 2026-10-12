@@ -23,7 +23,7 @@ struct ContentView: View {
                     provider: providerString,
                     needsName: (session.displayName ?? "").isEmpty
                 ) {
-                    withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
+                    withAnimation(Motion.navigation) {
                         needsOnboarding = false
                     }
                 }
@@ -33,10 +33,10 @@ struct ContentView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .background(AppTheme.cloud.ignoresSafeArea())
-        .animation(.easeInOut(duration: 0.35), value: session.isSignedIn)
-        .animation(.easeInOut(duration: 0.35), value: needsOnboarding)
-        .animation(.easeInOut(duration: 0.35), value: isCheckingProfile)
+        .background(Color.appBackground.ignoresSafeArea())
+        .animate(Motion.navigation, value: session.isSignedIn)
+        .animate(Motion.navigation, value: needsOnboarding)
+        .animate(Motion.navigation, value: isCheckingProfile)
         .task(id: session.uid) {
             await checkProfile()
         }
@@ -44,23 +44,22 @@ struct ContentView: View {
 
     private var splash: some View {
         ZStack {
-            AppTheme.cloud.ignoresSafeArea()
-            VStack(spacing: 24) {
+            Color.appBackground.ignoresSafeArea()
+            VStack(spacing: Space.lg) {
                 ZStack {
                     Circle()
-                        .fill(AppTheme.bronzeGradient)
+                        .fill(Color.appAccentTint)
                         .frame(width: 88, height: 88)
-                        .shadow(color: AppTheme.accent.opacity(0.4), radius: 20, y: 10)
                     Image(systemName: "sparkles")
-                        .font(.system(size: 34, weight: .medium))
-                        .foregroundColor(.white)
+                        .font(.bmUI(32, weight: .medium))
+                        .foregroundStyle(Color.appAccent)
                 }
                 Text("BraidMe")
-                    .font(AppTheme.serif(32))
-                    .foregroundColor(AppTheme.ink)
+                    .font(.bmDisplay(30, weight: .semibold))
+                    .foregroundStyle(Color.appInk)
                 ProgressView()
-                    .tint(AppTheme.accent)
-                    .padding(.top, 8)
+                    .tint(Color.appAccent)
+                    .padding(.top, Space.xs)
             }
         }
     }
