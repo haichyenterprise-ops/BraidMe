@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // Compatibility aliases so any file still using the previous design-system names
 // (for example GlobeMorphView) keeps compiling. Prefer the bm* tokens in new code.
@@ -23,4 +24,16 @@ extension Font {
     static func bmMono(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
         bmNum(size, weight: weight)
     }
+}
+
+// Names used by GlobeMorphView
+extension Color {
+    static var goldLight: Color { Color.bmGiltHi }
+    static var gold: Color { Color.bmGilt }
+    static var goldDeep: Color { Color.bmGiltLo }
+}
+
+extension Haptic {
+    static func light() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+    static func medium() { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
 }
