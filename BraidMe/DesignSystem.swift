@@ -1,69 +1,100 @@
 import SwiftUI
 import UIKit
 
-// =============================================================================
-// BraidMe Design System — quiet editorial
-// Dynamic Type aware. Reduce Motion aware. Restrained haptics.
-// =============================================================================
+// MARK: - App Theme
+
+struct AppTheme {
+
+    // MARK: Core palette
+    static let ink        = Color(hex: "#0A0D12")
+    static let graphite   = Color(hex: "#161A21")
+    static let slate      = Color(hex: "#59616E")
+    static let stone      = Color(hex: "#8A929E")
+    static let ash        = Color(hex: "#C4CAD2")
+    static let hairline   = Color(hex: "#E5E8ED")
+    static let mist       = Color(hex: "#F1F3F6")
+    static let cloud      = Color(hex: "#F8F9FB")
+    static let snow       = Color.white
+
+    static let accent       = Color(hex: "#A96B3A")
+    static let accentDeep   = Color(hex: "#7A4A22")
+    static let accentLight  = Color(hex: "#D9A576")
+    static let accentSoft   = Color(hex: "#F7EFE5")
+
+    static let rose  = Color(hex: "#B86868")
+    static let sage  = Color(hex: "#6F8069")
+    static let gold  = Color(hex: "#C6A251")
+    static let plum  = Color(hex: "#6B4E71")
+
+    static let success = Color(hex: "#2F7A57")
+    static let danger  = Color(hex: "#B63B3F")
+    static let warn    = Color(hex: "#C68A3C")
+
+    // MARK: Gradients
+    static let inkGradient = LinearGradient(
+        colors: [Color(hex: "#0A0D12"), Color(hex: "#1C222C")],
+        startPoint: .topLeading, endPoint: .bottomTrailing
+    )
+    static let bronzeGradient = LinearGradient(
+        colors: [Color(hex: "#B87A44"), Color(hex: "#7A4A22")],
+        startPoint: .topLeading, endPoint: .bottomTrailing
+    )
+    static let bronzeSoft = LinearGradient(
+        colors: [Color(hex: "#F7EFE5"), Color(hex: "#FBF6F0")],
+        startPoint: .top, endPoint: .bottom
+    )
+    static let veil = LinearGradient(
+        colors: [Color.white.opacity(0.18), Color.white.opacity(0.02)],
+        startPoint: .topLeading, endPoint: .bottomTrailing
+    )
+    static let fadeBottom = LinearGradient(
+        stops: [
+            .init(color: .clear, location: 0.0),
+            .init(color: .black.opacity(0.15), location: 0.5),
+            .init(color: .black.opacity(0.7), location: 0.9),
+            .init(color: .black.opacity(0.9), location: 1.0)
+        ],
+        startPoint: .top, endPoint: .bottom
+    )
+    static let fadeTop = LinearGradient(
+        stops: [
+            .init(color: .black.opacity(0.55), location: 0.0),
+            .init(color: .black.opacity(0.1), location: 0.6),
+            .init(color: .clear, location: 1.0)
+        ],
+        startPoint: .top, endPoint: .bottom
+    )
+
+    // MARK: Type
+    static func serif(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
+        .system(size: size, weight: weight, design: .serif)
+    }
+    static func sans(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .rounded)
+    }
+    static func mono(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
+
+    // MARK: Spacing
+    static let gut: CGFloat = 20
+    static let radius: CGFloat = 22
+    static let pill: CGFloat = 14
+}
+
+// MARK: - Color hex
 
 extension Color {
-    fileprivate enum Palette {
-        static let ink        = Color(hex: "#0B0B0F")
-        static let graphite   = Color(hex: "#161A21")
-        static let charcoal   = Color(hex: "#24242A")
-        static let ash        = Color(hex: "#8A8479")
-        static let smoke      = Color(hex: "#B5AFA4")
-        static let mist       = Color(hex: "#E8E4DD")
-        static let bone       = Color(hex: "#F5F1EC")
-        static let paper      = Color(hex: "#FFFFFF")
-        static let bronze     = Color(hex: "#8B6B47")
-        static let bronzeDeep = Color(hex: "#6B5135")
-        static let bronzeWarm = Color(hex: "#A88461")
-        static let signal     = Color(hex: "#2E7D5B")
-        static let alert      = Color(hex: "#B3473F")
-    }
-
-    static var appBackground: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.ink) : UIColor(Palette.bone) })
-    }
-    static var appSurface: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.graphite) : UIColor(Palette.paper) })
-    }
-    static var appSurfaceInverse: Color { Palette.ink }
-    static var appInk: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.bone) : UIColor(Palette.ink) })
-    }
-    static var appAsh: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.smoke) : UIColor(Palette.ash) })
-    }
-    static var appSmoke: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.ash) : UIColor(Palette.smoke) })
-    }
-    static var appDivider: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(Palette.charcoal) : UIColor(Palette.mist) })
-    }
-    static var appInkInverse: Color { Palette.bone }
-    static var appAccent: Color { Palette.bronze }
-    static var appAccentDeep: Color { Palette.bronzeDeep }
-    static var appAccentSoft: Color { Palette.bronzeWarm }
-    static var appAccentTint: Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-            ? UIColor(Palette.bronze).withAlphaComponent(0.20)
-            : UIColor(Palette.bronze).withAlphaComponent(0.10) })
-    }
-    static var appSignal: Color { Palette.signal }
-    static var appAlert: Color { Palette.alert }
-
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
         Scanner(string: hex).scanHexInt64(&int)
         let a, r, g, b: UInt64
         switch hex.count {
-        case 3:  (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6:  (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8:  (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default: (a, r, g, b) = (255, 0, 0, 0)
+        case 3: (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default: (a, r, g, b) = (1, 1, 1, 0)
         }
         self.init(.sRGB,
                   red: Double(r) / 255,
@@ -73,160 +104,354 @@ extension Color {
     }
 }
 
-// MARK: - Typography — Dynamic Type aware
+// MARK: - Haptics
 
-extension Font {
-    /// Editorial display font. Fixed size (intentionally not scaled).
-    static func bmDisplay(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        .system(size: size, weight: weight, design: .serif)
-    }
+enum Haptics {
+    static func tap()     { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+    static func soft()    { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
+    static func medium()  { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+    static func rigid()   { UIImpactFeedbackGenerator(style: .rigid).impactOccurred() }
+    static func heavy()   { UIImpactFeedbackGenerator(style: .heavy).impactOccurred() }
+    static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+    static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
+    static func error()   { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+    static func select()  { UISelectionFeedbackGenerator().selectionChanged() }
+}
 
-    /// Interface text. Scales with Dynamic Type relative to `.body`.
-    static func bmUI(_ size: CGFloat, weight: Font.Weight = .regular, relativeTo textStyle: Font.TextStyle = .body) -> Font {
-        .system(size: size, weight: weight, design: .default)
-            .scaled(relativeTo: textStyle)
-    }
+// MARK: - Button styles
 
-    /// Numeric / data text. Scales with Dynamic Type relative to `.body`.
-    static func bmMono(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
-            .scaled(relativeTo: .body)
+struct SoftPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.975 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+            .animation(.spring(response: 0.28, dampingFraction: 0.85), value: configuration.isPressed)
     }
 }
 
-private extension Font {
-    func scaled(relativeTo textStyle: Font.TextStyle) -> Font {
-        // SwiftUI's Font doesn't expose "scaled" directly, but
-        // `.system(size:weight:design:)` combined with `@ScaledMetric` at the
-        // call site is the correct pattern. For a shared token, we use a
-        // dynamic type approach: the sizes we pass are already the "base"
-        // sizes at Default Dynamic Type. System fonts scale automatically
-        // for `.body` when using `.system(.body)` style, but not for custom
-        // point sizes. To keep sizes tunable AND scalable, we'd need
-        // @ScaledMetric per usage. For now, we provide the token and views
-        // that need scaling will wrap with @ScaledMetric where critical.
-        self
+struct BouncyPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.93 : 1)
+            .animation(.spring(response: 0.35, dampingFraction: 0.55), value: configuration.isPressed)
     }
 }
 
-// MARK: - Scaled metric helper for views that need dynamic sizing
-
-/// Wraps a fixed CGFloat so it scales with Dynamic Type.
-/// Use in views where a fixed dimension (avatar size, icon size) needs to grow.
-struct ScaledSize {
-    static func scale(_ value: CGFloat, for style: Font.TextStyle = .body) -> CGFloat {
-        let traits = UITraitCollection.current
-        let metrics = UIFontMetrics(forTextStyle: style.uiStyle)
-        return metrics.scaledValue(for: value, compatibleWith: traits)
+struct CardPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .brightness(configuration.isPressed ? -0.03 : 0)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }
 
-private extension Font.TextStyle {
-    var uiStyle: UIFont.TextStyle {
-        switch self {
-        case .largeTitle:  return .largeTitle
-        case .title:       return .title1
-        case .title2:      return .title2
-        case .title3:      return .title3
-        case .headline:    return .headline
-        case .subheadline: return .subheadline
-        case .body:        return .body
-        case .callout:     return .callout
-        case .footnote:    return .footnote
-        case .caption:     return .caption1
-        case .caption2:    return .caption2
-        @unknown default:  return .body
+// MARK: - Buttons
+
+struct PrimaryButton: View {
+    let title: String
+    var icon: String? = nil
+    var loading: Bool = false
+    var action: () -> Void
+
+    var body: some View {
+        Button {
+            Haptics.medium()
+            action()
+        } label: {
+            ZStack {
+                HStack(spacing: 8) {
+                    if let icon { Image(systemName: icon).font(.system(size: 15, weight: .semibold)) }
+                    Text(title).font(AppTheme.sans(17, weight: .semibold))
+                }
+                .opacity(loading ? 0 : 1)
+                if loading { ProgressView().tint(.white) }
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(AppTheme.inkGradient)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+            )
+            .shadow(color: AppTheme.ink.opacity(0.28), radius: 18, y: 10)
         }
+        .buttonStyle(SoftPress())
+        .disabled(loading)
     }
 }
 
-// MARK: - Spacing / Radius / Motion
+struct BronzeButton: View {
+    let title: String
+    var icon: String? = nil
+    var action: () -> Void
 
-enum Space {
-    static let xxs: CGFloat = 4
-    static let xs:  CGFloat = 8
-    static let sm:  CGFloat = 12
-    static let md:  CGFloat = 16
-    static let lg:  CGFloat = 24
-    static let xl:  CGFloat = 32
-    static let xxl: CGFloat = 48
-    static let xxxl: CGFloat = 64
+    var body: some View {
+        Button {
+            Haptics.medium()
+            action()
+        } label: {
+            HStack(spacing: 8) {
+                if let icon { Image(systemName: icon).font(.system(size: 15, weight: .semibold)) }
+                Text(title).font(AppTheme.sans(17, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(AppTheme.bronzeGradient)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+            )
+            .shadow(color: AppTheme.accent.opacity(0.4), radius: 20, y: 10)
+        }
+        .buttonStyle(SoftPress())
+    }
 }
 
-enum Radius {
-    static let chip:   CGFloat = 6
-    static let button: CGFloat = 14
-    static let card:   CGFloat = 20
-    static let modal:  CGFloat = 32
-    static let pill:   CGFloat = 999
+struct SecondaryButton: View {
+    let title: String
+    var icon: String? = nil
+    var action: () -> Void
+
+    var body: some View {
+        Button {
+            Haptics.soft()
+            action()
+        } label: {
+            HStack(spacing: 8) {
+                if let icon { Image(systemName: icon).font(.system(size: 15, weight: .semibold)) }
+                Text(title).font(AppTheme.sans(17, weight: .semibold))
+            }
+            .foregroundColor(AppTheme.ink)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(AppTheme.snow)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(AppTheme.hairline, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(SoftPress())
+    }
 }
 
-enum Motion {
-    static let navigation = Animation.easeInOut(duration: 0.35)
-    static let press      = Animation.spring(response: 0.28, dampingFraction: 0.82)
-    static let reveal     = Animation.spring(response: 0.55, dampingFraction: 0.86)
-    static let sheet      = Animation.spring(response: 0.42, dampingFraction: 0.86)
-    static let subtle     = Animation.easeOut(duration: 0.20)
+// MARK: - Card chrome
 
-    static let staggerStep: Double = 0.06
-    static func stagger(_ index: Int) -> Double { Double(index) * staggerStep }
-}
+struct CardChrome: ViewModifier {
+    var radius: CGFloat = AppTheme.radius
+    var elevated: Bool = true
 
-// MARK: - Reduce Motion
-
-struct AdaptiveAnimation<V: Equatable>: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let animation: Animation
-    let value: V
     func body(content: Content) -> some View {
-        content.animation(reduceMotion ? Motion.subtle : animation, value: value)
+        content
+            .background(AppTheme.snow)
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .stroke(AppTheme.hairline.opacity(0.55), lineWidth: 0.5)
+            )
+            .shadow(
+                color: Color.black.opacity(elevated ? 0.055 : 0.02),
+                radius: elevated ? 20 : 6,
+                x: 0,
+                y: elevated ? 8 : 2
+            )
     }
 }
 
 extension View {
-    func animate<V: Equatable>(_ animation: Animation, value: V) -> some View {
-        modifier(AdaptiveAnimation(animation: animation, value: value))
+    func cardChrome(radius: CGFloat = AppTheme.radius, elevated: Bool = true) -> some View {
+        modifier(CardChrome(radius: radius, elevated: elevated))
+    }
+    func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
+        clipShape(RoundCorners(radius: radius, corners: corners))
     }
 }
 
-// MARK: - Press styles
-
-struct BMPressStyle: ButtonStyle {
-    var scale: CGFloat = 0.97
-    var dim: Double = 0.04
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(reduceMotion ? 1 : (configuration.isPressed ? scale : 1))
-            .brightness(configuration.isPressed ? -dim : 0)
-            .animation(Motion.press, value: configuration.isPressed)
+struct RoundCorners: Shape {
+    var radius: CGFloat = 16
+    var corners: UIRectCorner = .allCorners
+    func path(in rect: CGRect) -> Path {
+        let p = UIBezierPath(
+            roundedRect: rect,
+            byRoundingCorners: corners,
+            cornerRadii: CGSize(width: radius, height: radius)
+        )
+        return Path(p.cgPath)
     }
 }
 
-struct BMIconPressStyle: ButtonStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+// MARK: - Shimmer
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(reduceMotion ? 1 : (configuration.isPressed ? 0.92 : 1))
-            .animation(Motion.press, value: configuration.isPressed)
+struct ShimmerModifier: ViewModifier {
+    @State private var phase: CGFloat = -1.2
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                LinearGradient(
+                    colors: [.clear, .white.opacity(0.4), .clear],
+                    startPoint: .leading, endPoint: .trailing
+                )
+                .rotationEffect(.degrees(12))
+                .offset(x: phase * 500)
+                .blendMode(.overlay)
+                .allowsHitTesting(false)
+            )
+            .clipped()
+            .onAppear {
+                withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
+                    phase = 1.6
+                }
+            }
     }
 }
 
-// MARK: - Haptics — restrained
-//
-// Use only at meaningful events.
-//   .select  → service pick, star rating, category chip toggle
-//   .press   → primary CTA, sheet detent change, primary nav
-//   .success → booking confirmed, review posted, upload succeeded
-//   .warning → destructive intent (sign out, cancel)
-//   .error   → operation failed
+extension View {
+    func shimmer() -> some View { modifier(ShimmerModifier()) }
+}
 
-enum Haptic {
-    static func select()  { UISelectionFeedbackGenerator().selectionChanged() }
-    static func press()   { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
-    static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-    static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
-    static func error()   { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+// MARK: - Atoms
+
+struct GlassChip: View {
+    var icon: String? = nil
+    var title: String
+    var tint: Color = .white
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let icon {
+                Image(systemName: icon).font(.system(size: 11, weight: .semibold))
+            }
+            Text(title).font(AppTheme.sans(12, weight: .semibold))
+        }
+        .foregroundColor(tint)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+    }
+}
+
+struct StarRow: View {
+    let rating: Double
+    var size: CGFloat = 11
+    var color: Color = AppTheme.gold
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<5, id: \.self) { i in
+                Image(systemName: Double(i) < rating.rounded() ? "star.fill" : "star")
+                    .font(.system(size: size))
+                    .foregroundColor(color)
+            }
+        }
+    }
+}
+
+struct SectionLabel: View {
+    let text: String
+    var body: some View {
+        Text(text.uppercased())
+            .font(AppTheme.sans(11, weight: .bold))
+            .tracking(1.4)
+            .foregroundColor(AppTheme.stone)
+            .padding(.horizontal, 4)
+    }
+}
+
+struct Pill: View {
+    let icon: String?
+    let text: String
+    var fg: Color = AppTheme.ink
+    var bg: Color = AppTheme.mist
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let icon {
+                Image(systemName: icon).font(.system(size: 11, weight: .semibold))
+            }
+            Text(text).font(AppTheme.sans(12, weight: .medium))
+        }
+        .foregroundColor(fg)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(bg, in: Capsule())
+    }
+}
+
+struct IconButton: View {
+    let icon: String
+    var size: CGFloat = 40
+    var iconSize: CGFloat = 16
+    var fg: Color = .white
+    var bg: Color? = nil
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: {
+            Haptics.soft()
+            action()
+        }) {
+            Image(systemName: icon)
+                .font(.system(size: iconSize, weight: .semibold))
+                .foregroundColor(fg)
+                .frame(width: size, height: size)
+                .background(
+                    Group {
+                        if let bg { bg }
+                        else { Color.clear.background(.ultraThinMaterial) }
+                    }
+                )
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+        }
+        .buttonStyle(BouncyPress())
+    }
+}
+
+// MARK: - Flow layout
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: maxWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x: CGFloat = bounds.minX
+        var y: CGFloat = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
 }
